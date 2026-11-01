@@ -46,6 +46,13 @@ export type SourceFile = {
   changedLines: number[];
   signature: string;
   skippedReason?: string;
+  /**
+   * The same fact as `skippedReason`, as a name the page can translate. The reason is an English sentence
+   * written for a log, and the source view spliced it straight into its Korean meta line and its Korean
+   * "preview unavailable" message — "0 B · file is not present in the working tree" under a Korean header.
+   * A reason with a formatted size in it cannot be translated after the fact, so the kind travels too.
+   */
+  skippedKind?: "missing" | "imageLarge" | "binary" | "large" | "budget";
   // Rendered preview for raster image files: a data: URI embedded by collectSourceFiles
   // (gated by IMAGE_MAX_BYTES). Present only for images; absent for text/binary files.
   image?: string;

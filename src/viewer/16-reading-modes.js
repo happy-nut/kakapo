@@ -185,7 +185,18 @@ function clearSourceDecorations(body) {
  * would land the label in the wrong place on any line with a keyword in it.
  */
 function insertInlayHint(cell, column, text, kind, paddingLeft, paddingRight) {
-  var walker = document.createTreeWalker(cell, 4 /* NodeFilter.SHOW_TEXT */);
+  // Labels already inserted are skipped, and that is the whole correctness of a line with TWO hints. The
+  // offsets are positions in the LINE, and an inserted label is not part of the line: counted, every hint
+  // after the first landed as many characters late as the labels before it were long, and the walk also
+  // descended INTO the previous label so the next one nested inside it. `(who: any): string` rendered as
+  // `(who  : string: any)`, and on a minified line with 1200 hints the drift ran to hundreds of
+  // characters and cut words in half — `fu :  : number: any anynction f1(`.
+  var walker = document.createTreeWalker(cell, 4 /* NodeFilter.SHOW_TEXT */, {
+    acceptNode: function (node) {
+      var parent = node.parentNode;
+      return parent && parent.closest && parent.closest('.inlay-hint') ? 2 /* REJECT */ : 1 /* ACCEPT */;
+    },
+  });
   var seen = 0;
   var node = null;
   while ((node = walker.nextNode())) {
@@ -209,6 +220,15 @@ function insertInlayHint(cell, column, text, kind, paddingLeft, paddingRight) {
   return true;
 }
 
+// What one lens row says when several declarations share its line. Three is enough to recognise the line
+// by; past that the count is the useful part, and listing three hundred titles is a row nobody reads.
+var CODE_VISION_LINE_MAX = 3;
+function codeVisionLineText(titles) {
+  if (titles.length <= CODE_VISION_LINE_MAX) return titles.join(' · ');
+  return titles.slice(0, CODE_VISION_LINE_MAX).join(' · ')
+    + ' · ' + t('vision.more').replace('{n}', String(titles.length - CODE_VISION_LINE_MAX));
+}
+
 /** One pass over the rendered rows: the lens lines above, the hint labels inside. */
 function paintSourceDecorations() {
   var body = document.getElementById('source-body');
@@ -219,9 +239,16 @@ function paintSourceDecorations() {
   if (!path || !isSourceViewerVisible() || body.classList.contains('rendered-body')) return;
 
   if (renderToggleOn('codeVision')) {
-    var lenses = decorationsFor('codeLens', path);
-    (lenses || []).forEach(function (lens) {
-      var row = body.querySelector('.source-row[data-line-index="' + lens.lineIndex + '"]');
+    // One row per LINE, not per symbol. A lens row sits ABOVE the line it annotates, so a minified file —
+    // every one of its 300 declarations on line 1 — opened on 5.7 screens of identical "0 references" with
+    // the code at y=5762: the reader scrolled past the whole annotation to reach the thing annotated.
+    var byLine = new Map();
+    (decorationsFor('codeLens', path) || []).forEach(function (lens) {
+      if (!byLine.has(lens.lineIndex)) byLine.set(lens.lineIndex, []);
+      byLine.get(lens.lineIndex).push(lens.title);
+    });
+    byLine.forEach(function (titles, lineIndex) {
+      var row = body.querySelector('.source-row[data-line-index="' + lineIndex + '"]');
       if (!row || !row.parentNode) return;
       var vision = document.createElement('tr');
       vision.className = 'code-vision-row';
@@ -230,7 +257,7 @@ function paintSourceDecorations() {
       gutter.className = 'num';
       var text = document.createElement('td');
       text.className = 'source-code code-vision-text';
-      text.textContent = lens.title;
+      text.textContent = codeVisionLineText(titles);
       vision.appendChild(gutter);
       vision.appendChild(text);
       row.parentNode.insertBefore(vision, row);

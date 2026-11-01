@@ -1,3 +1,16 @@
+// Why a file has no body to show, in the reader's language.
+//
+// `skippedReason` is an English sentence written for a log, and both of the lines below spliced it in
+// verbatim: `deleted.txt` read "0 B · file is not present in the working tree" under a Korean header, and
+// again inside the Korean "preview unavailable" sentence. `skippedKind` is the same fact as a name, which
+// is the half that can be translated — the sentence carries a formatted size in two of its five forms and
+// could never be translated after the event. The reason stays as the fallback for a kind this page does
+// not know, because an English explanation beats no explanation.
+function skippedReasonText(file) {
+  var kind = file && file.skippedKind;
+  if (kind) return t('source.skipped.' + kind);
+  return String((file && file.skippedReason) || '') || t('source.skipped.notEmbedded');
+}
 function openSourceFile(path, shouldSwitch = true, options) {
   const file = sourceByPath.get(path);
   // Not in the project index: this is either a library file a definition just pointed at, or nothing at all.
@@ -59,7 +72,7 @@ function openSourceFile(path, shouldSwitch = true, options) {
   const meta = (file.library ? t('source.library') + ' · ' : '')
     + (file.embedded
       ? formatBytes(file.size || 0)
-      : formatBytes(file.size || 0) + ' · ' + (file.skippedReason || 'not embedded'));
+      : formatBytes(file.size || 0) + ' · ' + skippedReasonText(file));
   document.getElementById('source-meta').textContent = meta;
   const body = document.getElementById('source-body');
   const httpEnvSelect = document.getElementById('http-env-select');
@@ -80,7 +93,8 @@ function openSourceFile(path, shouldSwitch = true, options) {
   }
   if (!file.embedded) {
     setPanelClassNamePreservingFocus(body, 'source-body empty');
-    body.textContent = file.skippedReason ? t('source.previewUnavailable').replace(/\.$/, '') + ': ' + file.skippedReason + '.' : t('source.previewUnavailable');
+    var why = skippedReasonText(file);
+    body.textContent = why ? t('source.previewUnavailable').replace(/\.$/, '') + ': ' + why + '.' : t('source.previewUnavailable');
     document.getElementById('http-env-select')?.classList.add('hidden');
     updateRenderToggle(path);
     if (shouldSwitch) showSourceView();

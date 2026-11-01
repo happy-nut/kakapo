@@ -62,7 +62,12 @@ function patchSetBaseOptions(data) {
   var active = data.activeBase || 'auto';
   if (!data.scoped && data.branchPoint) {
     opts.push({
-      ref: data.branchPoint.sha, label: t('patchset.allShort'), wide: true,
+      // "auto", not the branch point's sha — they resolve to the same diff, and only one of them is
+      // reversible. Sending the sha set `options.base` to a literal commit, so the toolbar pill stopped
+      // saying `main` and said `54d784f` forever: the bar still looked unchanged (the option is marked
+      // active for either value), while the pill and the patch-set summary had started naming the same
+      // base differently, six pixels apart. app-main understands "auto" on both compare paths.
+      ref: 'auto', label: t('patchset.allShort'), wide: true,
       title: t('patchset.allChanges') + ' · ' + patchSetShortRef(data.branchPoint.label),
       active: active === 'auto' || active === data.branchPoint.sha,
     });

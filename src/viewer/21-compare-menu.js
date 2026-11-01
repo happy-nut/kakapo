@@ -37,7 +37,10 @@ function renderCompareMenu() {
   var against = document.getElementById('compare-menu-against');
   // "vs main" / "main 대비" — the ref rides inside the phrase because the two languages put it on opposite
   // sides of the word, so a bare span glued on either end would read wrong in one of them.
-  if (against) against.textContent = data.ref ? t('compare.menu.against').replace('{ref}', data.ref) : '';
+  // Only where it is true. `ref` is the branch "모든 변경사항" WOULD measure against, which is not what the
+  // review measures against once a patch set or a ⌘9 range has moved it — printing it there named a base
+  // the diff is not using, in the sentence a reader opens this menu to read.
+  if (against) against.textContent = data.ref && data.mode !== 'other' ? t('compare.menu.against').replace('{ref}', data.ref) : '';
   var refEl = document.getElementById('compare-menu-ref');
   if (refEl) refEl.textContent = data.ref || '';
   el.querySelectorAll('.compare-menu-row[data-mode]').forEach(function (row) {

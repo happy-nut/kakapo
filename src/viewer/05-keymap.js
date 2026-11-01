@@ -194,7 +194,14 @@ var SHORTCUT_ACTIONS = {
   // safety net has to reach into that dock. Text surfaces keep their own native undo, and the key is only
   // swallowed when there was actually something to restore.
   undoCommentRemoval: function () {
-    if (inTextField()) return false;
+    // A text surface keeps its own native undo, so the key is not taken there. But the dock leaves focus
+    // in a composer after a delete, so the reviewer pressed the key the toast had just named and got
+    // nothing at all — two silences in a row around the one action that loses work. Declining is right;
+    // declining without a word, when something IS waiting to be restored, is not.
+    if (inTextField()) {
+      if (commentRemovalPending()) showCaretHint(t('comment.undoInField'));
+      return false;
+    }
     return undoLastCommentRemoval() ? undefined : false;
   },
   revealInTree: function () { revealOpenFileInTree(); },

@@ -180,7 +180,12 @@ function appendBreadcrumbStat(container, path) {
 var diffChromePath = null;
 var diffChromeLead = null;
 function syncDiffReviewChrome(path) {
-  var activePath = path || (diffCursor && diffCursor.path) || hunkPathAt(current) || '';
+  // A compare can land on NOTHING — ⌥U on a clean tree, a patch set that changed nothing. The body says so
+  // ("검토할 변경사항이 없습니다") and the tree says so, while this went on naming a file from the review
+  // before it: the title row and both pane headers all read `added.txt` with no such file on screen.
+  // The caret and the hunk list are both stale at that moment, so the only honest source is the page.
+  var empty = !document.querySelector('#diff2html-container .d2h-file-wrapper');
+  var activePath = empty ? '' : (path || (diffCursor && diffCursor.path) || hunkPathAt(current) || '');
   var beforePath = document.getElementById('diff-before-path');
   var afterPath = document.getElementById('diff-after-path');
   if (beforePath) { beforePath.textContent = activePath; beforePath.title = activePath; }

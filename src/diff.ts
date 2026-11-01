@@ -508,7 +508,7 @@ export function collectSourceFiles(
       stats = statSync(absolute);
     } catch {
       const skippedReason = "file is not present in the working tree";
-      sourceFiles.push({ ...base, signature: hashText(`${path}\0missing\0${skippedReason}`), skippedReason });
+      sourceFiles.push({ ...base, signature: hashText(`${path}\0missing\0${skippedReason}`), skippedReason, skippedKind: "missing" });
       continue;
     }
     if (!stats.isFile()) {
@@ -519,7 +519,7 @@ export function collectSourceFiles(
     if (previewMime) {
       if (stats.size > IMAGE_MAX_BYTES) {
         const skippedReason = `file larger than ${formatBytes(IMAGE_MAX_BYTES)}`;
-        sourceFiles.push({ ...base, size: stats.size, signature: hashText(`${path}\0image-large\0${stats.size}`), skippedReason });
+        sourceFiles.push({ ...base, size: stats.size, signature: hashText(`${path}\0image-large\0${stats.size}`), skippedReason, skippedKind: "imageLarge" });
       } else if (options.deferSourceContent) {
         // Read the bytes only when the reviewer opens the image. Nothing needs the data URI before then:
         // get-project-index strips `image` and sourceFileMetadata blanks it, so the renderer sees it for the
@@ -549,13 +549,13 @@ export function collectSourceFiles(
     const fresh = Boolean(cached && cached.mtimeMs === stats.mtimeMs && cached.size === stats.size);
     if (!fresh && isLikelyBinary(absolute)) {
       const skippedReason = "binary file";
-      sourceFiles.push({ ...base, size: stats.size, signature: hashText(`${path}\0binary\0${stats.size}`), skippedReason });
+      sourceFiles.push({ ...base, size: stats.size, signature: hashText(`${path}\0binary\0${stats.size}`), skippedReason, skippedKind: "binary" });
       continue;
     }
 
     if (stats.size > maxFileBytes) {
       const skippedReason = `larger than ${formatBytes(maxFileBytes)}`;
-      sourceFiles.push({ ...base, size: stats.size, signature: hashText(`${path}\0large\0${stats.size}`), skippedReason });
+      sourceFiles.push({ ...base, size: stats.size, signature: hashText(`${path}\0large\0${stats.size}`), skippedReason, skippedKind: "large" });
       continue;
     }
 
@@ -579,7 +579,7 @@ export function collectSourceFiles(
         continue;
       }
       const skippedReason = "source index budget reached";
-      sourceFiles.push({ ...base, size: stats.size, signature: hashText(`${path}\0budget\0${stats.size}`), skippedReason });
+      sourceFiles.push({ ...base, size: stats.size, signature: hashText(`${path}\0budget\0${stats.size}`), skippedReason, skippedKind: "budget" });
       continue;
     }
 

@@ -209,9 +209,17 @@ function loadFindUsages() {
     // semantic locations") and was being printed verbatim under a Korean heading. While a server is still
     // coming up the honest line is the translated one that says so; otherwise the reason is at least
     // specific, so it stays for the case where nothing better exists.
+    // The commonest case of all — a symbol with no usages — reached the last branch and printed
+    // "Language server returned no semantic locations" under a Korean heading that had just said the same
+    // thing in Korean. `serverAnswered` tells the two apart at the boundary that knows: a server that
+    // ANSWERED has already been reported by the heading above, and the reason only earns its place when
+    // the question could not be put at all and nothing else explains why.
     usageViewNote = usageViewRows.length ? ''
       : analysisStillArriving() ? t('monaco.analysisPending').replace('{symbol}', usageViewName)
-        : (response && response.fallbackReason ? String(response.fallbackReason) : '');
+        : response && response.noServer ? t('monaco.noServer')
+          : response && response.baseSide ? t('monaco.baseSide').replace('{symbol}', usageViewName)
+            : response && response.serverAnswered ? ''
+              : (response && response.fallbackReason ? String(response.fallbackReason) : '');
     quickActive = 0;
     renderFindUsagesResults(String(quickInput && quickInput.value || ''));
   }, function () {

@@ -33,7 +33,10 @@ import { readReviewDiffContext, type DiffContextRequest } from "./diff-context.j
 import type { ProjectIndexPayload, SourceFile } from "./types.js";
 
 export type ReviewIpcState = {
-  options: { root: string; base?: string; target?: string; staged: boolean };
+  // `baseLabel` is the BRANCH a base was resolved from, and only set-compare-mode sets it — a patch-set
+  // pick clears it, which is how the compare menu tells "the branch point of main" from "commit 1fe2700"
+  // when both arrive here as a sha in `base`.
+  options: { root: string; base?: string; baseLabel?: string; target?: string; staged: boolean };
   signature: string;
   bodies: { file: string; offsets: number[] };
   bodyCache: { get(key: string): string | undefined; set(key: string, value: string): void };
@@ -387,7 +390,17 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
       const ref = state.compareRef || defaultRef;
       // No explicit base AND no resolved one means the build fell through to HEAD-vs-worktree (build.ts's
       // "local" compare state) — which is the uncommitted row, arrived at automatically rather than picked.
-      const mode = state.compareScope?.length || state.options.target
+      // A patch-set pick is the third way to be "somewhere neither row describes", and the only one that
+      // left no trace here: it sets `options.base` to a commit while `compareScope` and `target` stay
+      // empty, so the derivation above it read as "all" and the menu ticked `모든 변경사항 (main 대비)`
+      // while the pill and the patch-set summary both said `1fe2700`. The control a reader opens to find
+      // out what the diff measures against was the one surface that was wrong.
+      //
+      // `baseLabel` is the discriminator the two writers already agree on: set-compare-mode records the
+      // branch it resolved the base from, and set-review-base deliberately clears it because a patch set
+      // names a commit rather than a branch. So an explicit base with no label came from a patch set.
+      const explicitBase = Boolean(state.options.base) && !state.options.baseLabel && state.options.base !== "HEAD";
+      const mode = state.compareScope?.length || state.options.target || explicitBase
         ? "other"
         : state.options.staged || state.options.base === "HEAD" || (!state.options.base && !state.reviewBase)
           ? "uncommitted"

@@ -295,6 +295,11 @@ function openMergedView() {
     removeComments([parseInt(card.dataset.commentSeq, 10)]);
     refreshComments();
     initializeMergedEditor({ reselectIndex: index });
+    // The only removal path in the app that said nothing. One Backspace took a comment out of
+    // reviewComments and off disk with no toast, no hint and no confirmation, while the restore it is
+    // paired with announces itself — so the half that loses work was the quiet one. It names the key,
+    // because an undo nobody knows about is not a safety net.
+    showToast(t('comment.removedUndo'));
   }
   function handleMergedKeydown(event) {
     // Holding Cmd between tapping A and C (the normal way to chord Cmd+A -> Cmd+C) makes macOS/Chromium

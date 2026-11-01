@@ -622,7 +622,16 @@ function relevantLines(path, side) {
 }
 function addComment(kind, path, line, code, text, from, to, side, anchorCode, replyTo) {
   var trimmed = String(text || '').trim();
-  if (!trimmed) return;
+  // "Nothing was written" is not an empty box: openComposer PREFILLS the anchor label, so ⌘Enter on an
+  // untouched composer passed this guard and saved a comment whose entire body was its own anchor — the
+  // diff card printed the raw `@crlf.txt#L5`, the dock card came out blank, and the merged hand-off ended
+  // with a bare reference and no instruction under it. The same rule the hand-off already applies
+  // (commentBodyWithoutAnchor): the label is the reviewer's words only once they have changed it.
+  // `trimmed` is still what gets STORED — editing that prefix is a documented way to say "not about this
+  // line", so the text is kept exactly as written and only the emptiness test looks past the label.
+  var label = commentTargetLabel({ path: path, line: line, from: from, to: to });
+  var written = trimmed.slice(0, label.length) === label ? trimmed.slice(label.length).trim() : trimmed;
+  if (!written) { if (trimmed) showCaretHint(t('comment.empty')); return; }
   commentSeq += 1;
   var hasFrom = from != null && from !== '' && Number.isFinite(Number(from));
   var hasTo = to != null && to !== '' && Number.isFinite(Number(to));
@@ -736,6 +745,10 @@ function commentSeqsForPath(path) {
 }
 // Cmd/Ctrl+Z outside any native text-editing surface: restore the last removed comment(s). Returns false
 // (a no-op) when the stack is empty, so the caller can decide not to swallow the key in that case.
+// Is there anything to undo? Asked by the keymap so a decline can say which of the two reasons it is.
+function commentRemovalPending() {
+  return !!(commentUndoStack.length && commentUndoStack[commentUndoStack.length - 1] || []).length;
+}
 function undoLastCommentRemoval() {
   var batch = commentUndoStack.pop();
   if (!batch || !batch.length) return false;
@@ -1381,9 +1394,13 @@ function navigateToCommentAndEdit(seq) {
     refreshComments();
     return;
   }
-  openSourceFile(c.path);
+  // Land where every other "go to this comment" lands. This called openSourceFile unconditionally, so
+  // Enter on a dock card for a comment written in the DIFF — the one F8 goes to in the diff, on a file
+  // diffCanShowComment says yes to — pulled the reviewer into the Files view instead. Two routes to one
+  // destination, disagreeing, right beside the comment block that explains why the view a comment was
+  // written in is part of where it is.
+  revealComment(seq);
   requestAnimationFrame(function () {
-    setSourceCursor(c.path, Math.max(0, (Number(c.from) || c.line || 1) - 1), 0, true, -1);
     composerState = {
       kind: c.kind, path: c.path, line: c.line, code: c.code, anchorCode: c.anchorCode,
       from: c.from, to: c.to, side: c.side, editSeq: seq, editText: c.text,

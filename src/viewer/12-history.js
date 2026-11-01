@@ -260,7 +260,17 @@ function historyRangeEndpoints() {
   var b = historyIndexOfSha(historyActiveSha);
   if (a < 0 || b < 0) return null;
   var lo = Math.min(a, b), hi = Math.max(a, b);
-  return { olderSha: historyCommits[hi].hash, newerSha: historyCommits[lo].hash, count: hi - lo + 1, isRange: hi > lo };
+  return {
+    olderSha: historyCommits[hi].hash,
+    newerSha: historyCommits[lo].hash,
+    // What the compare is actually opened FROM: the parent of the oldest selected commit, so that commit's
+    // own changes are inside its own compare. The select bar printed `olderSha` while the Open button used
+    // this, so the two agreed on the count and disagreed on the range — the bar said `54d784f → 1fe2700`
+    // and the review opened as `d2721e4 → 1fe2700`. One value now, read by both.
+    baseSha: historyCompareBase(historyCommits[hi]),
+    count: hi - lo + 1,
+    isRange: hi > lo,
+  };
 }
 // Extend the selection from the anchor to focusSha and highlight the span. Selection only — never opens
 // the diff; the reviewer opens it with Enter, double-click, or the compare bar's Open button.
@@ -304,6 +314,12 @@ function selectHistoryRange(focusSha, shouldScroll) {
 function historyCompareBase(commit) {
   return (commit && Array.isArray(commit.parents) && commit.parents[0]) || EMPTY_TREE_SHA;
 }
+// A ROOT commit's parent is git's empty tree, and its sha reads as just another commit when printed raw:
+// selecting down to the first commit showed `4b825dc → 1fe2700` with nothing saying that the left side is
+// "nothing was there yet".
+function historyBaseLabel(sha) {
+  return sha === EMPTY_TREE_SHA ? t('history.emptyTree') : String(sha || '').slice(0, 7);
+}
 function reviewHistoryInMain() {
   var ep = historyRangeEndpoints();
   if (!ep || !window.kakapoGit || typeof window.kakapoGit.setReviewCompare !== 'function') return;
@@ -327,7 +343,7 @@ function reviewHistoryInMain() {
   // The base is what came BEFORE the oldest selected commit, exactly as it is for a single one. Comparing
   // from the oldest commit itself left that commit's own changes out of its own compare, so two selected
   // commits opened showing only the newer one — and the bar still said "2 commits".
-  Promise.resolve(window.kakapoGit.setReviewCompare(historyCompareBase(historyCommits[hi]), ep.newerSha, scope)).then(function (res) {
+  Promise.resolve(window.kakapoGit.setReviewCompare(ep.baseSha, ep.newerSha, scope)).then(function (res) {
     if (res && res.ok) closeHistory();
   }).catch(function () {});
 }
@@ -346,7 +362,7 @@ function updateHistorySelectBar() {
     bar.classList.remove('hidden');
     bar.classList.add('has-range');
     bar.innerHTML = '<span class="hsel-info"><span class="hsel-kind">' + escapeHtml(t('history.rangeCompare')) + '</span>'
-      + '<span class="hsel-sha">' + escapeHtml((ep.olderSha || '').slice(0, 7)) + '</span>'
+      + '<span class="hsel-sha">' + escapeHtml(historyBaseLabel(ep.baseSha)) + '</span>'
       + '<span class="hsel-arrow" aria-hidden="true">→</span>'
       + '<span class="hsel-sha">' + escapeHtml((ep.newerSha || '').slice(0, 7)) + '</span>'
       + '<span class="hsel-count">' + escapeHtml(ep.count + ' ' + t(ep.count === 1 ? 'history.commit' : 'history.commits')) + '</span></span>'
