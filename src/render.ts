@@ -456,8 +456,8 @@ export function renderDiffHtml(input: {
     "</aside>",
     '<div class="sidebar-resizer" aria-hidden="true"></div>',
     '<main class="content">',
-    '<section id="diff-view" class="hidden">',
-    '<div class="toolbar diff-toolbar">',
+    '<section id="diff-view" class="hidden" data-i18n-aria="region.diff" aria-label="Diff">',
+    '<div class="toolbar diff-toolbar" role="group" data-i18n-aria="region.diffToolbar" aria-label="Diff actions">',
     '<div class="diff-toolbar-file">'
       + '<div class="diff-commit-context hidden" id="diff-commit-context"></div>'
       + '<span class="diff-file-icon" aria-hidden="true"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M3.5 1.75h5l4 4v8.5h-9z"/><path d="M8.5 1.75v4h4"/></svg></span>'
@@ -470,7 +470,7 @@ export function renderDiffHtml(input: {
     // so it is fetched on open rather than baked into the page.
     input.app
       ? '<div id="compare-menu" class="compare-menu hidden" role="menu" data-i18n-aria="compare.menu.aria" aria-label="Compare options">'
-        + '<div class="compare-menu-main">'
+        + '<div class="compare-menu-main" role="group">'
         // The key rides INSIDE the row. data-keyhint would have been the house style, but that attribute is
         // what the hover tooltip reads, and a tooltip that covers the menu it describes is worse than no hint.
         + '<button type="button" class="compare-menu-row" role="menuitemradio" aria-checked="false" data-mode="all">'
@@ -485,14 +485,14 @@ export function renderDiffHtml(input: {
         + '<span class="compare-menu-check" aria-hidden="true"></span>'
         + '</button>'
         + '<div class="compare-menu-sep" role="separator"></div>'
-        + '<button type="button" class="compare-menu-row compare-menu-branch-open" data-panel="branches" aria-haspopup="menu" aria-expanded="false">'
+        + '<button type="button" class="compare-menu-row compare-menu-branch-open" data-panel="branches" aria-haspopup="listbox" aria-expanded="false">'
         + '<span class="compare-menu-label" data-i18n="compare.menu.target">Compare against</span>'
         + '<span class="compare-menu-note" id="compare-menu-ref"></span>'
         + '<kbd class="compare-menu-key">\u2325C</kbd>'
         + '<span class="compare-menu-chevron" aria-hidden="true">\u203a</span>'
         + '</button>'
         + '</div>'
-        + '<div id="compare-menu-branches" class="compare-menu-branches hidden">'
+        + '<div id="compare-menu-branches" class="compare-menu-branches hidden" role="group" data-i18n-aria="compare.menu.target" aria-label="Compare against">'
         + '<input id="compare-branch-search" type="search" autocomplete="off" spellcheck="false" data-i18n-ph="compare.menu.searchBranch" placeholder="Search branches">'
         + '<div id="compare-branch-list" class="compare-branch-list" role="listbox" data-i18n-aria="compare.menu.target" aria-label="Compare against"></div>'
         + '</div>'
@@ -546,9 +546,9 @@ export function renderDiffHtml(input: {
     '</div>',
     `<div id="diff2html-container" class="diff2html-container">${input.diffHtml || '<div class="empty"><p class="empty-title" data-i18n="diff.noDiff">No diff to review.</p><p class="empty-hint" data-i18n="diff.noDiff.hint">If this is not what you meant to review, change it with the compare control in the toolbar.</p></div>'}</div>`,
     "</section>",
-    '<section id="source-viewer" class="source-viewer">',
+    '<section id="source-viewer" class="source-viewer" data-i18n-aria="region.source" aria-label="Source file">',
     '<div id="source-tabs" class="source-tabs hidden" role="tablist"></div>',
-    '<div class="toolbar source-toolbar">',
+    '<div class="toolbar source-toolbar" role="group" data-i18n-aria="region.sourceToolbar" aria-label="Source actions">',
     '<div class="source-file-meta">'
       + '<div class="diff-commit-context hidden" id="source-commit-context"></div>'
       + '<span id="source-type-icon" class="source-type-icon" aria-hidden="true"></span>'

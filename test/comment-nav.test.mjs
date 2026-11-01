@@ -570,3 +570,74 @@ test("a press that has somewhere to go does not wait for the index", async () =>
     v.close();
   }
 });
+
+// F8 and Shift-F8 are one deferral and two intents.
+//
+// A press that cannot land waits for the project index, and the latch that holds it answers every press
+// during the wait with the same sentence rather than swallowing it — right, because stepAnchor reads the
+// live caret and two deferred steps would land on one comment. But the latch kept the FIRST press's
+// direction, which makes it right for a repeat and wrong for a reversal: press F8, wait out a 1.6 s repo
+// walk, change your mind, press Shift-F8, and the jump that finally arrives goes forwards. The press being
+// waited for is "go to a comment"; its direction is whatever was asked last.
+//
+// Its own fixture, with TWO unchanged files, because the direction only shows up with two places to go.
+// They have to be files the REVIEW has and the lazy page has not fetched yet — a comment on a file outside
+// the review is something main filters out before the renderer sees it (notesForWorkspace), and reaching
+// for one here hangs the page rather than failing it, which is a worse test than no test.
+const PAIR_FILES = [
+  { path: "src/pair-a.ts", before: "export const a = 1;\n", after: "export const a = 1;\n" },
+  { path: "src/pair-b.ts", before: "export const b = 2;\n", after: "export const b = 2;\n" },
+  {
+    path: "src/pair-changed.ts",
+    before: "export function run() {\n  return 1;\n}\n",
+    after: "export function run() {\n  return 2;\n}\n",
+  },
+];
+let pair;
+before(async () => {
+  const r = await makeReviewHtml(PAIR_FILES, { lazyLoad: true });
+  pair = { html: r.html, bodies: await renderLazyBodies(r.build), sourceData: r.build.lazySourceData };
+});
+
+// Where a sequence of presses lands when every one of them has to wait for the index. Returns the seq, so
+// two sequences can be compared — asserting on one alone would pass if the direction were ignored and the
+// forward step happened to land in the same place.
+async function deferredLanding(deltas) {
+  const v = await loadViewer(pair.html, {
+    lazySourceData: pair.sourceData,
+    getDiffBody: (index) => pair.bodies[index] || "",
+    // The index holds the whole project; the lazy page starts with only what changed.
+    projectIndexBridge: () => ({
+      sourceFilesMeta: PAIR_FILES.map((f) => ({
+        path: f.path, name: f.path.split("/").pop(), content: "", embedded: true,
+      })),
+      filesTree: "",
+    }),
+  });
+  try {
+    for (const [seq, path] of [[81, "src/pair-a.ts"], [82, "src/pair-b.ts"]]) {
+      v.window.reviewComments.push({
+        seq, kind: "c", by: "me", path, line: 1, from: 1, to: 1, side: null,
+        code: "", anchorCode: "", text: `on ${path}`,
+      });
+    }
+    v.window.refreshComments();
+    await v.settle(20);
+    assert.equal(v.window.eval(`sourceByPath.has("src/pair-a.ts")`), false,
+      "the premise: neither file has been fetched, so every press defers");
+    for (const delta of deltas) v.window.gotoComment(delta);
+    await v.settle(120); // the index fetch is a round trip
+    return v.window.lastRevealedSeq;
+  } finally {
+    v.close();
+  }
+}
+
+test("changing direction during the index wait changes where the press lands", async () => {
+  const reversed = await deferredLanding([1, -1]);
+  const repeated = await deferredLanding([1, 1]);
+  assert.ok(reversed, "the reversal landed somewhere");
+  assert.ok(repeated, "so did the repeat");
+  assert.notEqual(reversed, repeated,
+    "the waiting press took the direction asked last, not the one asked first");
+});

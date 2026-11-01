@@ -141,7 +141,7 @@
   --bg: #ffffff;
   --panel: #f6f8fa;
   --text: #1f2328;
-  --muted: #6e7781;
+  --muted: #616972;
   --border: #d0d7de;
   --line: #eef1f4;
   --add: #e3ffea;
@@ -302,7 +302,7 @@
   --bg: #2b2b2b;
   --panel: #313335;
   --text: #a9b7c6;
-  --muted: #8b8b8b;
+  --muted: #a9a9a9;
   --border: #4e5154;
   --line: #3c3f41;
   --add: #22382c;
@@ -315,17 +315,17 @@
   --diff-added-strong: #2d4a3b;
   --diff-deleted: #3b3b3b;
   --diff-deleted-strong: #444444;
-  --active: #4a88c7;
+  --active: #75a4d4;
   --commit-accent: #a98bff;
   --active-strong: #6aa7e4;
   --sidebar: #3c3f41;
-  --elevated: #45494a;
+  --elevated: #383a3c;
   --shadow: rgba(0, 0, 0, 0.55);
   --chrome-bg: #303133;
   --chrome-panel: #38393b;
   --chrome-elevated: #434447;
   --chrome-text: #f0f0f1;
-  --chrome-muted: #bfc0c3;
+  --chrome-muted: #c3c4c7;
   /* Same treatment as the default dark theme: a border closer to --chrome-bg than a full mid-gray line. */
   --chrome-border: #4a4b4e;
   --chrome-line: #4a4b4e;
@@ -337,7 +337,7 @@
      theme to inherit, and this chrome is mid-grey (#303133 resting, #505155 selected) — which puts the floor
      at a luminance no saturated red reaches. A pale rose is what is left: 7.58:1 resting, 4.61:1 selected. */
   --chrome-status-bad: #f0b8b8;
-  --chrome-vcs-new: #ef8b8b;
+  --chrome-vcs-new: #f19b9b;
   --chrome-vcs-edited: #88b8ec;
   --chrome-vcs-staged: #9aca83;
   --token-comment: #b2b2b2;
@@ -356,7 +356,7 @@
   --bg: #ffffff;
   --panel: #f7f8fa;
   --text: #1f1f1f;
-  --muted: #6c707e;
+  --muted: #646774;
   --border: #c9cdd2;
   --line: #e7e9ec;
   --add: #e9f6ec;
@@ -417,7 +417,7 @@
   --bg: #002b36;
   --panel: #002b36;
   --text: #93a1a1;
-  --muted: #789696;
+  --muted: #85a0a0;
   --border: #12404b;
   --line: #073642;
   --add: #032d25;
@@ -430,7 +430,7 @@
   --diff-added-strong: #04392f;
   --diff-deleted: #401b1e;
   --diff-deleted-strong: #000000;
-  --active: #268bd2;
+  --active: #288fd8;
   --commit-accent: #d33682;
   --active-strong: #6cc0f5;
   --sidebar: #012b33;
@@ -440,7 +440,7 @@
   --chrome-panel: #002b36;
   --chrome-elevated: #073642;
   --chrome-text: #d6ded9;
-  --chrome-muted: #93a1a1;
+  --chrome-muted: #9facac;
   --chrome-border: #12404b;
   --chrome-line: #0c3a45;
   --chrome-selected: #0e4553;
@@ -448,9 +448,9 @@
   --chrome-stat-add: #15c38a;
   --chrome-stat-del: #e09999;
   --chrome-status-bad: #e09999;
-  --chrome-vcs-new: #859900;
-  --chrome-vcs-edited: #268bd2;
-  --chrome-vcs-staged: #2aa198;
+  --chrome-vcs-new: #8ea300;
+  --chrome-vcs-edited: #469fdd;
+  --chrome-vcs-staged: #2ca9a0;
   --token-comment: #8a9ea5;
   --token-keyword: #8fa500;
   --token-string: #2daca2;
@@ -470,7 +470,7 @@
   --bg: #fdf6e3;
   --panel: #fdf6e3;
   --text: #4a5f66;
-  --muted: #617170;
+  --muted: #5b6a69;
   --border: #ded8c5;
   --line: #f2ecd8;
   --add: #eaf1d7;
@@ -493,7 +493,10 @@
   --chrome-panel: #fdf6e3;
   --chrome-elevated: #fffbf0;
   --chrome-text: #2f4249;
-  --chrome-muted: #586e75; /* base01: Solarized's own secondary text. #6b7f80 was 3.57:1 on this ground. */
+  /* Solarized's own secondary text is base01 (#586e75), and base01 is where this sat. It clears AA on the
+     resting row and measures 3.97:1 on the SELECTED one, which is a second ground this theme never had
+     tuned against it, so the value is base01 taken two steps darker. */
+  --chrome-muted: #50646b;
   --chrome-border: #d6cfba;
   --chrome-line: #e3dcc8;
   --chrome-selected: #e4ddc8;
@@ -501,9 +504,14 @@
   --chrome-stat-add: #536826;
   --chrome-stat-del: #b52d20;
   --chrome-status-bad: #b52d20;
-  --chrome-vcs-new: #859900;
-  --chrome-vcs-edited: #268bd2;
-  --chrome-vcs-staged: #2aa198;
+  /* Solarized's own green, blue and cyan — #859900, #268bd2, #2aa198 — and they are not here, because on
+     this theme's sidebar ground they measure 2.67, 3.11 and 2.67:1. These are the IntelliJ git
+     statuses (untracked / modified / staged), the only place the status is stated, so the hue is what
+     carries the meaning and the lightness is free. Each is its canonical value taken down until it clears
+     AA on the resting row, which is the same trade --chrome-muted makes just above. */
+  --chrome-vcs-new: #627000;
+  --chrome-vcs-edited: #1f70a9;
+  --chrome-vcs-staged: #1f7770;
   --token-comment: #5b6969;
   --token-keyword: #5f6d00;
   --token-string: #1d726c;
@@ -524,7 +532,7 @@
   --bg: #282a36;
   --panel: #282a36;
   --text: #f8f8f2;
-  --muted: #8f92a8;
+  --muted: #9c9fb2;
   --border: #44475a;
   --line: #21222c;
   --add: #183022;
@@ -547,7 +555,7 @@
   --chrome-panel: #282a36;
   --chrome-elevated: #343746;
   --chrome-text: #f8f8f2;
-  --chrome-muted: #a1a4bb;
+  --chrome-muted: #b3b5c8;
   --chrome-border: #44475a;
   --chrome-line: #3a3d4d;
   --chrome-selected: #44475a;
@@ -844,7 +852,7 @@ body {
   align-items: center;
   justify-content: center;
   width: 24px;
-  height: 22px;
+  height: 24px;
   padding: 0;
   border: 0;
   border-radius: 6px;
@@ -1007,7 +1015,7 @@ body {
   width: 28px; height: 28px; padding: 0; border: 0; border-radius: 6px;
   color: var(--muted); background: transparent; font: 20px/28px ui-sans-serif, system-ui;
 }
-.settings-close:hover { color: var(--text); background: var(--chrome-selected); }
+.settings-close:hover { color: var(--chrome-text); background: var(--chrome-selected); }
 .settings-nav {
   flex: 0 0 210px; padding: 18px 12px 16px; border-right: 1px solid var(--border);
   display: flex; flex-direction: column; gap: 3px;
@@ -1253,7 +1261,7 @@ body {
 .patchset-num {
   flex: none; min-width: 22px; height: 22px; padding: 0 5px; box-sizing: border-box;
   display: inline-flex; align-items: center; justify-content: center;
-  border: 1px solid var(--border); border-radius: 6px; background: var(--panel); color: var(--chrome-muted);
+  border: 1px solid var(--border); border-radius: 6px; background: var(--panel); color: var(--muted);
   font: 600 11.5px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; cursor: pointer;
 }
 .patchset-num.patchset-num-wide { min-width: 0; padding: 0 8px; font-family: inherit; font-size: 10.5px; }
@@ -1276,7 +1284,7 @@ body {
   color: var(--chrome-muted);
   font-size: 11px;
 }
-.patchset-kind { flex: none; color: var(--chrome-muted); font-size: 10px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.04em; }
+.patchset-kind { flex: none; color: var(--muted); font-size: 10px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.04em; }
 
 /* It is a button now — it stops hiding the folded sets rather than guessing which one you meant — so it
    looks like one it is safe to press, and says how many it is holding. */
@@ -1294,7 +1302,7 @@ body {
 .patchset-reset {
   display: inline-flex; align-items: center; justify-content: center; flex: none;
   width: 22px; height: 22px; padding: 0; border: 1px solid var(--border); border-radius: 6px;
-  color: var(--chrome-muted); background: var(--panel); cursor: pointer;
+  color: var(--muted); background: var(--panel); cursor: pointer;
 }
 .patchset-reset:hover { border-color: var(--active); color: var(--text); }
 .patchset-reset.hidden { display: none; }
@@ -1482,7 +1490,7 @@ body {
 }
 .mc-diff-blame-entry.mc-diff-blame-empty,
 .mc-diff-blame-entry.mc-diff-blame-uncommitted { cursor: default; }
-.mc-diff-blame-date { color: color-mix(in srgb, var(--muted) 88%, transparent); }
+.mc-diff-blame-date { color: var(--muted); }
 .mc-diff-blame-author { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: inherit; }
 .mc-diff-gutter-number.mc-active-hunk,
 .mc-diff-gutter-number.diff-active-row,
@@ -1860,7 +1868,12 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 6px;
-  min-height: 18px;
+  /* 24px, not the 18px this was: box-sizing is border-box globally, so the declared height IS the target,
+     and 18 put every row in all three trees (this rule, .change-row and .source-link all share it) under
+     WCAG 2.5.8's floor. The spacing exception does not rescue a stack of full-width rows — vertically
+     adjacent centres 18px apart put the 24px circles through each other. It costs 6px of density per row
+     on the app's densest surface, which is the trade the floor asks for. */
+  min-height: 24px;
   padding: 1px 6px;
   text-decoration: none;
   border: 1px solid transparent;
@@ -1905,6 +1918,16 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
      rule exists for (hovered, active, keyboard-focused). */
   color: inherit;
   cursor: pointer;
+  position: relative;
+}
+/* WCAG 2.5.8's 24px floor, bought without touching the 13px mark the row was designed around: an inset
+   pseudo-element, absolutely positioned so it adds nothing to the layout. It overlaps the row behind it,
+   which is the point — the row is this control's parent, not its neighbour, so the pixels it gives up are
+   pixels that were already going to select the same file. */
+.viewed-box::before {
+  content: '';
+  position: absolute;
+  inset: -6px;
 }
 .viewed-box::after { content: '✓'; color: transparent; }
 /* On any row the eye is on, the box borrows that row's own text colour. --chrome-border and
@@ -1964,8 +1987,8 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 23px;
-  height: 22px;
+  min-width: 24px;
+  height: 24px;
   padding: 0 4px;
   color: var(--muted);
   background: transparent;
@@ -2876,7 +2899,7 @@ body.cmd-link-active .source-code { cursor: pointer; }
 }
 .source-blame-entry.source-blame-empty,
 .source-blame-entry.source-blame-uncommitted { cursor: default; }
-.source-blame-date { color: color-mix(in srgb, var(--muted) 88%, transparent); }
+.source-blame-date { color: var(--muted); }
 .source-blame-author { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: inherit; }
 /* IntelliJ-style age coloring: newest attribution is the clearest green, then cools and desaturates as
    commits get older. Buckets are normalized per open file, so the distinction remains useful in any repo. */
@@ -3001,7 +3024,7 @@ body.cmd-link-active .source-code { cursor: pointer; }
    the one that throws the comment away. Pushing from the badge puts the trailing group at the right edge
    whether or not the anchor is there. */
 .mc-kind { margin-right: auto; }
-.mc-target { font: 11px Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--muted); opacity: 0.9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 62%; }
+.mc-target { font: 11px Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 62%; }
 /* While composing a comment, the textarea owns the only caret — hide the file's inline caret and the
    cursor-row highlights (diff box-shadow + markdown/csv row tint) so attention stays on the composer. */
 body.mc-composing .code-cursor { display: none; }
@@ -3019,7 +3042,7 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
   display: inline-flex; align-items: center; gap: 5px;
   font-weight: 700; font-size: 10px; letter-spacing: 0.05em; text-transform: uppercase;
   padding: 2px 8px;
-  color: var(--muted); background: color-mix(in srgb, var(--muted) 16%, transparent);
+  color: var(--muted);
 }
 .mc-kind-ic { flex: none; }
 .mc-del { margin-left: 0; background: transparent; border: 0; color: var(--muted); cursor: pointer; font-size: 15px; line-height: 1; padding: 1px 5px; }
@@ -3352,7 +3375,6 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 .usage-hit { padding: 0; color: var(--text); background: transparent; font-weight: 700; }
 .quick-open-item.active .usage-hit { color: inherit; }
 .usage-result .usage-result-code { flex: 1 1 auto; min-width: 0; }
-.usage-result.is-test .quick-open-path { opacity: .72; }
 .semantic-peek-list-hint {
   position: sticky; bottom: 0; padding: 5px 9px; color: var(--muted); background: var(--elevated);
   border-top: 1px solid var(--border); font: 10px/1.35 Monaco, ui-monospace, monospace;
@@ -3838,8 +3860,8 @@ body.dock-maximized .dock-panel { inset: 0; width: auto; max-height: none; trans
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   border: 1px solid var(--border);
   border-radius: 5px;
   color: var(--muted);
@@ -3881,7 +3903,7 @@ body.dock-maximized .dock-panel { inset: 0; width: auto; max-height: none; trans
   align-items: center;
   justify-content: center;
   min-width: 24px;
-  height: 22px;
+  height: 24px;
   padding: 0 5px;
   border: 1px solid var(--border);
   border-radius: 5px;
@@ -4554,7 +4576,11 @@ summary.tree-focus,
 .change-row.ch-added .change-name { color: var(--chrome-vcs-staged); }
 .change-row.ch-modified .change-name,
 .change-row.ch-renamed .change-name { color: var(--chrome-vcs-edited); }
-.change-row.ch-deleted .change-name { color: var(--muted); }
+.change-row.ch-deleted .change-name { color: var(--chrome-muted); }
+.tree-focus .change-name, .tree-focus .path,
+.change-row.active .change-name,
+.file-link.active .path,
+.source-link.active .path { color: var(--chrome-selected-text); }
 .status { color: var(--chrome-muted); background: var(--chrome-line); }
 /* Only History still draws this chip (the Changes tree leads with the viewed box instead). A modified row
    shows nothing: a blue badge saying "changed" on a list of changes is a second alphabet for one fact, and
@@ -4654,10 +4680,12 @@ summary.tree-focus,
 
 .quick-open-results { background: var(--chrome-panel); }
 .quick-open-item { color: var(--chrome-text); }
-/* The name is what is being picked; the path only says WHICH of the same-named files it is. Even at
-   --chrome-muted it still pulled the eye across the row, so it sits most of the way to the panel behind it —
-   readable when looked at, invisible when scanning names. */
-.quick-open-item .quick-open-path { color: color-mix(in srgb, var(--chrome-muted) 55%, var(--chrome-elevated)); }
+/* The name is what is being picked; the path only says WHICH of the same-named files it is. It used to be
+   mixed most of the way toward the panel to keep it from pulling the eye — which measured 2.27:1 on light,
+   and mixed toward --chrome-elevated while the list's ground is --chrome-panel, so it was quieting itself
+   against a colour that is not behind it. What separates them without spending contrast is already here:
+   the name is 13px monospace, the path is 12px proportional, 2px below it. */
+.quick-open-item .quick-open-path { color: var(--chrome-muted); }
 .quick-open-item.active,
 .quick-open-item:hover { color: var(--chrome-selected-text); background: var(--chrome-selected); border-color: var(--active-strong); }
 .quick-open-item.active .quick-open-path,
@@ -4801,8 +4829,8 @@ summary.tree-focus,
   box-shadow: none;
 }
 .source-tab-close {
-  width: 18px;
-  height: 18px;
+  width: 24px;
+  height: 24px;
   display: inline-grid;
   place-items: center;
   padding: 0;
@@ -5142,16 +5170,12 @@ html[data-focus-mode="on"] .source-row.focus-dim .source-code { filter: saturate
   color: var(--muted);
   font-style: italic;
   font-size: 0.86em;
-  opacity: 0.85;
   user-select: none;
 }
 .inlay-hint {
   color: var(--muted);
   font-style: italic;
-  opacity: 0.8;
-  border-radius: 3px;
   padding: 0 2px;
-  background: color-mix(in srgb, var(--muted) 12%, transparent);
   user-select: none;
 }
 .inlay-hint[data-inlay-kind="type"] { font-style: normal; }

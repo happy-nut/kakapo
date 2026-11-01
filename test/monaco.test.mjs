@@ -265,7 +265,17 @@ test("a failed definition lookup shows a short caret hint and does not open an e
   assert.match(hint.textContent, /Definition not found.*return/);
   assert.ok(v.$("#semantic-peek").classList.contains("hidden"), "an empty dropdown is never shown");
 
+  // 2100 was this number for as long as every hint got a flat 2000ms. The lifetime is scaled to the
+  // message now — this one is a sentence naming a symbol, and a sentence takes longer to read than
+  // "gone" — so the wait is taken from the hint's own stated lifetime rather than from a constant that
+  // goes stale the next time that rule changes. The claim is unchanged: it dismisses itself.
+  const life = v.window.caretHintLifetime(hint.textContent);
+  assert.ok(life > 2000, `a sentence this long gets more than the old flat two seconds (${life}ms)`);
+
   await v.settle(2100);
+  assert.equal(hint.classList.contains("show"), true, "still up at the deadline the flat rule gave it");
+
+  await v.settle(life - 2100 + 250);
   assert.equal(hint.classList.contains("show"), false, "the caret hint dismisses itself");
   v.close();
 });

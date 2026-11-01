@@ -434,6 +434,7 @@ function showUsages(name, count) {
   var box = document.getElementById('usages');
   var title = document.getElementById('usages-title');
   if (!box) return;
+  if (box.classList.contains('hidden')) rememberOverlayFocus(box);
   usageName = String(name || '');
   // Built in English in code — "3 usages of Store" — under a heading the rest of the app translates.
   if (title) title.textContent = t('peek.usages').replace('{n}', String(count)) + ' · ' + usageName;
@@ -524,9 +525,11 @@ function openUsageItem(item) {
 function closeUsages() {
   var box = document.getElementById('usages');
   if (!box) return;
+  var held = box.contains(document.activeElement);
   box.classList.add('hidden');
   var panel = box.querySelector('.quick-open-panel');
   if (panel) resetUsagesAnchor(box, panel); // clear inline anchoring so the next open re-measures cleanly
+  restoreOverlayFocus(box, held);
 }
 
 function wordAtDiffCaret() {

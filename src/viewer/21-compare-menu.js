@@ -8,7 +8,7 @@
 //
 // Electron only: window.kakapoGit.compareMenu is the git process behind it, and a static export has none.
 
-var compareMenuState = null; // last { mode, ref, defaultRef, branches[] } from main
+var compareMenuState = null; // last { mode, ref, defaultRef, pinned, branches[] } from main
 var compareMenuBranchFilter = '';
 
 function compareMenuEl() { return document.getElementById('compare-menu'); }
@@ -165,7 +165,13 @@ function applyCompareMode(mode, ref, announce) {
   // Asking for the mode the review is already in rebuilds the whole thing — a git diff and a source
   // re-index — for a state that does not change. The patch-set bar screens that click; ⌥A and the menu
   // row reach this same action and did not, so the guard was on one of two routes to one thing.
-  if (compareMenuState && compareMenuState.mode === mode && (!ref || compareMenuState.ref === ref)) {
+  // `pinned` is why the ref half is not just an equality check. The branch list marks one row as the
+  // repository's default, and when nothing has been picked the effective ref IS that default — so a click
+  // on it matched here and was screened, and `state.compareRef` was never written. The reader's explicit
+  // choice of the branch they were already on left no trace, and the next time the automatic answer moved,
+  // the review moved with it. An unrecorded pick is not a no-op: it is the one click that has work to do.
+  var sameRef = !ref || (compareMenuState && compareMenuState.ref === ref && compareMenuState.pinned);
+  if (compareMenuState && compareMenuState.mode === mode && sameRef) {
     closeCompareMenu();
     // Screened from the REBUILD, not from the answer. ⌥A and ⌥U are two keys rather than one toggle
     // because the reader is not sure which mode the review is in — that is this function's own stated
@@ -180,17 +186,22 @@ function applyCompareMode(mode, ref, announce) {
   // staleness, and handled it for the announcement only), but the guard above READS this state to screen
   // a click that would change nothing: left claiming a mode the review never reached, it would answer the
   // reader's retry with silence. A failure you cannot try again is worse than no optimism at all.
-  var previous = compareMenuState ? { mode: compareMenuState.mode, ref: compareMenuState.ref } : null;
+  var previous = compareMenuState
+    ? { mode: compareMenuState.mode, ref: compareMenuState.ref, pinned: compareMenuState.pinned }
+    : null;
   var restore = function () {
     cancelDiffViewOnNextCompare(); // the rebuild it was armed for is not coming
     if (!compareMenuState || !previous) return;
     compareMenuState.mode = previous.mode;
     compareMenuState.ref = previous.ref;
+    compareMenuState.pinned = previous.pinned;
     renderCompareMenu();
   };
   if (compareMenuState) {
     compareMenuState.mode = mode;
-    if (ref) compareMenuState.ref = ref;
+    // Optimistically pinned too, or the guard above would screen the reader's immediate retry on the
+    // strength of a ref this call has not yet recorded.
+    if (ref) { compareMenuState.ref = ref; compareMenuState.pinned = true; }
     renderCompareMenu();
   }
   closeCompareMenu();
@@ -198,6 +209,7 @@ function applyCompareMode(mode, ref, announce) {
     if (res && res.ok && compareMenuState) {
       compareMenuState.mode = res.mode || mode;
       compareMenuState.ref = res.ref || compareMenuState.ref;
+      if (ref) compareMenuState.pinned = true; // main has written it now
       renderCompareMenu();
     } else if (!res || !res.ok) {
       restore();

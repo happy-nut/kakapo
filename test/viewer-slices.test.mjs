@@ -79,10 +79,24 @@ test("a function the bundle declares is never guarded — it is always there", (
   );
 });
 
+// Prose is not a read. This swept the raw file, so a comment using a declared name as an ordinary English
+// word — "the order they can be the current one" — was reported as 00-util.js reading 01-core.js's `current`.
+// A guard that reads comments as code produces a finding the author cannot act on except by rewording a
+// sentence, and worse, it trains the next person to ignore it.
+//
+// Block comments go entirely. Line comments go only when the `//` opens the line, which is how every
+// comment in these slices that could contain prose is written; a trailing `//` is left alone because
+// deciding whether it is inside a string ("http://…") needs a parser, and guessing there could delete code.
+function withoutComments(text) {
+  return text
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^[ \t]*\/\/.*$/gm, "");
+}
+
 test("no slice reads a let/const declared by a later slice", () => {
   const late = [];
   order.forEach((file, index) => {
-    const text = sources.get(file);
+    const text = withoutComments(sources.get(file));
     for (const [name, declaration] of declarations) {
       if (declaration.index <= index || declaration.kind === "function" || declaration.kind === "var") continue;
       if (new RegExp(`\\b${name.replace(/\$/g, "\\$")}\\b`).test(text)) {

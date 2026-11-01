@@ -15,6 +15,13 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "tab.changes": "Changes",
     "tab.files": "All files",
     "sidebar.switch": "Sidebar tree",
+    // The two reading surfaces and their toolbars. A <section> only becomes a landmark once it has a
+    // name, so without these the page offered a screen reader exactly one region to jump to — the
+    // sidebar — and the thing being reviewed was not on the list.
+    "region.diff": "Diff",
+    "region.source": "Source file",
+    "region.diffToolbar": "Diff actions",
+    "region.sourceToolbar": "Source actions",
     "tab.changes.title": "Changes",
     "tab.files.title": "All files",
     "tree.markViewed": "Reviewed this file (Space)",
@@ -763,6 +770,10 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "tab.changes": "변경사항",
     "tab.files": "전체 파일",
     "sidebar.switch": "사이드바 트리",
+    "region.diff": "변경 비교",
+    "region.source": "소스 파일",
+    "region.diffToolbar": "비교 도구",
+    "region.sourceToolbar": "소스 도구",
     "tree.markViewed": "이 파일 확인함 (Space)",
     "rail.branch": "현재 브랜치",
     "brand.revealFile": "열린 파일을 사이드바에서 보기",

@@ -129,3 +129,60 @@ function applyBranchChip(element, branch) {
 function pageAlive() {
   return typeof document !== 'undefined' && !!document && typeof document.getElementById === 'function';
 }
+
+// ============================================================================================================
+// Giving the keyboard back.
+//
+// An overlay that takes focus has to hand it somewhere when it closes, and Chromium's own answer is <body>:
+// focus leaves an element that becomes display:none and does not go anywhere in particular. From <body> the
+// next Tab starts at the top of the document and an assistive technology's cursor goes with it, so a reader
+// who opened a palette over line 400 is returned to the page header.
+//
+// Three overlays had already solved this one at a time — the semantic peek, the compare menu, Quick Doc —
+// each with its own four lines and its own comment explaining the same thing. Four others had not: Quick
+// Open blurred without restoring, and History, the image lightbox and the usages panel just hid. That split
+// is the argument for a shared pair: an overlay added next week gets this by calling two functions, rather
+// than by its author happening to know.
+//
+// One slot, not a stack. These overlays are mutually exclusive in practice, and a stack whose pops can be
+// skipped (an overlay closed by a click outside, a re-render, a view switch) drifts out of step with the
+// page and starts returning focus to elements that are no longer there.
+var overlayFocusReturn = null;
+
+// Call when an overlay opens, BEFORE moving focus into it. An element inside the overlay is not a caller —
+// re-opening a panel from one of its own controls must not make that control the thing to return to.
+function rememberOverlayFocus(overlay) {
+  var active = typeof document !== 'undefined' && document ? document.activeElement : null;
+  if (!active || active === document.body) { overlayFocusReturn = null; return; }
+  if (overlay && overlay.contains && overlay.contains(active)) return;
+  overlayFocusReturn = active;
+}
+
+// The surfaces a reader is actually reading, in the order they can be the current one. Also the fallback
+// when whatever opened the overlay is gone — a sidebar row that a re-render replaced, say.
+function focusReadingSurface() {
+  var body = document.getElementById('source-body');
+  if (body && body.offsetParent !== null && typeof body.focus === 'function') { body.focus({ preventScroll: true }); return true; }
+  var diff = document.getElementById('diff2html-container');
+  if (diff && typeof diff.focus === 'function') { diff.focus({ preventScroll: true }); return true; }
+  return false;
+}
+
+// Call when an overlay closes, AFTER hiding it. Does nothing unless the overlay held the keyboard, so a
+// close that was never an interaction (a view switch, a re-render) leaves the caret where the reader put it.
+function restoreOverlayFocus(overlay, heldFocus) {
+  var held = typeof heldFocus === 'boolean'
+    ? heldFocus
+    : !!(overlay && overlay.contains && document && overlay.contains(document.activeElement));
+  var target = overlayFocusReturn;
+  overlayFocusReturn = null;
+  if (!held) return false;
+  // isConnected, not just truthiness: a row the sidebar re-rendered is still a live object and focusing it
+  // silently does nothing, which reads exactly like the bug this replaces.
+  if (target && target.isConnected && typeof target.focus === 'function'
+      && !(overlay && overlay.contains && overlay.contains(target))) {
+    target.focus({ preventScroll: true });
+    return true;
+  }
+  return focusReadingSurface();
+}

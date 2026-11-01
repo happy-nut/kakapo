@@ -88,7 +88,30 @@ function showCaretHint(message, anchor, sticky) {
   void caretHintEl.offsetWidth; // reflow so the fade-in re-triggers on rapid repeat presses
   caretHintEl.classList.add('show');
   if (caretHintTimer) clearTimeout(caretHintTimer);
-  if (!sticky) caretHintTimer = setTimeout(function () { if (caretHintEl) caretHintEl.classList.remove('show'); }, 2000);
+  if (!sticky) caretHintTimer = setTimeout(hideCaretHint, caretHintLifetime(message));
+}
+function hideCaretHint() {
+  if (caretHintEl) caretHintEl.classList.remove('show');
+  caretHintTimer = 0;
+}
+// How long a hint stays up.
+//
+// A flat 2000ms was the rule, and the wrong shape: "definition not found" and a four-line compiler
+// diagnostic got the same two seconds, so the ones with the most to say were gone before they could be
+// read. This is the app's only answer to a navigation key, and a reader who misses it has no way to ask
+// again — the keystroke has already happened.
+//
+// Scaled to how much there is to read, at roughly 15 characters a second, which is the slow end of
+// comfortable. Floored at the old 2s so short hints behave exactly as they did, and capped at 8s so a
+// hint cannot outlive the row it is pointing at (it is positioned absolutely against a line that scrolling
+// moves). The sticky ones — diagnostics — are unaffected: they have no timer at all.
+//
+// Pausing the clock on hover would be the other half, and it is deliberately absent: .mc-caret-hint is
+// pointer-events: none so it never swallows a click on the line it floats over. Wiring a pointerenter to
+// it means giving it back those events, and a hint that eats clicks on the code underneath is a worse
+// trade than one that times out. The length scaling is the part that can be had for nothing.
+function caretHintLifetime(message) {
+  return Math.min(8000, Math.max(2000, 1200 + String(message || '').length * 65));
 }
 // Put a visible hint back where the caret is NOW.
 //
@@ -1696,6 +1719,12 @@ function revealComment(seq) {
   return true;
 }
 var commentNavAwaitingIndex = false;
+// Which way the waiting press was going. F8 and Shift-F8 are one deferral and two intents: the latch below
+// keeps the first press and answers the rest with the same sentence, which is right for a REPEAT and wrong
+// for a REVERSAL — press F8, wait, change your mind and press Shift-F8, and the jump that eventually
+// arrives went forwards. The press being waited for is "go to a comment"; its direction is whatever was
+// asked last.
+var commentNavPendingDelta = 0;
 function gotoComment(delta) {
   // NOT filtered by the source index. Scoping a shared note to the workspace that has its file is main's job
   // (notesForWorkspace, comments-file.ts) and it is done before the renderer ever sees the record. Filtering
@@ -1714,9 +1743,9 @@ function gotoComment(delta) {
   // pressed. Asked before that fetch, this dropped every comment on an unchanged file and told the reader
   // the review has none of their files. So an apparent miss is a reason to FETCH, not to answer — the
   // same thing openPathReference does a few lines above, for the same reason.
-  var step = function (candidates) {
+  var step = function (candidates, direction) {
     if (!candidates.length) { showCaretHint(t('comment.nav.unreachable')); return; }
-    revealComment(stepAnchor(delta, candidates).seq);
+    revealComment(stepAnchor(direction, candidates).seq);
   };
   var reachable = list.filter(commentIsReachable);
   var settled = projectIndexLoaded || reachable.length === list.length;
@@ -1730,7 +1759,7 @@ function gotoComment(delta) {
   // press had just started — the caret ended up at line 1 of a file it had been sent to line 50 of. The
   // suite caught it intermittently, which is what a race looks like from outside. A press that lands
   // needs nothing; a press that cannot land asks below, and by then there is nothing else in flight.
-  if (reachable.length) { step(reachable); return true; }
+  if (reachable.length) { step(reachable, delta); return true; }
   if (settled) { showCaretHint(t('comment.nav.unreachable')); return true; }
   // Nothing to land on and the index has not arrived, so this press genuinely has nothing else to do and
   // waits for it. One press does: stepAnchor reads the LIVE caret, so a second one deferred into the same
@@ -1742,11 +1771,14 @@ function gotoComment(delta) {
   // the same sentence rather than swallowed: stepAnchor reads the live caret, so deferring it too would
   // land both on one comment, but a key that says nothing twice is the thing this round keeps finding.
   showCaretHint(t('comment.nav.looking'));
+  commentNavPendingDelta = delta; // the last press names the direction, not the first
   if (commentNavAwaitingIndex) return true;
   commentNavAwaitingIndex = true;
   ensureProjectIndex().then(function () {
     commentNavAwaitingIndex = false;
-    step(sortedNavThread().filter(commentIsReachable));
+    var direction = commentNavPendingDelta || delta;
+    commentNavPendingDelta = 0;
+    step(sortedNavThread().filter(commentIsReachable), direction);
   });
   return true;
 }

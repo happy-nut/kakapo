@@ -372,3 +372,176 @@ test("text painted a literal colour is still readable on the light themes", () =
   assert.deepEqual(failures, [],
     "a fixed colour has to hold on the light grounds too, or carry a [data-theme=\"light\"] rule that does");
 });
+
+// ===========================================================================================================
+// The grounds, not the colours.
+//
+// Thirteen rounds of review never measured these, and the reason is instructive: every one of them was
+// introduced as "the quiet one", and quiet is not a property anything was checking. Swept across the twelve
+// themes against the surfaces they are actually painted on, the gutter's line numbers measured 3.11:1, a
+// Code Vision row 3.11:1, an inlay hint 2.93:1, Quick Open's path 2.27:1 — and darcula's own modal surface
+// put PRIMARY text at 4.46:1, which is the finding that argues for this shape: a sweep aimed at secondary
+// ink caught the primary, because it asked about a GROUND rather than about a list of colours.
+//
+// So this names surfaces and asks every ink that lands on one to clear its floor there. A new theme answers
+// the same questions without anyone remembering to add it, and a new surface is one line.
+const CHROME_GROUNDS = ["--chrome-bg", "--chrome-selected", "--chrome-panel", "--chrome-elevated"];
+// --muted is the code canvas's secondary ink. The canvas is the diff and the source, plus the sheets and
+// empty states that share its palette — NOT the sidebar: a chrome row uses --chrome-muted, which is the
+// rule the qualifier pills were moved onto and the rule a deleted filename was still breaking.
+const CANVAS_GROUNDS = ["--panel", "--bg", "--elevated", "--line",
+  "--add", "--del", "--diff-modified", "--diff-added", "--diff-deleted"];
+const VCS_GROUNDS = ["--chrome-bg", "--chrome-panel", "--chrome-elevated"];
+const INK = [
+  { name: "--text", floor: AA_NORMAL_TEXT, grounds: CANVAS_GROUNDS },
+  { name: "--muted", floor: AA_NORMAL_TEXT, grounds: CANVAS_GROUNDS },
+  { name: "--chrome-text", floor: AA_NORMAL_TEXT, grounds: CHROME_GROUNDS },
+  { name: "--chrome-muted", floor: AA_NORMAL_TEXT, grounds: CHROME_GROUNDS },
+  { name: "--chrome-selected-text", floor: AA_NORMAL_TEXT, grounds: ["--chrome-selected"] },
+  // The sidebar's git status IS the information — IntelliJ's alphabet, with no badge to fall back on. Its
+  // grounds are the three RESTING chrome surfaces and not --chrome-selected, because a selected row hands
+  // its filename to --chrome-selected-text instead. That is not an omission, and the test below holds it:
+  // --chrome-selected sits between the two lightness poles, so no status ink can be tuned against both it
+  // and the resting row — --chrome-vcs-edited measured 2.86:1 there on Solarized dark.
+  { name: "--chrome-vcs-new", floor: AA_NORMAL_TEXT, grounds: VCS_GROUNDS },
+  { name: "--chrome-vcs-edited", floor: AA_NORMAL_TEXT, grounds: VCS_GROUNDS },
+  { name: "--chrome-vcs-staged", floor: AA_NORMAL_TEXT, grounds: VCS_GROUNDS },
+  // Focus rings and the selection accent: indicators, not text, so 1.4.11's floor.
+  { name: "--active", floor: AA_NON_TEXT, grounds: [...CANVAS_GROUNDS, ...CHROME_GROUNDS] },
+];
+
+test("every ink clears its floor on every surface it is painted on", () => {
+  const blocks = customPropertyBlocks();
+  const base = blocks.find((b) => b.selector === ":root");
+  const light = blocks.find((b) => b.selector === ':root[data-theme="light"]') ?? { vars: {} };
+  const themes = blocks.filter((b) =>
+    b.selector === ":root" || b.selector === ':root[data-theme="light"]' || b.selector.includes("data-syntax-theme"));
+  assert.ok(themes.length >= 6, `every shipped theme is checked (found ${themes.length})`);
+
+  const failures = [];
+  let checked = 0;
+  for (const theme of themes) {
+    const isLight = theme.selector.includes('data-theme="light"');
+    const vars = { ...base.vars, ...(isLight ? light.vars : {}), ...theme.vars };
+    for (const ink of INK) {
+      const colour = resolve(vars, ink.name);
+      assert.ok(colour, `${theme.selector} resolves ${ink.name}`);
+      for (const groundName of ink.grounds) {
+        const ground = resolve(vars, groundName);
+        assert.ok(ground, `${theme.selector} resolves ${groundName}`);
+        checked += 1;
+        const ratio = contrast(colour, ground);
+        if (ratio < ink.floor) {
+          failures.push(`${theme.selector} ${ink.name} on ${groundName} = ${ratio}:1 (floor ${ink.floor})`);
+        }
+      }
+    }
+  }
+  // 13 theme/mode pairs x 9 inks; a drop here means an ink or a ground quietly left the sweep.
+  assert.ok(checked >= 400, `the sweep covered every ink on every ground (checked ${checked})`);
+  assert.deepEqual(failures, [], "ink below its floor on a surface it is painted on");
+});
+
+// The two ways a colour that measures fine on paper arrives on screen below the floor. Both were live in
+// six places at once, which is what a shape rule is for: the measuring test above only sees the tokens, and
+// these defects live in the rules that USE them.
+//
+//   1. Alpha. `opacity: 0.8` composites the ink back toward the ground by 20% — it undoes exactly the
+//      headroom the palette was tuned for, and it is invisible in any sweep of the palette itself. Nine of
+//      the thirteen theme/mode pairs were under AA on the inlay hint for this reason alone.
+//   2. Ink on a tint of itself. A `color-mix(<ink> N%, transparent)` fill moves the ground toward the ink
+//      by as much as it makes the chip visible, so it spends the ink's contrast to buy the chip's shape.
+//      This was already written down for the sidebar pills; it was still live for the kind chip and the
+//      inlay hint, which is how a rule stated in one comment fails to bind the next author.
+//
+// Secondary text does not need either one. Size, weight, face, italic and position separate it for free.
+test("no secondary ink is thinned with alpha, and none is laid on a tint of itself", () => {
+  // Every rule whose colour is one of the secondary inks — the ones with the least headroom to spend.
+  const SECONDARY = ["--muted", "--chrome-muted"];
+  const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)];
+  assert.ok(rules.length > 500, `the whole stylesheet is scanned (found ${rules.length} rules)`);
+
+  const offenders = [];
+  let scanned = 0;
+  for (const [, selector, body] of rules) {
+    if (selector.trimStart().startsWith(":root") || selector.includes("@")) continue;
+    const colour = /(?:^|[;\s])color\s*:\s*([^;]+)/.exec(body);
+    if (!colour) continue;
+    const ink = SECONDARY.find((name) => colour[1].includes(`var(${name})`));
+    if (!ink) continue;
+    scanned += 1;
+    const sel = selector.trim().replace(/\s+/g, " ");
+    // 1. Alpha anywhere in the rule that paints it.
+    const alpha = /(?:^|[;\s])opacity\s*:\s*(0?\.\d+|0)\s*(?:;|$)/.exec(body);
+    if (alpha) offenders.push(`${sel} thins ${ink} with opacity: ${alpha[1]}`);
+    // 2. A fill made out of the very ink being painted on it.
+    const fill = new RegExp(`background(?:-color)?\\s*:[^;]*color-mix\\([^)]*var\\(${ink}\\)`).exec(body);
+    if (fill) offenders.push(`${sel} lays ${ink} on a tint of ${ink}`);
+    // 3. The same spend wearing the mix's clothes: the ink itself mixed toward its own ground.
+    const thinned = new RegExp(`color\\s*:\\s*color-mix\\([^;]*var\\(${ink}\\)\\s*\\d+%\\s*,\\s*transparent`).exec(body);
+    if (thinned) offenders.push(`${sel} thins ${ink} with a transparent mix`);
+  }
+  assert.ok(scanned >= 20, `the secondary inks are actually used in rules this scan reaches (scanned ${scanned})`);
+  assert.deepEqual(offenders, [], "secondary ink spending the contrast the palette was tuned for");
+});
+
+// The canvas and the chrome are two palettes, and the comments in viewer.css say so in three places —
+// "--muted — a code-canvas token, on chrome grounds here" is how the qualifier pills were diagnosed. Prose
+// does not bind the next author: a deleted filename was still painted with --muted on a sidebar row, the
+// Settings close button hovered in --text on --chrome-selected (3.88:1 on darcula), and three patch-set
+// controls wore --chrome-muted on --panel. Each one measured somewhere between fine and broken depending on
+// the theme, which is exactly the kind of defect that survives review.
+//
+// Stating it as a rule also licenses the narrower ground lists above: --text is swept against the canvas
+// ONLY because nothing paints it on the chrome, and this is what keeps that true.
+//
+// Honest limit: ink inherits its ground from an ancestor, so a stylesheet scan can only judge the rules that
+// declare both halves themselves. It catches the crossing where it is written down, not the one assembled
+// across two selectors — the measuring sweep above is what covers the rest.
+test("the canvas palette and the chrome palette do not borrow each other's ink", () => {
+  const CANVAS_INK = ["--text", "--muted"];
+  const CHROME_INK = ["--chrome-text", "--chrome-muted", "--chrome-selected-text"];
+  const CHROME_GROUND = ["--chrome-bg", "--chrome-selected", "--chrome-panel", "--chrome-elevated", "--chrome-line"];
+  const CANVAS_GROUND = ["--panel", "--bg", "--elevated", "--line"];
+
+  const crossings = [];
+  let paired = 0;
+  for (const [, selector, body] of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    if (selector.trimStart().startsWith(":root") || selector.includes("@")) continue;
+    const colour = /(?:^|[;\s])color\s*:\s*([^;]+)/.exec(body);
+    const fill = /(?:^|[;\s])background(?:-color)?\s*:\s*([^;]+)/.exec(body);
+    if (!colour || !fill) continue;
+    paired += 1;
+    const sel = selector.trim().replace(/\s+/g, " ");
+    const pairs = [
+      ["canvas ink on a chrome ground", CANVAS_INK, CHROME_GROUND],
+      ["chrome ink on a canvas ground", CHROME_INK, CANVAS_GROUND],
+    ];
+    for (const [what, inks, grounds] of pairs) {
+      for (const ink of inks) {
+        if (!colour[1].includes(`var(${ink})`)) continue;
+        for (const ground of grounds) {
+          if (fill[1].includes(`var(${ground})`)) crossings.push(`${sel}: ${what} — ${ink} on ${ground}`);
+        }
+      }
+    }
+  }
+  assert.ok(paired >= 60, `the scan reached the rules that paint both halves (found ${paired})`);
+  assert.deepEqual(crossings, [], "a rule borrowing the other palette's ink");
+});
+
+// The claim VCS_GROUNDS leans on. A selected sidebar row must hand its filename to --chrome-selected-text,
+// because that is the ONLY ink measured against --chrome-selected: delete this rule and every status colour
+// is back on a ground none of them clears, with the sweep above no longer asking. The rule has to outrank
+// the status rules it overrides, so it also has to come after them — equal specificity, source order wins.
+test("a selected row paints its filename in the selection's own ink", () => {
+  const override = /\.change-row\.active \.change-name[^{}]*\{([^}]*)\}/.exec(css);
+  assert.ok(override, "the selected row still overrides the status ink on the filename");
+  assert.match(override[1], /var\(--chrome-selected-text\)/,
+    "the one ink this test's --chrome-selected measurement covers");
+
+  const status = css.lastIndexOf(".change-row.ch-deleted .change-name");
+  assert.ok(status > 0, "the status rules are still here to be overridden");
+  assert.ok(css.indexOf(override[0]) > status,
+    "the override comes after the status rules, or equal specificity hands them the cascade");
+});

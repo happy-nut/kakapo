@@ -231,3 +231,77 @@ test("a failed switch can be tried again", async () => {
     v.close();
   }
 });
+
+// The branch list marks one row as the repository's default, and until anyone picks a branch the effective
+// ref IS that default. So a click on the marked row matched the no-op guard's equality check and was
+// screened — the menu closed, nothing reached set-compare-mode, and `state.compareRef` was never written.
+//
+// Screening it is right once the branch is recorded and wrong before: the reader's explicit choice of the
+// branch they were already on left no trace, and the next time the automatic answer moved — an upstream
+// appears, the default branch is renamed — the review moved off it with no record that it had been chosen.
+// `pinned` is the fact main has that the renderer did not.
+test("picking the branch the review already defaults to records the choice", async () => {
+  const v = await loadViewer(html);
+  // mode 'all' on origin/main, arrived at by resolution rather than by a pick: pinned is false.
+  const calls = installCompareBridge(v, { mode: "all", ref: "origin/main", defaultRef: "origin/main", pinned: false });
+
+  v.$("#compare-pill").dispatchEvent(new v.window.MouseEvent("click", { bubbles: true }));
+  await v.settle(30);
+  v.$(".compare-menu-branch-open").dispatchEvent(new v.window.MouseEvent("click", { bubbles: true }));
+  await v.settle(30);
+  const marked = v.$all(".compare-branch-item").find((b) => b.dataset.ref === "origin/main");
+  assert.ok(marked, "the default branch is in the list");
+  marked.dispatchEvent(new v.window.MouseEvent("click", { bubbles: true }));
+  await v.settle(30);
+
+  assert.deepEqual(calls, [["all", "origin/main"]],
+    "the pick reached main, which is the only thing that persists it");
+  v.close();
+});
+
+test("picking the branch already recorded is still screened from the rebuild", async () => {
+  // The other half, and the behaviour the guard exists for: a rebuild is a git diff plus a source re-index,
+  // and asking for the state you are already in should not cost one. `pinned` is what separates the two.
+  const v = await loadViewer(html);
+  const calls = installCompareBridge(v, { mode: "all", ref: "origin/main", defaultRef: "origin/main", pinned: true });
+
+  v.$("#compare-pill").dispatchEvent(new v.window.MouseEvent("click", { bubbles: true }));
+  await v.settle(30);
+  v.$(".compare-menu-branch-open").dispatchEvent(new v.window.MouseEvent("click", { bubbles: true }));
+  await v.settle(30);
+  const marked = v.$all(".compare-branch-item").find((b) => b.dataset.ref === "origin/main");
+  marked.dispatchEvent(new v.window.MouseEvent("click", { bubbles: true }));
+  await v.settle(30);
+
+  assert.deepEqual(calls, [], "no rebuild for a pick that is already on record");
+  assert.equal(v.$("#compare-menu").classList.contains("hidden"), true, "and the menu still closes");
+  v.close();
+});
+
+// A second pick, of a DIFFERENT branch, still has to go through — the optimistic pin must not make the
+// guard screen it. This is the failure mode the optimistic update introduced the last time it was added.
+test("the optimistic pin does not screen a pick of a different branch", async () => {
+  const v = await loadViewer(html);
+  const calls = installCompareBridge(v, { mode: "all", ref: "origin/main", defaultRef: "origin/main", pinned: false });
+
+  v.$("#compare-pill").dispatchEvent(new v.window.MouseEvent("click", { bubbles: true }));
+  await v.settle(30);
+  v.$(".compare-menu-branch-open").dispatchEvent(new v.window.MouseEvent("click", { bubbles: true }));
+  await v.settle(30);
+  v.$all(".compare-branch-item").find((b) => b.dataset.ref === "origin/main")
+    .dispatchEvent(new v.window.MouseEvent("click", { bubbles: true }));
+  await v.settle(30);
+
+  v.$("#compare-pill").dispatchEvent(new v.window.MouseEvent("click", { bubbles: true }));
+  await v.settle(30);
+  v.$(".compare-menu-branch-open").dispatchEvent(new v.window.MouseEvent("click", { bubbles: true }));
+  await v.settle(30);
+  const other = v.$all(".compare-branch-item").find((b) => b.dataset.ref === "feature/dropdown");
+  assert.ok(other, "a second branch is in the list");
+  other.dispatchEvent(new v.window.MouseEvent("click", { bubbles: true }));
+  await v.settle(30);
+
+  assert.deepEqual(calls, [["all", "origin/main"], ["all", "feature/dropdown"]],
+    "both picks reached main");
+  v.close();
+});

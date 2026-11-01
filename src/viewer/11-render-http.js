@@ -352,11 +352,15 @@ function openLightbox(src, alt, vector) {
   img.classList.toggle('mc-lightbox-vector', !!vector);
   img.src = src;
   img.alt = alt || '';
+  rememberOverlayFocus(lb);
   lb.classList.remove('hidden');
 }
 function closeLightbox() {
   var lb = document.getElementById('mc-lightbox');
-  if (lb) lb.classList.add('hidden');
+  if (!lb) return;
+  var held = lb.contains(document.activeElement);
+  lb.classList.add('hidden');
+  restoreOverlayFocus(lb, held);
 }
 function lightboxOpen() {
   var lb = document.getElementById('mc-lightbox');

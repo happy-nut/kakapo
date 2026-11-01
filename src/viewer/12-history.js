@@ -451,7 +451,11 @@ function isHistoryOpen() {
 function closeHistory() {
   historyLoadSeq += 1;
   var v = document.getElementById('history-view');
-  if (v) { v.classList.add('hidden'); v.classList.remove('history-direct-diff'); }
+  if (!v) return;
+  var held = v.contains(document.activeElement);
+  v.classList.add('hidden');
+  v.classList.remove('history-direct-diff');
+  restoreOverlayFocus(v, held);
 }
 function historyScopeLabel() {
   if (!historyScope) return '';
@@ -483,6 +487,7 @@ function openHistory(scope) {
   var v = document.getElementById('history-view');
   if (!v) return;
   if (!window.kakapoGit) return; // browser/serve mode: no git bridge
+  rememberOverlayFocus(v);
   // The overlay renders UNDER the merged dock (z75 vs 77+), so opening it while that is up looked like the
   // shortcut did nothing. Full-screen surfaces switch, never stack.
   leaveFullScreenPanels();

@@ -33,6 +33,7 @@ var QUICK_LAUNCHER_MODES = ['recent', 'all', 'content'];
 // it wants, so a column of the other sections beside a short list of recent files is all frame and no list.
 function openQuickOpen(mode, hideRail) {
   if (!quickOpen || !quickInput || !quickModeLabel) return;
+  rememberOverlayFocus(quickOpen);
   quickMode = mode;
   quickModeLabel.textContent = mode === 'recent'
     ? t('quickopen.recent')
@@ -143,8 +144,10 @@ function closeQuickOpen() {
   // "a text field is focused" in any environment that does not (jsdom), and every code-level shortcut
   // stands down while that is true. Saying it is cheaper than depending on it.
   var focused = document.activeElement;
-  if (focused && quickOpen && quickOpen.contains(focused) && focused.blur) focused.blur();
+  var held = !!(focused && quickOpen && quickOpen.contains(focused));
+  if (held && focused.blur) focused.blur();
   quickOpen?.classList.add('hidden');
+  restoreOverlayFocus(quickOpen, held);
   quickPreviewState = null;
   if (quickPreviewScrollFrame) cancelAnimationFrame(quickPreviewScrollFrame);
   quickPreviewScrollFrame = 0;

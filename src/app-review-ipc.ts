@@ -405,7 +405,13 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
         : state.options.staged || state.options.base === "HEAD" || (!state.options.base && !state.reviewBase)
           ? "uncommitted"
           : "all";
-      return { mode, ref, defaultRef, branches: listBranches(root) };
+      // Whether `ref` is the reader's own pick or just what the repository resolves to today. The menu's
+      // no-op guard needs the difference: a click on the branch already shown is a rebuild worth screening
+      // ONLY once that branch has been recorded. Screened before that, the pick never reaches
+      // set-compare-mode, so nothing is persisted, and the next time the automatic answer changes — an
+      // upstream appears, the default branch is renamed — the review moves off the branch the reader
+      // chose, with no record that they ever chose it.
+      return { mode, ref, defaultRef, pinned: Boolean(state.compareRef), branches: listBranches(root) };
     } catch { return null; }
   });
 

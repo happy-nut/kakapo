@@ -114,6 +114,7 @@ function renderBreadcrumb(container, path) {
     const sep = document.createElement('span');
     sep.className = 'crumb-sep';
     sep.textContent = '›';
+    sep.setAttribute('aria-hidden', 'true');
     container.appendChild(sep);
     const leaf = document.createElement('span');
     leaf.className = 'crumb crumb-leaf';
@@ -128,6 +129,7 @@ function renderBreadcrumb(container, path) {
       const sep = document.createElement('span');
       sep.className = 'crumb-sep';
       sep.textContent = '›';
+      sep.setAttribute('aria-hidden', 'true');
       container.appendChild(sep);
     }
     const span = document.createElement('span');
