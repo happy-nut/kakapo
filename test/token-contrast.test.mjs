@@ -50,12 +50,32 @@ const contrast = (a, b) => {
   const [hi, lo] = [relativeLuminance(a), relativeLuminance(b)].sort((x, y) => y - x);
   return Math.round(((hi + 0.05) / (lo + 0.05)) * 100) / 100;
 };
+// A ground may be written as a step from another ground rather than as a literal — the File Colors are,
+// because one flat tint cannot sit behind twelve themes' ink. Evaluating the mix is not a nicety: a
+// resolver that returns null for it drops that ground from every sweep SILENTLY, which looks exactly like
+// a ground that passes.
+const mixed = (vars, value, depth) => {
+  const m = /^color-mix\(\s*in\s+srgb\s*,\s*(#[0-9a-f]{6}|var\(--[\w-]+\))\s+(\d+)%\s*,\s*(#[0-9a-f]{6}|var\(--[\w-]+\))\s*\)$/i
+    .exec(value);
+  if (!m) return null;
+  const side = (token) => {
+    const ref = /^var\((--[\w-]+)\)$/.exec(token);
+    return ref ? resolve(vars, ref[1], depth + 1) : hex(token);
+  };
+  const a = side(m[1]);
+  const b = side(m[3]);
+  if (!a || !b) return null;
+  const w = Number(m[2]) / 100;
+  return { r: a.r * w + b.r * (1 - w), g: a.g * w + b.g * (1 - w), b: a.b * w + b.b * (1 - w) };
+};
 // One level of `var(--x)` indirection is enough for how these themes are written; more would be a smell.
 const resolve = (vars, name, depth = 0) => {
   const value = vars[name];
   if (!value || depth > 4) return null;
-  const reference = /^var\((--[\w-]+)\)$/.exec(value.trim());
-  return reference ? resolve(vars, reference[1], depth + 1) : hex(value);
+  const trimmed = value.trim();
+  const reference = /^var\((--[\w-]+)\)$/.exec(trimmed);
+  if (reference) return resolve(vars, reference[1], depth + 1);
+  return hex(trimmed) ?? mixed(vars, trimmed, depth);
 };
 
 // Every fill that is painted behind a line of code — including the word-level fills, which are grounds
@@ -385,13 +405,18 @@ test("text painted a literal colour is still readable on the light themes", () =
 //
 // So this names surfaces and asks every ink that lands on one to clear its floor there. A new theme answers
 // the same questions without anyone remembering to add it, and a new surface is one line.
-const CHROME_GROUNDS = ["--chrome-bg", "--chrome-selected", "--chrome-panel", "--chrome-elevated"];
+// A tinted row is a ground: IntelliJ's File Colors paint the ROW and leave the name alone, so the status
+// colour that name carries has to survive the tint. These were missing, and seventeen ink/ground pairs
+// were under AA behind them — the one axis of this round that a first pass walked straight past.
+const CHROME_GROUNDS = ["--chrome-bg", "--chrome-selected", "--chrome-panel", "--chrome-elevated",
+  "--file-color-test", "--file-color-generated"];
 // --muted is the code canvas's secondary ink. The canvas is the diff and the source, plus the sheets and
 // empty states that share its palette — NOT the sidebar: a chrome row uses --chrome-muted, which is the
 // rule the qualifier pills were moved onto and the rule a deleted filename was still breaking.
 const CANVAS_GROUNDS = ["--panel", "--bg", "--elevated", "--line",
   "--add", "--del", "--diff-modified", "--diff-added", "--diff-deleted"];
-const VCS_GROUNDS = ["--chrome-bg", "--chrome-panel", "--chrome-elevated"];
+const VCS_GROUNDS = ["--chrome-bg", "--chrome-panel", "--chrome-elevated",
+  "--file-color-test", "--file-color-generated"];
 const INK = [
   { name: "--text", floor: AA_NORMAL_TEXT, grounds: CANVAS_GROUNDS },
   { name: "--muted", floor: AA_NORMAL_TEXT, grounds: CANVAS_GROUNDS },

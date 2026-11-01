@@ -129,9 +129,20 @@
   --d2h-info-color: var(--muted);
   /* IntelliJ's File Colors (FileColorManagerImpl): Green and Yellow, dark values here and light
      ones under [data-theme="light"] below — every light theme carries that attribute, so the pair
-     covers all twelve without a token per theme. */
-  --file-color-test: #49544a;
-  --file-color-generated: #4f4b41;
+     covers all twelve without a token per theme.
+     A tinted row is still a row with a FILENAME on it, and that filename carries the git status in
+     its colour — so the tint is a ground, and every chrome ink lands on it. Laid as a flat #49544a it
+     is one slab behind twelve different ink sets, each tuned against its own --chrome-bg: measured,
+     seventeen of them fell under AA there, --active on Solarized dark reaching 2.27:1. Mixed toward
+     --chrome-bg instead, it is a STEP FROM whatever ground the theme already solved for, so an ink
+     that clears on a plain row clears on a tinted one by construction, and one declaration stays
+     right for twelve themes.
+     The strength is not a weakening: flat, these measured 1.6-2.7:1 against their own row, while
+     IntelliJ's own Darcula step (#49544a on its #3c3f41 tree) is 1.34:1. At these percentages they
+     land on 1.21-1.30 — the tint this is a port of. The light values need no mix; they pass at full
+     strength, being a pale wash on a pale ground already. */
+  --file-color-test: color-mix(in srgb, #49544a 39%, var(--chrome-bg));
+  --file-color-generated: color-mix(in srgb, #4f4b41 45%, var(--chrome-bg));
 }
 /* Light theme. Everything (chrome, diff2html, syntax tokens) reads these var()s, so overriding the
    palette flips the whole UI — no per-rule light styles needed. Toggled in Settings → General, which
