@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { buildDiffReview } from "../dist/build.js";
 import { resolveAutomaticReviewBase } from "../dist/git.js";
-import { readPatchSets } from "../dist/patch-sets.js";
+import { readPatchSets, usableCompareBase } from "../dist/patch-sets.js";
 import { readReviewBody, reviewDiffSignature, writeReviewWorkspace } from "../dist/review-workspace.js";
 
 let fixture;
@@ -227,6 +227,47 @@ test("the patch-set base follows the branch the compare control is set to", () =
     assert.equal(own.branchPoint.label, "main",
       "a ref that contains HEAD falls through rather than leaving the bar with nothing to draw");
     assert.equal(own.commits.length, 2, "so the patch sets — and the way out — stay on screen");
+  } finally {
+    rmSync(fixture, { recursive: true, force: true });
+  }
+});
+
+// "A ref that contains HEAD cannot be a base" has to be ONE rule. Stated only where the patch-set bar
+// reads it, the bar fell through and labelled its option `main` while set-compare-mode went on resolving
+// the picked ref to HEAD — the same label-names-one-branch, click-uses-another split that threading the
+// ref into the bar was meant to end, reinstated for exactly the refs the new check rejects.
+//
+// Asserted against the exported rule and against the source of its second reader, because the defect was
+// a rule applied in one of two places and a test of one place cannot see that.
+test("the rule about an unusable base is one rule, read by both sides", () => {
+  const fixture = mkdtempSync(join(tmpdir(), "kakapo-usable-base-"));
+  const git = (args) => spawnSync("git", args, { cwd: fixture, encoding: "utf8" });
+  try {
+    git(["init", "-qb", "main"]);
+    git(["config", "user.email", "t@t.t"]);
+    git(["config", "user.name", "t"]);
+    writeFileSync(join(fixture, "a.txt"), "one\n");
+    git(["add", "-A"]);
+    git(["commit", "-qm", "base"]);
+    git(["checkout", "-qb", "work"]);
+    writeFileSync(join(fixture, "a.txt"), "two\n");
+    git(["commit", "-qam", "ahead"]);
+
+    assert.ok(usableCompareBase(fixture, "main"), "a branch behind HEAD gives a base");
+    assert.equal(usableCompareBase(fixture, "work"), undefined,
+      "the branch you are on does not — it has nothing ahead of it");
+    assert.equal(usableCompareBase(fixture, "no-such-branch"), undefined, "and neither does a ref that is gone");
+
+    // The second reader. app-main resolves the base for "all changes" and must apply the same rule, or
+    // the bar's label and the click it labels name different branches again.
+    const appMain = readFileSync(new URL("../dist/app-main.js", import.meta.url), "utf8");
+    const at = appMain.indexOf('ipcMain.handle("kakapo:set-compare-mode"');
+    assert.ok(at > 0, "the premise: the handler is findable");
+    const handler = appMain.slice(at, appMain.indexOf("ipcMain.handle(", at + 1));
+    assert.match(handler, /usableCompareBase\(/,
+      "set-compare-mode resolves its base through the same rule, not with its own merge-base call");
+    assert.ok(!/merge-base/.test(handler),
+      "and does not keep a merge-base call of its own beside it");
   } finally {
     rmSync(fixture, { recursive: true, force: true });
   }

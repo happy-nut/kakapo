@@ -8,7 +8,16 @@
 // a toast that has been on screen longest has had its chance.
 function showToast(message) {
   var stack = document.getElementById('mc-toasts');
-  if (!stack) { stack = document.createElement('div'); stack.id = 'mc-toasts'; document.body.appendChild(stack); }
+  if (!stack) {
+    stack = document.createElement('div');
+    stack.id = 'mc-toasts';
+    // A toast is the app answering — "comment removed", "all changes · main 대비" — and it was announced
+    // to nobody: no role, no live region, and it takes itself away after 4.5 s. The caret hint beside it
+    // has been role="status" aria-live="polite" all along; this is the one that was missed.
+    stack.setAttribute('role', 'status');
+    stack.setAttribute('aria-live', 'polite');
+    document.body.appendChild(stack);
+  }
   var el = document.createElement('div');
   el.className = 'mc-toast';
   el.textContent = message;
@@ -1716,13 +1725,23 @@ function gotoComment(delta) {
   // the work a diff-first launch exists to defer, and one comment on an unchanged file is enough to
   // trigger it: holding the key press for that put a whole-repo index build in front of a caret move that
   // had somewhere to go all along. Land on what is reachable now; the fetch is for the presses after.
-  if (!settled) ensureProjectIndex();
+  // Fetched only by a press that NEEDS it. Warming the index for later presses sounded free and was not:
+  // installProjectIndex rebuilds sourceByPath and can repaint, which raced the lazy file load a landing
+  // press had just started — the caret ended up at line 1 of a file it had been sent to line 50 of. The
+  // suite caught it intermittently, which is what a race looks like from outside. A press that lands
+  // needs nothing; a press that cannot land asks below, and by then there is nothing else in flight.
   if (reachable.length) { step(reachable); return true; }
   if (settled) { showCaretHint(t('comment.nav.unreachable')); return true; }
   // Nothing to land on and the index has not arrived, so this press genuinely has nothing else to do and
   // waits for it. One press does: stepAnchor reads the LIVE caret, so a second one deferred into the same
   // round trip would land on the same comment and be spent. ensureProjectIndex resolves on failure rather
   // than rejecting (01-core.js), so the one branch below covers both outcomes.
+  // Say that it is looking. The index walk was measured at 1.6 s on this repository, and in that time the
+  // press showed nothing at all and then moved the screen on its own — by which point the reader is
+  // looking somewhere else and the jump arrives unasked. A second press during the wait is answered with
+  // the same sentence rather than swallowed: stepAnchor reads the live caret, so deferring it too would
+  // land both on one comment, but a key that says nothing twice is the thing this round keeps finding.
+  showCaretHint(t('comment.nav.looking'));
   if (commentNavAwaitingIndex) return true;
   commentNavAwaitingIndex = true;
   ensureProjectIndex().then(function () {

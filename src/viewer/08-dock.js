@@ -705,7 +705,17 @@ setInterval(checkForUpdate, UPDATE_CHECK_MS);
     cats.forEach(function (c) { c.classList.toggle('active', c.dataset.cat === cat); });
     secs.forEach(function (s) { s.classList.toggle('hidden', s.dataset.cat !== cat); });
   }
-  function open(cat) { if (cat) showCat(cat); modal.classList.remove('hidden'); }
+  function open(cat) {
+    if (cat) showCat(cat);
+    modal.classList.remove('hidden');
+    // Focus goes IN, and that is what makes the trap below real. It was wired and correct and never ran,
+    // because nothing moved focus into the dialog: the keydown listener is on `modal`, so a key pressed
+    // while focus sat on <body> never reached it. The sheet says aria-modal="true", which tells assistive
+    // technology that everything outside is inert — while Tab went out there anyway, past the whole file
+    // tree and the diff, because #settings-modal is the eighth child of <body>.
+    var first = modal.querySelector('.settings-cat.active, .settings-cat, #settings-close');
+    if (first && typeof first.focus === 'function') first.focus();
+  }
   // Ending any live capture is part of closing. A rebind row listens through a capture-phase keydown that
   // preventDefaults EVERY key; the × button happens to end it by letting its click bubble to the
   // document handler, and the gear — which stopPropagation()s its own click — did not. The sheet then

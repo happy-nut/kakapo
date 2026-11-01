@@ -204,6 +204,11 @@ function insertInlayHint(cell, column, text, kind, paddingLeft, paddingRight) {
     if (seen + length >= column) {
       var span = document.createElement('span');
       span.className = 'inlay-hint';
+      // Not part of the line. Read out with the code, the server's guesses became the developer's text:
+      // `document.addEventListener(type: 'mousedown', listener: fun…` is what the accessible name of that
+      // row said, with no way to tell which half anybody wrote. The information is in the Code Vision
+      // row and in ⌥F7; what it must not do is impersonate the source.
+      span.setAttribute('aria-hidden', 'true');
       if (kind) span.dataset.inlayKind = kind;
       span.textContent = (paddingLeft ? ' ' : '') + text + (paddingRight ? ' ' : '');
       // Never inside a word: the label goes between text nodes, splitting one if the offset falls inside.

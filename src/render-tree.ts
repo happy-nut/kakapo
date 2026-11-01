@@ -337,6 +337,12 @@ export function trivialChange(file: DiffFile): TrivialChange | undefined {
 // existed, by its own comment, only to hold the viewed ✓ and to keep the filenames aligned. The box does
 // both. What CHANGED is still said by the colour of the name (.change-row.ch-* in viewer.css).
 function viewedBox(): string {
+  // Deliberately NOT focusable, which is a knowing deviation from ARIA: a checkbox is supposed to be the
+  // focus target for its own state. Giving it `tabindex` adds one Tab stop per FILE — hundreds on a real
+  // review — in front of the same keyboard users it would be for, to reach a control whose operation is
+  // already on the row that holds it. The row is an anchor and takes focus; Space there toggles this
+  // (05-keymap.js), and the label this carries says so: "이 파일 확인함 (Space)". So the state is
+  // announced, the key is named, and the walk stays one stop per row.
   return '<span class="viewed-box" role="checkbox" aria-checked="false" data-i18n-aria="tree.markViewed"></span>';
 }
 

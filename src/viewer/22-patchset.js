@@ -190,21 +190,29 @@ function renderPatchSetBar() {
 
 // The sentence in the middle of the bar: which two things the diff below is the difference between. Built
 // from the same option lists the buttons are, so it can never name something the bar does not offer.
-function patchSetSideLabel(opts) {
+function patchSetSideLabel(opts, active) {
   for (var i = 0; i < opts.length; i++) {
     if (!opts[i].active) continue;
     // The title already reads "3. subject (sha · date)" for a commit and "All changes · main" for an end;
     // its leading "N. " is the number on the button right beside it, so it is dropped here.
     return String(opts[i].title || opts[i].label).replace(/^\d+\.\s*/, '');
   }
-  return '';
+  // Nothing matched, which happens in two perfectly ordinary states: a `kakapo --base main` launch carries
+  // the REF NAME as activeBase, and ⌥U sets it to "HEAD" — neither is one of these options, which are shas.
+  // The summary then came out EMPTY while the toolbar pill beside it named the base without difficulty, and
+  // a bar that says nothing about the state it is in reads as a bar that is broken. Name the value itself.
+  var ref = String(active || '');
+  if (!ref) return '';
+  if (ref === 'worktree') return t('patchset.latest');
+  if (ref === 'HEAD') return t('patchset.workingTree');
+  return patchSetShortRef(ref);
 }
 function renderPatchSetSummary() {
   var el = document.getElementById('patchset-summary');
   if (!el) return;
   if (!patchSetData) { el.textContent = ''; return; }
-  var base = patchSetSideLabel(patchSetBaseOptions(patchSetData));
-  var target = patchSetSideLabel(patchSetTargetOptions(patchSetData));
+  var base = patchSetSideLabel(patchSetBaseOptions(patchSetData), patchSetData.activeBase);
+  var target = patchSetSideLabel(patchSetTargetOptions(patchSetData), patchSetData.activeTarget);
   el.textContent = (base && target) ? t('patchset.comparing').replace('{base}', base).replace('{target}', target) : '';
   el.title = el.textContent;
 }

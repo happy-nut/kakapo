@@ -1578,8 +1578,18 @@ body {
 td.d2h-ins:not(.d2h-code-side-linenumber),
 td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
 /* IntelliJ's side-by-side viewer communicates insert/delete through the gutter and background; literal
-   +/- prefixes add horizontal noise and make the panes read like a patch rather than two editors. */
-.d2h-code-line-prefix { display: none; -webkit-user-select: none; user-select: none; }
+   +/- prefixes add horizontal noise and make the panes read like a patch rather than two editors.
+   HIDDEN FROM SIGHT, NOT FROM THE PAGE: `display: none` took it out of the accessibility tree too, and the
+   background tint that stands in for it measures 1.00–1.29:1 against the context rows — no contrast at
+   all — so a screen reader was handed two columns of code with nothing marking which lines are the edit.
+   Clipped instead: the panes look exactly as they did, and the one character that names the change is
+   back in the tree. (The tint's own contrast is a palette question across twelve themes, not settled
+   here.) */
+.d2h-code-line-prefix {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden;
+  clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+  -webkit-user-select: none; user-select: none;
+}
 .d2h-code-side-linenumber, .d2h-code-linenumber { -webkit-user-select: none; user-select: none; }
 /* The diff is highlighted by highlight.js and the source view by the viewer's own tokenizer, so the two
    surfaces speak different class vocabularies — but they must not look like two different editors. These
@@ -3472,6 +3482,14 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 .href-branch { color: #69d47c; }
 .href-remote { color: #bd91ff; }
 .href-tag { color: #efb84f; }
+/* The four above are dark-theme colours and had no light counterpart, so on every light theme these
+   badges measured 1.39–1.80:1 — the label naming the branch a commit sits on, effectively invisible,
+   forty-eight rows at a time. The hue is what tells head from branch from remote from tag, so only the
+   lightness moves. The border and fill derive from `currentColor` (.href above), so they follow. */
+:root[data-theme="light"] .href-head { color: #0b5d8a; }
+:root[data-theme="light"] .href-branch { color: #1a6b2c; }
+:root[data-theme="light"] .href-remote { color: #5b2bb5; }
+:root[data-theme="light"] .href-tag { color: #7a5200; }
 
 /* Go-to-line (Cmd/Ctrl+L): a small numeric prompt near the top, like a command palette. */
 .goto-line {
@@ -4103,6 +4121,24 @@ body.dock-maximized .dock-panel { inset: 0; width: auto; max-height: none; trans
 .http-status.ok { color: #59a869; }
 .http-status.warn { color: #d9a343; }
 .http-status.bad { color: #e06c75; }
+/* The HTTP client's status inks are dark-theme greens, ambers and reds with no light counterpart, so on a
+   white ground they measured 2.07–3.20:1 — "200 OK", "Run", and the mark beside a finished request, all
+   below the floor. Same hues, moved in lightness only, which is how the ref badges above were answered.
+   Found by the literal-ink sweep in test/token-contrast.test.mjs rather than by anyone looking: this
+   surface is behind a .http file and nobody had opened one on a light theme. */
+:root[data-theme="light"] .http-run { color: #1a7f37; }
+:root[data-theme="light"] .http-run:hover { color: #15682c; }
+:root[data-theme="light"] .http-var.unknown { color: #b3242f; }
+:root[data-theme="light"] .http-status.ok { color: #1a7f37; }
+:root[data-theme="light"] .http-status.warn { color: #8a5a00; }
+:root[data-theme="light"] .http-status.bad { color: #b3242f; }
+:root[data-theme="light"] .http-run-row.ok .http-run-mark { color: #1a7f37; }
+:root[data-theme="light"] .http-tests-head { color: #1a7f37; }
+:root[data-theme="light"] .http-tests.has-failures .http-tests-head { color: #b3242f; }
+:root[data-theme="light"] .http-test-error { color: #b3242f; }
+:root[data-theme="light"] .http-script-error { color: #b3242f; }
+/* The CSV preview's header ink is a near-white for the dark panels; on a white ground it is 1.33:1. */
+:root[data-theme="light"] .csv-head .csv-cell { color: #1f2328; }
 .http-resp-meta { color: var(--muted); }
 .http-resp-toggle {
   margin-left: auto;

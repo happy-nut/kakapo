@@ -48,3 +48,39 @@ test("settings lists current app, editor, review, and history shortcuts", async 
 
   v.close();
 });
+
+// Settings says `aria-modal="true"`, which tells assistive technology that everything outside it is
+// inert — and Tab went out there anyway, because opening the sheet only removed `hidden` and left focus
+// on <body>. The dialog is the eighth child of <body>, so a keyboard reader had to walk the whole file
+// tree and the diff to reach a dialog their screen reader had already told them was the only thing on
+// screen. `trapTabWithin` was wired to it the whole time and never ran once: its listener is on the
+// modal, so a key pressed while focus is outside never arrives.
+test("opening settings puts focus inside it, which is what makes its tab trap real", async () => {
+  const { html } = await makeReviewHtml([
+    { path: "src/app.ts", before: "export const n = 1;\n", after: "export const n = 2;\n" },
+  ]);
+  const v = await loadViewer(html);
+  try {
+    const modal = v.$("#settings-modal");
+    assert.equal(modal.getAttribute("aria-modal"), "true", "the premise: it claims to be a modal");
+    assert.ok(modal.classList.contains("hidden"), "and starts closed");
+
+    v.$("#app-info-btn").dispatchEvent(new v.window.MouseEvent("click", { bubbles: true }));
+    await v.settle(20);
+
+    assert.ok(!modal.classList.contains("hidden"), "it opened");
+    assert.ok(modal.contains(v.window.document.activeElement),
+      `focus is inside it, not on ${v.window.document.activeElement.tagName}`);
+
+    // And the trap it has always had now has something to hold. Tab at the last control wraps to the
+    // first rather than walking out into the tree behind the dialog.
+    const stops = v.$all("#settings-modal button, #settings-modal [tabindex='0'], #settings-modal input, #settings-modal select, #settings-modal textarea");
+    assert.ok(stops.length > 1, `the sheet has focusable controls (${stops.length})`);
+    stops[stops.length - 1].focus();
+    modal.dispatchEvent(new v.window.KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true }));
+    await v.settle(10);
+    assert.ok(modal.contains(v.window.document.activeElement), "Tab at the end stays in the dialog");
+  } finally {
+    v.close();
+  }
+});

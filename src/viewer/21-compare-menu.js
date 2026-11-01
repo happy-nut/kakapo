@@ -148,6 +148,17 @@ function refreshCompareMenu() {
   }).catch(function () { return compareMenuState; });
 }
 
+// What the keyboard says a compare key did. Shared by the press that changed something and the press that
+// found it already so, because a reader cannot tell those apart from the screen and both are answers.
+//
+// Only where the ref MEANS something. `kakapo:set-compare-mode` returns a ref unconditionally, including
+// for "uncommitted" — where it sets the base to HEAD and the ref is not consulted at all — so appending it
+// there announced a baseline this diff is not measured against.
+function announceCompareMode(settled, ref) {
+  var against = settled === 'all' ? (ref || '') : '';
+  showToast(t('compare.menu.' + settled)
+    + (against ? ' · ' + t('compare.menu.against').replace('{ref}', against) : ''));
+}
 // Apply a pick. The diff repaints through the normal kakapo:diff-update path, so nothing here touches it.
 function applyCompareMode(mode, ref, announce) {
   if (!window.kakapoGit || typeof window.kakapoGit.setCompareMode !== 'function') return;
@@ -156,10 +167,27 @@ function applyCompareMode(mode, ref, announce) {
   // row reach this same action and did not, so the guard was on one of two routes to one thing.
   if (compareMenuState && compareMenuState.mode === mode && (!ref || compareMenuState.ref === ref)) {
     closeCompareMenu();
+    // Screened from the REBUILD, not from the answer. ⌥A and ⌥U are two keys rather than one toggle
+    // because the reader is not sure which mode the review is in — that is this function's own stated
+    // reason, below — so a press that answers the question with silence is indistinguishable from a
+    // shortcut that does not work. It costs nothing to say where you already are.
+    if (announce) announceCompareMode(mode, compareMenuState.ref);
     return;
   }
   requestDiffViewOnNextCompare(); // switch back to the diff for the rebuild, as the patch-set bar does
-  // Optimistic: the row ticks now rather than after a rebuild that can take a second on a large tree.
+  // Optimistic: the row ticks now rather than after a rebuild that can take a second on a large tree —
+  // and is put back if the call fails. That used to be cosmetic (the comment further down notes the same
+  // staleness, and handled it for the announcement only), but the guard above READS this state to screen
+  // a click that would change nothing: left claiming a mode the review never reached, it would answer the
+  // reader's retry with silence. A failure you cannot try again is worse than no optimism at all.
+  var previous = compareMenuState ? { mode: compareMenuState.mode, ref: compareMenuState.ref } : null;
+  var restore = function () {
+    cancelDiffViewOnNextCompare(); // the rebuild it was armed for is not coming
+    if (!compareMenuState || !previous) return;
+    compareMenuState.mode = previous.mode;
+    compareMenuState.ref = previous.ref;
+    renderCompareMenu();
+  };
   if (compareMenuState) {
     compareMenuState.mode = mode;
     if (ref) compareMenuState.ref = ref;
@@ -171,6 +199,14 @@ function applyCompareMode(mode, ref, announce) {
       compareMenuState.mode = res.mode || mode;
       compareMenuState.ref = res.ref || compareMenuState.ref;
       renderCompareMenu();
+    } else if (!res || !res.ok) {
+      restore();
+      // A refusal with a name gets a sentence. The one that happens is picking the branch you are on,
+      // which has nothing ahead of it to review — said plainly, because the alternative is a click that
+      // appears to do nothing, which is what this whole branch exists to stop being.
+      if (res && res.error === 'compare-ref-not-ahead') {
+        showToast(t('compare.menu.notAhead').replace('{ref}', patchSetShortRef(res.ref || ref || '')));
+      }
     }
     // The menu shows the tick; the keyboard shows nothing, and what it changed is not a small thing. The
     // resolved answer rather than the asked-for one: `--base main` is served from origin/main whenever the
@@ -184,11 +220,8 @@ function applyCompareMode(mode, ref, announce) {
     // just failed to make.
     if (!announce || !pageAlive()) return;
     if (!res || !res.ok) return;
-    var settled = res.mode || mode;
-    var against = settled === 'all' ? (res.ref || '') : '';
-    showToast(t('compare.menu.' + settled)
-      + (against ? ' · ' + t('compare.menu.against').replace('{ref}', against) : ''));
-  }).catch(function () {});
+    announceCompareMode(res.mode || mode, res.ref);
+  }).catch(restore);
 }
 
 // ⌥A / ⌥U: go straight to a mode without opening anything. Two keys rather than one toggle, because a toggle
@@ -196,6 +229,13 @@ function applyCompareMode(mode, ref, announce) {
 // this is that you are not sure which of the two the review is currently showing.
 function pickCompareMode(mode) {
   if (!compareMenuAvailable()) return;
+  // `compareMenuState` is filled by OPENING the menu and by nothing else, so on the keyboard path it was
+  // null — and the guard in applyCompareMode, written for exactly these two keys, could never fire. Ask
+  // once; after that the diff-update hook keeps it current for the rest of the window.
+  if (!compareMenuState) {
+    refreshCompareMenu().then(function () { applyCompareMode(mode, undefined, true); });
+    return;
+  }
   applyCompareMode(mode, undefined, true);
 }
 

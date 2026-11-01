@@ -318,3 +318,57 @@ const saturationOf = ({ r, g, b }) => {
   const max = Math.max(r, g, b), min = Math.min(r, g, b);
   return max === 0 ? 0 : (max - min) / max;
 };
+
+// A colour written as a literal hex in a rule, rather than taken from the palette, answers to no theme.
+//
+// The ref badges in the history list were four such literals — `.href-head #56c8ff` and its siblings,
+// picked against a dark panel and left there. On every light theme they measured 1.39–1.80:1: the label
+// naming the branch a commit sits on, unreadable, forty-eight rows at a time. Nothing caught it because
+// every sweep above reads the palette, and a literal is exactly the thing that is not in it.
+//
+// Measured, not demanded: plenty of literals are fine on both grounds (a mid green reads on either), and a
+// guard that fails those is one somebody turns off. This asks the real question — what does this colour
+// measure against the LIGHT theme's surfaces — and a literal answered by its own `[data-theme="light"]`
+// rule has been dealt with and is skipped.
+test("text painted a literal colour is still readable on the light themes", () => {
+  const light = customPropertyBlocks().find((block) => block.selector === ':root[data-theme="light"]');
+  assert.ok(light, "the light palette is declared in one :root block");
+  const grounds = ["--bg", "--panel"].map((name) => {
+    const value = resolve(light.vars, name); // already {r,g,b}
+    assert.ok(value, `${name} resolves to a colour on the light theme`);
+    return { name, value };
+  });
+
+  const answered = (selector) => {
+    const classes = selector.match(/\.[\w-]+/g) || [];
+    return classes.some((cls) => {
+      const escaped = cls.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      return new RegExp(`\\[data-theme="light"\\][^{]*${escaped}[^{]*\\{[^}]*color\\s*:`).test(css);
+    });
+  };
+
+  const failures = [];
+  const re = /^([^@{}\n][^{}\n]*)\{([^}]*)\}/gm;
+  let match;
+  while ((match = re.exec(css))) {
+    const selector = match[1].trim();
+    if (selector.startsWith(":root") || /\[data-theme="light"\]/.test(selector)) continue;
+    // A diff cell never sits on --bg or --panel: every one of them is painted with a change fill, and
+    // those grounds have their own sweep at the top of this file (CODE_GROUNDS). Measured here it would
+    // report 1.25:1 for a colour that is correct, which is the kind of false alarm that gets a guard
+    // switched off.
+    if (/\bd2h-/.test(selector)) continue;
+    const ink = /(?:^|;)\s*color\s*:\s*(#[0-9a-fA-F]{6})\s*(?:;|$)/.exec(match[2]);
+    if (!ink || answered(selector)) continue;
+    const value = hex(ink[1]);
+    if (!value) continue;
+    for (const ground of grounds) {
+      const ratio = contrast(value, ground.value);
+      if (ratio < AA_NORMAL_TEXT) {
+        failures.push(`${selector} → ${ink[1]} is ${ratio.toFixed(2)}:1 on ${ground.name}`);
+      }
+    }
+  }
+  assert.deepEqual(failures, [],
+    "a fixed colour has to hold on the light grounds too, or carry a [data-theme=\"light\"] rule that does");
+});

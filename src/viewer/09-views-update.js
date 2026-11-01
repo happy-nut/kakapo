@@ -535,6 +535,11 @@ function refreshOpenSourceAfterUpdate(path, cursorSnapshot) {
 // diff panel just closed). Consumed on the next applyDiffUpdate.
 var forceDiffViewOnNextCompare = false;
 function requestDiffViewOnNextCompare() { forceDiffViewOnNextCompare = true; }
+// …and take it back when the rebuild it was armed for never happens. A failed compare emits no
+// kakapo:diff-update, so the arming outlives it and is spent by the next UNRELATED watch rebuild — the
+// agent saving any file — which then pulls the reader out of whatever they were reading, with nothing
+// connecting that jump to the click that armed it.
+function cancelDiffViewOnNextCompare() { forceDiffViewOnNextCompare = false; }
 
 function applyDiffUpdate(u) {
   if (!u || !u.signature || u.signature === currentSignature) return false; // unchanged — nothing to do

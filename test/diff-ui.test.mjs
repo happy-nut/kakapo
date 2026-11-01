@@ -54,7 +54,15 @@ test("IntelliJ-style diff chrome tracks review stops and opens the current sourc
   assert.equal(v.$("#diff-after-path").textContent, "src/review.ts");
   assert.equal(v.$("#diff-change-counter"), null, "the toolbar omits the verbose change counter");
   assert.equal(v.$(".diff-toolbar").lastElementChild, v.$(".diff-review-controls"), "change navigation stays at the far-right edge");
-  assert.equal(v.window.getComputedStyle(v.$(".d2h-code-line-prefix")).display, "none", "patch +/- prefixes are hidden");
+  // Hidden from SIGHT, which is the claim — IntelliJ's panes read as two editors, not as a patch. It used
+  // to be `display: none`, and that took the one character naming the change out of the accessibility
+  // tree as well, leaving a screen reader two columns of code and a background tint of 1.00–1.29:1 to
+  // tell them apart. Clipped instead, so the geometry is what to measure: on screen it occupies nothing.
+  const prefix = v.$(".d2h-code-line-prefix");
+  const box = prefix.getBoundingClientRect();
+  assert.ok(box.width <= 1 && box.height <= 1, `patch +/- prefixes take no space (${box.width}×${box.height})`);
+  assert.notEqual(v.window.getComputedStyle(prefix).display, "none",
+    "but are still in the page, because they are the only thing that says which lines changed");
 
   v.click(v.$("#diff-next-change"));
   await v.settle(80);

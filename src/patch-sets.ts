@@ -40,19 +40,35 @@ const PRETTY = `--pretty=format:%H${FS}%h${FS}%cI${FS}%s`;
 // commits introduced on this branch count, correct even after divergence); fall back to the merge-base
 // with a conventional default branch when there is no upstream. Unlike resolveAutomaticReviewBase this
 // does not require a clean worktree — the reviewer picks patch sets while the tree is dirty.
-function resolveBranchPoint(root: string, preferred?: string): { sha: string; label: string; upstream?: string } | undefined {
+/**
+ * The base a ref gives, or nothing when that ref cannot serve as one.
+ *
+ * A ref that CONTAINS HEAD has no commits ahead of it, so its merge-base IS HEAD — and the branch list
+ * offers the branch you are on, which makes that one click away. Used as a base it empties the patch-set
+ * bar, taking the numbered sets and the "all" exit with it, on a setting persisted per repository and
+ * restored at open.
+ *
+ * Exported because BOTH readers of `compareRef` have to apply it. Stated in only one of them, the two
+ * disagreed again in the state it rejects: the bar fell through and labelled its option `main` while
+ * set-compare-mode went on resolving the picked ref to HEAD — the same label-says-one-branch,
+ * click-uses-another split that threading the ref through here was meant to end.
+ */
+export function usableCompareBase(root: string, ref: string, head?: string): string | undefined {
+  if (!ref) return undefined;
+  const mergeBase = git(root, ["merge-base", ref, "HEAD"]);
+  if (!mergeBase) return undefined;
+  return mergeBase === (head ?? git(root, ["rev-parse", "HEAD"])) ? undefined : mergeBase;
+}
+
+function resolveBranchPoint(root: string, preferred?: string, head?: string): { sha: string; label: string; upstream?: string } | undefined {
   // The branch the compare control is SET to wins. This list is what labels the bar's "all" option and
   // what decides whether that option is the one in force, while the click resolves `compareRef` or the
   // default — so resolving the default here regardless made the button read `전체 변경 · origin/main`
   // and measure against `develop`, for as long as the picked branch stayed picked (it is persisted per
   // repository and restored at open). One ref, read by the label, the marking and the click alike.
   if (preferred) {
-    const picked = git(root, ["merge-base", preferred, "HEAD"]);
-    // Unless it CONTAINS HEAD. The branch list offers the branch you are on, and picking it makes the
-    // merge-base HEAD itself: no commits ahead, so the bar has nothing to draw and hides — taking the
-    // numbered patch sets and the "all" exit with it, on a setting that is persisted per repository and
-    // restored at open. Falling through leaves the bar usable, which is what gets the reader back out.
-    if (picked && picked !== git(root, ["rev-parse", "HEAD"])) return { sha: picked, label: preferred };
+    const picked = usableCompareBase(root, preferred, head);
+    if (picked) return { sha: picked, label: preferred };
   }
   const upstream = git(root, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"]);
   if (upstream) {
@@ -69,7 +85,9 @@ function resolveBranchPoint(root: string, preferred?: string): { sha: string; la
 // fills it from the live review options so the same list can highlight the current selection.
 export function readPatchSets(root: string, compareRef?: string): PatchSetList {
   const head = git(root, ["rev-parse", "HEAD"]);
-  const branchPoint = resolveBranchPoint(root, compareRef);
+  // `head` is passed rather than resolved again: this runs on every diff update (refreshPatchSets is wired
+  // to onDiffUpdate), and it was spawning a second `git rev-parse HEAD` for a value one line above it.
+  const branchPoint = resolveBranchPoint(root, compareRef, head);
   const commits: PatchSet[] = [];
   if (branchPoint && branchPoint.sha !== head) {
     const out = git(root, [

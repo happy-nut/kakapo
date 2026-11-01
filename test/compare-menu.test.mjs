@@ -101,9 +101,16 @@ test("Option+A and Option+U pick a mode outright, without opening the menu", asy
   assert.deepEqual(calls, [["all", null]], "Option+A asks for all changes");
   assert.equal(v.$("#compare-menu").classList.contains("hidden"), true, "and nothing opened");
 
+  // Not a toggle: pressing it again is still "all changes", never the other mode. It no longer asks the
+  // backend a second time — rebuilding the review for the state it is already in costs a git diff and a
+  // source re-index — but it still ANSWERS, because the toast is the only thing a keyboard press shows
+  // and these are two keys rather than one toggle precisely so the reader can ask where they are.
+  v.$all("#mc-toasts .mc-toast").forEach((toast) => toast.remove());
   v.key("a", { altKey: true, code: "KeyA" });
   await v.settle(30);
-  assert.deepEqual(calls, [["all", null], ["all", null]], "pressing it again asks for the same thing, not the other one");
+  assert.deepEqual(calls, [["all", null]], "and does not rebuild for the mode it is already in");
+  assert.match(v.$("#mc-toasts").textContent, /All changes|모든 변경/,
+    "while still saying which mode that is");
 
   // macOS composes an umlaut on Option+U, so the event arrives with key "Dead" and only `code` identifies it.
   v.key("Dead", { altKey: true, code: "KeyU" });
@@ -179,6 +186,47 @@ test("the bar's “all” does nothing when it is already in force, and switches
     await v.settle(20);
     assert.deepEqual(calls, [["setCompareMode", "all", ""]],
       "and it goes the compare-mode way, which resolves the branch point explicitly");
+  } finally {
+    v.close();
+  }
+});
+
+// The row ticks before the rebuild answers, because a rebuild can take a second on a large tree. That
+// optimism became load-bearing the moment a no-op guard started reading the same state: a failed call
+// left it claiming a mode the review never reached, so the guard answered the reader's retry with
+// silence — the one press that had to work after a failure was the one that could not.
+test("a failed switch can be tried again", async () => {
+  const v = await loadViewer(html);
+  try {
+    const calls = [];
+    let fail = true;
+    v.window.kakapoGit = {
+      compareMenu: () => Promise.resolve({ mode: "uncommitted", ref: "origin/main", defaultRef: "origin/main", branches: ["main"] }),
+      setCompareMode: (mode, ref) => {
+        calls.push([mode, ref ?? null]);
+        return Promise.resolve(fail ? { ok: false, error: "git exploded" } : { ok: true, mode, ref: "origin/main" });
+      },
+    };
+    await v.window.__kakapoCompareMenu.refresh();
+    await v.settle(20);
+    assert.equal(v.window.eval("compareMenuState.mode"), "uncommitted", "the premise: the review is on uncommitted");
+
+    v.window.__kakapoCompareMenu.pick("all");
+    await v.settle(30);
+    assert.equal(calls.length, 1, "the switch was asked for");
+    assert.equal(v.window.eval("compareMenuState.mode"), "uncommitted",
+      "and the tick came back off, because the review did not move");
+
+    fail = false;
+    v.window.__kakapoCompareMenu.pick("all");
+    await v.settle(30);
+    assert.equal(calls.length, 2, "so the retry reaches the backend instead of being screened as a no-op");
+    assert.equal(v.window.eval("compareMenuState.mode"), "all", "and this one took");
+
+    // …while a press on the mode the review IS in is still screened.
+    v.window.__kakapoCompareMenu.pick("all");
+    await v.settle(30);
+    assert.equal(calls.length, 2, "no rebuild for a state that does not change");
   } finally {
     v.close();
   }

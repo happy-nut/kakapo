@@ -22,6 +22,7 @@ import { parseReviewArgs, readOption } from "./cli-args.js";
 import { ByteBudgetCache, errorMessage } from "./util.js";
 import { AppPreferences } from "./app-preferences.js";
 import { compareDefaultRef, registerReviewIpc } from "./app-review-ipc.js";
+import { usableCompareBase } from "./patch-sets.js";
 import { registerSettingsIpc } from "./app-settings-ipc.js";
 import { externalUrl, registerProjectPathIpc } from "./app-path-ipc.js";
 import { registerCommentsIpc, syncCommentsFile, attachThreadFiles } from "./comments-file.js";
@@ -468,7 +469,18 @@ ipcMain.handle("kakapo:set-compare-mode", async (event, payload: { mode?: unknow
   const rawRef = typeof payload?.ref === "string" ? payload.ref.trim() : "";
   try {
     if (rawRef) {
-      state.compareRef = validateReviewBase(state.options.root, rawRef);
+      const picked = validateReviewBase(state.options.root, rawRef);
+      // A branch that CONTAINS HEAD cannot be measured against — there is nothing ahead of it — and the
+      // list offers the branch you are on, so it is one click away. Remembered anyway it traps the review:
+      // the base resolves to nothing, the patch-set bar marks its "all" option inactive because the
+      // branch point it labels no longer matches, that click is handed to the compare menu, and the menu
+      // screens it as "already in that mode". Two exits, both silent, on a setting that is persisted per
+      // repository and survives a restart. A pick that cannot work is not a pick: it is refused, by name,
+      // and the review stays where it was.
+      if (!usableCompareBase(state.options.root, picked)) {
+        return { ok: false, error: "compare-ref-not-ahead", ref: picked };
+      }
+      state.compareRef = picked;
       preferences.setRendererSetting(state.options.root, COMPARE_REF_KEY, state.compareRef);
     }
     state.compareScope = undefined; // leaving any Cmd+9 range the pill cannot describe
@@ -479,9 +491,12 @@ ipcMain.handle("kakapo:set-compare-mode", async (event, payload: { mode?: unknow
       state.options.baseLabel = undefined;
     } else {
       const ref = state.compareRef || compareDefaultRef(state.options.root);
-      // No upstream and no conventional default branch: leave the base unset and let the automatic
-      // resolution have it back, which is the only honest answer to "all changes" in that repository.
-      state.options.base = (ref && git(state.options.root, ["merge-base", ref, "HEAD"])) || undefined;
+      // No upstream and no conventional default branch — or a ref that cannot serve as a base at all
+      // (usableCompareBase: one that contains HEAD has nothing ahead of it) — leaves the base unset and
+      // lets the automatic resolution have it back, which is the only honest answer to "all changes" in
+      // that repository. The patch-set bar applies the same rule to label its own option, and applying
+      // it in only one of the two is what made the label and the click name different branches.
+      state.options.base = (ref && usableCompareBase(state.options.root, ref)) || undefined;
       state.options.baseLabel = state.options.base ? ref : undefined;
     }
     state.lastDiffSig = "";
