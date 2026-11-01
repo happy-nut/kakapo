@@ -212,7 +212,10 @@ function renderPatchSetSummary() {
 // Switch base or target, then refresh the bar. The diff repaints via kakapo:diff-update.
 function selectPatchSet(which, ref) {
   if (!window.kakapoGit || !ref) return;
-  requestDiffViewOnNextCompare();
+  // NOT here. This arms a one-shot "jump back to the diff on the next rebuild", and every no-op return
+  // below used to leave it armed — so a click that changed nothing was spent by the next UNRELATED watch
+  // rebuild, which in this app is the agent saving any file, pulling the reader out of whatever they were
+  // reading. It belongs next to each call that actually asks for a change.
   // In a Cmd+9-opened range, both sides are commits in the scope; set them together so B..D shows.
   // Each of these three moves activeBase/activeTarget, which is what compareCommitLead() reads — so each
   // changes the toolbar's commit chip and must repaint it. They repainted only the bar and relied on a
@@ -222,6 +225,7 @@ function selectPatchSet(which, ref) {
     var base = which === 'base' ? ref : patchSetData.activeBase;
     var target = which === 'target' ? ref : patchSetData.activeTarget;
     if (base === patchSetData.activeBase && target === patchSetData.activeTarget) return;
+    requestDiffViewOnNextCompare();
     Promise.resolve(window.kakapoGit.setReviewCompare(base, target)).then(function (res) {
       if (res && res.ok && patchSetData) { patchSetData.activeBase = res.activeBase || base; patchSetData.activeTarget = res.activeTarget || target; renderPatchSetBar(); syncDiffReviewChrome(); }
     }).catch(function () {});
@@ -230,6 +234,7 @@ function selectPatchSet(which, ref) {
   if (which === 'target') {
     if (typeof window.kakapoGit.setReviewTarget !== 'function') return;
     if (patchSetData && (patchSetData.activeTarget || 'worktree') === ref) return;
+    requestDiffViewOnNextCompare();
     Promise.resolve(window.kakapoGit.setReviewTarget(ref)).then(function (res) {
       if (res && res.ok && patchSetData) { patchSetData.activeTarget = res.activeTarget || ref; renderPatchSetBar(); syncDiffReviewChrome(); }
     }).catch(function () {});
@@ -253,6 +258,7 @@ function selectPatchSet(which, ref) {
     if (picked && picked.active) return;
     if (ref === 'auto') { applyCompareMode('all', '', false); return; }
     if (typeof window.kakapoGit.setReviewBase !== 'function') return;
+    requestDiffViewOnNextCompare();
     Promise.resolve(window.kakapoGit.setReviewBase(ref)).then(function (res) {
       if (res && res.ok && patchSetData) { patchSetData.activeBase = res.activeBase || ref; renderPatchSetBar(); syncDiffReviewChrome(); }
     }).catch(function () {});

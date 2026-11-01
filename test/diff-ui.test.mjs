@@ -474,3 +474,40 @@ test("the Changes tree colours a row by what changed, not by whether it is stage
   assert.equal(row("src/gone.ts").querySelector(".status svg"), null, "and no row draws a badge");
   v.close();
 });
+
+// The right diff pane's label is static markup saying "working tree", which is true of the ordinary
+// review and false of every A→B compare: a ⌘9 range, or a patch set chosen as the target, puts a COMMIT
+// there and the header went on naming a working tree that is not in the comparison at all.
+//
+// The attribute matters as much as the text. It is what a locale switch repaints from, so a label left
+// without one would be stranded in whichever language it was written in, and a label left holding the
+// wrong key would have "작업 트리" painted back over a commit on the next switch.
+test("the right pane says which side it is, and keeps saying it through a locale switch", async () => {
+  const v = await loadViewer(html);
+  try {
+    const kind = () => v.$("#diff-after-kind");
+    assert.ok(kind(), "the premise: the right pane's label has an id to set");
+    assert.equal(kind().getAttribute("data-i18n"), "diff.workingTree", "and starts as the working tree");
+
+    const setTarget = (activeTarget) => {
+      v.window.eval(`patchSetData = ${JSON.stringify({
+        branchPoint: { sha: "54d784f0000", label: "main" },
+        commits: [{ sha: "1fe2700", subject: "work", shortSha: "1fe2700", date: "" }],
+        scoped: true, activeBase: "54d784f0000", activeTarget,
+      })}, 1`);
+      v.window.syncDiffReviewChrome();
+    };
+
+    setTarget("1fe2700");
+    assert.equal(kind().getAttribute("data-i18n"), "diff.target",
+      "a commit on the right is a target, not the working tree");
+    assert.equal(kind().textContent, v.window.t("diff.target"), "and it says so");
+
+    // Back again: the label must not be stranded on the commit wording.
+    setTarget("worktree");
+    assert.equal(kind().getAttribute("data-i18n"), "diff.workingTree");
+    assert.equal(kind().textContent, v.window.t("diff.workingTree"));
+  } finally {
+    v.close();
+  }
+});

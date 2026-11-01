@@ -939,7 +939,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "diff.panes": "Diff 비교 창",
     "diff.base": "기준 버전",
     "diff.workingTree": "작업 트리",
-    "diff.target": "대상",
+    "diff.target": "대상 버전",
     "compare.title": "이 diff가 비교하고 있는 대상",
     "compare.local": "로컬 변경",
     "compare.staged": "스테이지",

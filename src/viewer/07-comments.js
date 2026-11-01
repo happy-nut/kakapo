@@ -1686,6 +1686,7 @@ function revealComment(seq) {
   else { showDiffView(false); requestAnimationFrame(land); }
   return true;
 }
+var commentNavAwaitingIndex = false;
 function gotoComment(delta) {
   // NOT filtered by the source index. Scoping a shared note to the workspace that has its file is main's job
   // (notesForWorkspace, comments-file.ts) and it is done before the renderer ever sees the record. Filtering
@@ -1709,11 +1710,25 @@ function gotoComment(delta) {
     revealComment(stepAnchor(delta, candidates).seq);
   };
   var reachable = list.filter(commentIsReachable);
-  if (reachable.length === list.length || projectIndexLoaded) { step(reachable); return true; }
-  ensureProjectIndex().then(
-    function () { step(sortedNavThread().filter(commentIsReachable)); },
-    function () { step(reachable); },
-  );
+  var settled = projectIndexLoaded || reachable.length === list.length;
+  // An apparent miss is a reason to FETCH — `sourceByPath` holds only the changed files until the Files
+  // tab is first opened — but it is not a reason to WAIT. That fetch walks the whole repository, which is
+  // the work a diff-first launch exists to defer, and one comment on an unchanged file is enough to
+  // trigger it: holding the key press for that put a whole-repo index build in front of a caret move that
+  // had somewhere to go all along. Land on what is reachable now; the fetch is for the presses after.
+  if (!settled) ensureProjectIndex();
+  if (reachable.length) { step(reachable); return true; }
+  if (settled) { showCaretHint(t('comment.nav.unreachable')); return true; }
+  // Nothing to land on and the index has not arrived, so this press genuinely has nothing else to do and
+  // waits for it. One press does: stepAnchor reads the LIVE caret, so a second one deferred into the same
+  // round trip would land on the same comment and be spent. ensureProjectIndex resolves on failure rather
+  // than rejecting (01-core.js), so the one branch below covers both outcomes.
+  if (commentNavAwaitingIndex) return true;
+  commentNavAwaitingIndex = true;
+  ensureProjectIndex().then(function () {
+    commentNavAwaitingIndex = false;
+    step(sortedNavThread().filter(commentIsReachable));
+  });
   return true;
 }
 

@@ -151,6 +151,13 @@ function refreshCompareMenu() {
 // Apply a pick. The diff repaints through the normal kakapo:diff-update path, so nothing here touches it.
 function applyCompareMode(mode, ref, announce) {
   if (!window.kakapoGit || typeof window.kakapoGit.setCompareMode !== 'function') return;
+  // Asking for the mode the review is already in rebuilds the whole thing — a git diff and a source
+  // re-index — for a state that does not change. The patch-set bar screens that click; ⌥A and the menu
+  // row reach this same action and did not, so the guard was on one of two routes to one thing.
+  if (compareMenuState && compareMenuState.mode === mode && (!ref || compareMenuState.ref === ref)) {
+    closeCompareMenu();
+    return;
+  }
   requestDiffViewOnNextCompare(); // switch back to the diff for the rebuild, as the patch-set bar does
   // Optimistic: the row ticks now rather than after a rebuild that can take a second on a large tree.
   if (compareMenuState) {

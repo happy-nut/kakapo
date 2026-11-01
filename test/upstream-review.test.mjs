@@ -186,3 +186,48 @@ test("an untracked feature branch stops showing commits already merged into remo
 // Explaining work that is already COMMITTED. The review is the branch's own commits (merge-base…HEAD), not a
 // dirty worktree, and everything the explanation depends on has to survive that: the diff exists, the Changes
 // panel has rows to anchor a beak on, and the run boundary — which is what makes a note a briefing — is
+
+// The compare bar's "all changes" names a branch and measures against one, and those have to be the same
+// branch. `readPatchSets` resolved the upstream-or-default regardless, while the click resolves whatever
+// ⌥C last picked — persisted per repository and restored at open — so picking `develop` once left the bar
+// reading `전체 변경 · origin/main` and measuring against `develop` for as long as it stayed picked.
+//
+// The second half is the guard that came with it: the branch list offers the branch you are ON, and a ref
+// that CONTAINS HEAD has nothing ahead of it, so the bar would draw no patch sets and hide — taking the
+// numbered sets and the "all" exit with it, on a setting that survives a restart.
+test("the patch-set base follows the branch the compare control is set to", () => {
+  const fixture = mkdtempSync(join(tmpdir(), "kakapo-patchset-ref-"));
+  const git = (args) => spawnSync("git", args, { cwd: fixture, encoding: "utf8" });
+  try {
+    git(["init", "-qb", "main"]);
+    git(["config", "user.email", "t@t.t"]);
+    git(["config", "user.name", "t"]);
+    writeFileSync(join(fixture, "a.txt"), "one\n");
+    git(["add", "-A"]);
+    git(["commit", "-qm", "base"]);
+    git(["branch", "develop"]);          // develop sits at the same commit as main
+    git(["checkout", "-qb", "work"]);
+    writeFileSync(join(fixture, "a.txt"), "two\n");
+    git(["commit", "-qam", "ahead one"]);
+    writeFileSync(join(fixture, "a.txt"), "three\n");
+    git(["commit", "-qam", "ahead two"]);
+
+    const plain = readPatchSets(fixture);
+    assert.equal(plain.commits.length, 2, "the premise: two commits ahead of the default branch");
+    assert.equal(plain.branchPoint.label, "main", "and the default is what it resolves without a preference");
+
+    const preferred = readPatchSets(fixture, "develop");
+    assert.equal(preferred.branchPoint.label, "develop",
+      "the picked branch is what the bar names, because it is what the click will use");
+    assert.equal(preferred.commits.length, 2, "and it still enumerates what is ahead of it");
+
+    // The branch you are on contains HEAD: nothing is ahead of it, and answering with it would empty the
+    // one control that gets you back out.
+    const own = readPatchSets(fixture, "work");
+    assert.equal(own.branchPoint.label, "main",
+      "a ref that contains HEAD falls through rather than leaving the bar with nothing to draw");
+    assert.equal(own.commits.length, 2, "so the patch sets — and the way out — stay on screen");
+  } finally {
+    rmSync(fixture, { recursive: true, force: true });
+  }
+});

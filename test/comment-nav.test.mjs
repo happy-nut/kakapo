@@ -512,11 +512,60 @@ test("stepping reaches a comment on a file the lazy review has not fetched yet",
     v.window.refreshComments();
     await v.settle(20);
 
+    // Two presses inside one round trip. stepAnchor reads the LIVE caret, so both would run afterwards
+    // from the same position and land on the same comment — the second press looking like it did nothing
+    // while actually having been spent. One fetch, one step; the index is loaded by the time the reader
+    // can press again, and every press after that is immediate.
+    // Count the LANDINGS, not the requests: ensureProjectIndex memoizes its promise, so the request count
+    // is 1 either way and an assertion on it watches nothing. What the guard decides is how many steps
+    // run when the fetch resolves.
+    v.window.eval(`window.__reveals = 0; var __reveal = revealComment;
+      revealComment = function (seq) { window.__reveals += 1; return __reveal(seq); };`);
+    v.window.gotoComment(1);
     v.window.gotoComment(1);
     await v.settle(80); // the index fetch is a round trip
     assert.equal(v.window.lastRevealedSeq, 77,
       "the walk fetched the index and found the file, rather than declaring it absent");
-    assert.ok(v.window.__projectIndexRequests > 0, "and it did ask");
+    assert.equal(v.window.__reveals, 1,
+      "one fetch, one step — stepAnchor reads the live caret, so two deferred steps land on the same place");
+  } finally {
+    v.close();
+  }
+});
+
+// And when something IS reachable, the press does not wait for that fetch. The index walk is the whole
+// repository — the work a diff-first launch exists to defer — and one comment on an unchanged file is
+// enough to look like a miss, so holding the key press for it put a repo walk in front of a caret move
+// that had somewhere to go all along. Land now, fetch for the presses after.
+test("a press that has somewhere to go does not wait for the index", async () => {
+  const v = await loadViewer(lazy.html, {
+    lazySourceData: lazy.sourceData,
+    getDiffBody: (index) => lazy.bodies[index] || "",
+    projectIndexBridge: () => ({ sourceFilesMeta: [], filesTree: "" }),
+  });
+  try {
+    await v.openDiffFor("src/app.ts");
+    await v.clickFirstDiffLine();
+    await v.openComposer("q");
+    await v.writeAndSave("reachable, on a file the diff has");
+    const real = v.window.reviewComments[0];
+    assert.ok(real, "the premise: one comment sits on a changed file");
+
+    // …beside one that looks unreachable until the index arrives.
+    v.window.reviewComments.push({
+      seq: 88, kind: "c", by: "me", path: "src/untouched.ts", line: 1, from: 1, to: 1, side: null,
+      code: "", anchorCode: "", text: "on a file the page has not been told about",
+    });
+    v.window.refreshComments();
+    await v.settle(20);
+
+    v.window.lastRevealedSeq = 0;
+    v.window.gotoComment(1);
+    // No settle: the point is that the caret moved on the press, not after a round trip.
+    assert.equal(v.window.lastRevealedSeq, real.seq, "it landed without waiting for the index");
+    // The press started a fetch for the NEXT one; let it land before the window goes, or its continuation
+    // runs against a torn-down document and the suite reports an unhandled rejection from a passing test.
+    await v.settle(80);
   } finally {
     v.close();
   }

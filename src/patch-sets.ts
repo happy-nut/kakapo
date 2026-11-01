@@ -48,7 +48,11 @@ function resolveBranchPoint(root: string, preferred?: string): { sha: string; la
   // repository and restored at open). One ref, read by the label, the marking and the click alike.
   if (preferred) {
     const picked = git(root, ["merge-base", preferred, "HEAD"]);
-    if (picked) return { sha: picked, label: preferred };
+    // Unless it CONTAINS HEAD. The branch list offers the branch you are on, and picking it makes the
+    // merge-base HEAD itself: no commits ahead, so the bar has nothing to draw and hides — taking the
+    // numbered patch sets and the "all" exit with it, on a setting that is persisted per repository and
+    // restored at open. Falling through leaves the bar usable, which is what gets the reader back out.
+    if (picked && picked !== git(root, ["rev-parse", "HEAD"])) return { sha: picked, label: preferred };
   }
   const upstream = git(root, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"]);
   if (upstream) {
