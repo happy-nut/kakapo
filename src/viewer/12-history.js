@@ -3,6 +3,14 @@
 // here from each commit's parents. Read-only — the per-commit diff is static diff2html HTML.
 
 var HISTORY_LANE_W = 16, HISTORY_DOT_R = 3.8, HISTORY_ROW_H = 26;
+// How many lanes the graph is allowed to be wide. The column is one width for the whole page (lanes must
+// line up row to row), so without a cap a repository with many concurrent branches sized every row's graph
+// to its busiest moment: a page whose widest point is sixty lanes gave all three hundred rows a 970px
+// graph, the `minmax(0, 1fr)` message track collapsed to nothing, and the list showed a commit graph with
+// no commits next to it. Past this many lanes the graph has stopped being readable as a graph anyway, so
+// deeper lanes fold onto the last column (historyLaneX clamps): the dot of every row stays on screen, and
+// the message — the thing the list is for — keeps its room.
+var HISTORY_LANE_CAP = 20;
 var HISTORY_COLORS = ['#43a5ff', '#ef4fb3', '#55d66b', '#f2a93b', '#a875ff', '#24c7bd', '#f06f62', '#91a4ff'];
 var historyCommits = [];
 var historyGraph = [];
@@ -102,7 +110,7 @@ function computeHistoryGraph(commits) {
 }
 if (typeof window !== 'undefined') window.computeHistoryGraph = computeHistoryGraph; // exposed for tests
 
-function historyLaneX(l) { return 10 + l * HISTORY_LANE_W; }
+function historyLaneX(l) { return 10 + Math.min(l, HISTORY_LANE_CAP) * HISTORY_LANE_W; }
 function historyColor(i) { return HISTORY_COLORS[i % HISTORY_COLORS.length]; }
 function historyRowSvg(row) {
   var w = historyLaneX(historyMaxLane) + 10, h = HISTORY_ROW_H, mid = h / 2;

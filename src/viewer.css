@@ -2586,8 +2586,15 @@ button.compare-pill[aria-expanded="true"] { border-color: color-mix(in srgb, cur
    flying to the file end). Those two panes get their caret/F7 scroll-off from manual scrollTop math
    (scheduleSourceReveal / scrolloffReveal), so they don't need — and must not have — scroll-padding. */
 .sidebar-scroll { scroll-padding-block: 35vh; }
+/* The gutter width lives on the VIEWER, not on .source-body, because .sticky-lines is a SIBLING of the
+   body (an overlay the scroll container must not scroll). A custom property inherits down the DOM, so a
+   value declared on the body never reached the overlay: `.num { width: var(--source-gutter-width) }` was
+   invalid at computed-value time there, width fell back to `auto`, and Chromium's auto table layout
+   handed the surplus of `width: 100%` to the number column — a pinned header whose line numbers sat
+   hundreds of pixels right of the ones under it. Declared on the common ancestor, both get the same
+   number, and the blame override below travels with it. */
+.source-viewer { --source-gutter-width: 56px; }
 .source-body {
-  --source-gutter-width: 56px;
   border: 1px solid var(--border);
   overflow: auto;
   background: var(--panel);
@@ -2895,8 +2902,10 @@ body.cmd-link-active .source-code { cursor: pointer; }
 }
 /* File blame is an editor-gutter mode, not a second panel. Attribution grows to the left of the original
    number column, so the number-to-code spacing never changes: date | author | line | code. */
-.source-body.source-blame-visible,
-.source-body.source-blame-loading { --source-gutter-width: clamp(164px, 16vw, 188px); }
+/* :has() on the viewer rather than the class on the body itself, for the same reason the base value is
+   on the viewer: the sticky overlay has to widen with it, and it is not inside the body. */
+.source-viewer:has(> .source-body.source-blame-visible),
+.source-viewer:has(> .source-body.source-blame-loading) { --source-gutter-width: clamp(164px, 16vw, 188px); }
 .source-body.source-blame-visible .source-table .num {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -3515,13 +3524,16 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 .history-body { position: relative; flex: 1 1 auto; min-height: 0; display: flex; overflow: hidden; }
 .history-list { flex: 1 1 auto; min-width: 0; overflow: auto; padding: 4px 0; }
 /* Fixed-height rows let the per-row SVGs tile as one continuous graph without a scroll-time overlay. */
-.hrow { display: grid; grid-template-columns: var(--hgraph-w, 62px) minmax(0, 1fr) auto auto; align-items: center; gap: 10px; width: 100%; height: 26px; padding: 0 12px 0 0; border: 0; background: transparent; text-align: left; cursor: pointer; font-size: 12.5px; }
+.hrow { display: grid; grid-template-columns: minmax(0, var(--hgraph-w, 62px)) minmax(0, 1fr) auto auto; align-items: center; gap: 10px; width: 100%; height: 26px; padding: 0 12px 0 0; border: 0; background: transparent; text-align: left; cursor: pointer; font-size: 12.5px; }
 /* Shift-select compare range: commits between the two endpoints get a subtle band; the endpoints a bar. */
 .hrow.in-range { background: color-mix(in srgb, var(--active) 12%, transparent); }
 .hrow.in-range.active { background: color-mix(in srgb, var(--active) 22%, transparent); }
 .hrow.range-end { box-shadow: inset 2px 0 0 var(--active); }
 /* Range compare detail header (two-commit span). */
-.hgraph-cell { height: 26px; line-height: 0; }
+/* minmax(0, …) above and overflow here are the same decision from both ends: when the row is too narrow
+   to hold the graph AND the commit, the graph is what gets cut. A fixed track could not shrink, so a wide
+   graph pushed the message, author and date clean off the right edge of a window nobody can widen enough. */
+.hgraph-cell { height: 26px; line-height: 0; overflow: hidden; }
 .hgraph { display: block; overflow: visible; }
 /* Filtering breaks the contiguous graph, so hide the lane column and show a flat list (IntelliJ does too). */
 .history-list.filtering .hgraph-cell { display: none; }
@@ -5171,8 +5183,10 @@ html[data-indent-guides="on"][data-show-whitespace="on"] .ws-lead[data-ws="space
 
 /* ===== Sticky lines and focus mode =====================================================================
    The pinned header is a CLONE of the rows it names, inside an overlay the scroll container does not
-   scroll. Cloning is what keeps the columns aligned — the clone carries the same cells and the same
-   widths, so nothing here measures anything. */
+   scroll. Cloning is what keeps the columns aligned — the clone carries the same cells, so nothing here
+   measures anything. What it does NOT carry is the cascade: the overlay is a sibling of #source-body, so
+   every variable the columns are sized from has to be declared above BOTH (see .source-viewer and
+   --source-gutter-width). A clone copies markup, not the element it was taken out of. */
 .sticky-lines {
   position: absolute;
   top: 0;

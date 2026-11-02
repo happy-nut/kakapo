@@ -21,9 +21,22 @@ function ruleBodyContaining(needle) {
 const cssRules = css.replace(/\/\*[\s\S]*?\*\//g, "");
 
 function ruleBodyForExactSelector(selector) {
+  const bodies = ruleBodiesForExactSelector(selector);
+  return bodies.length ? bodies[0] : null;
+}
+
+// Every rule written for exactly this selector, in source order. One selector often has several rules — a
+// base one and a themed or layout one further down — and the single-rule reader above answers with the
+// first, which is usually not the one that declares the property a guard is about. Assert over all of them.
+function ruleBodiesForExactSelector(selector) {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const m = cssRules.match(new RegExp("(^|})\\s*" + escaped + "\\s*\\{([^}]*)\\}", "s"));
-  return m ? m[2] : null;
+  const re = new RegExp("(?:^|})\\s*" + escaped + "\\s*\\{([^}]*)\\}", "g");
+  return Array.from(cssRules.matchAll(re), (m) => m[1]);
+}
+
+// The one body among them that mentions `needle` — what a guard about a specific property wants.
+function ruleDeclaring(selector, needle) {
+  return ruleBodiesForExactSelector(selector).find((b) => b.includes(needle)) ?? null;
 }
 
 test("diff stays scrollable for a single big file: .d2h-file-wrapper keeps flex-shrink:0", () => {
@@ -220,9 +233,11 @@ test("the comment composer textarea restores its own caret (not transparent-inhe
 });
 
 test("source line-number gutter stays compact and internally aligned", () => {
-  const body = ruleBodyContaining(".source-body");
-  assert.ok(body, ".source-body rule must exist");
-  assert.match(body, /--source-gutter-width:\s*56px\b/, "source gutter stays compact");
+  // The value is declared on .source-viewer, not .source-body: the sticky-lines overlay is a sibling of
+  // the body and a custom property only inherits downward (see the overlay guard below).
+  const owner = ruleDeclaring(".source-viewer", "--source-gutter-width");
+  assert.ok(owner, ".source-viewer must declare the gutter width");
+  assert.match(owner, /--source-gutter-width:\s*56px\b/, "source gutter stays compact");
 
   const num = ruleBodyForExactSelector(".num");
   assert.ok(num, ".num rule must exist");
@@ -658,4 +673,34 @@ test("the stacked narrow-window sidebar is bounded, so the diff still gets the w
     "the fix: an `auto` height here is the file list's full height, which is the whole window on a long review");
   assert.match(sidebar[1], /height:\s*[\d.]+(vh|px|%)|max-height:\s*/,
     "…so it must state a bounded height; .sidebar-scroll inside it already scrolls");
+});
+
+test("the sticky-lines overlay can inherit the gutter width: it is declared on the viewer, not the body", () => {
+  // .sticky-lines is a SIBLING of #source-body (an overlay the scroll container must not scroll), and a
+  // custom property inherits down the DOM. Declared on .source-body it never reached the overlay, so
+  // `.num { width: var(--source-gutter-width) }` was invalid at computed-value time there and width fell
+  // back to `auto`; Chromium's auto table layout then gave the number column a share of the surplus of
+  // `width: 100%`. Measured in the running app: the pinned header's gutter came out 39px against the
+  // body's 56px, and its code column started 18px to the left of the code underneath it.
+  assert.ok(ruleDeclaring(".source-viewer", "--source-gutter-width:"),
+    "the base value belongs on the common ancestor of the body and the overlay");
+  assert.equal(ruleDeclaring(".source-body", "--source-gutter-width:"), null,
+    "declaring it on the body again would shadow nothing for the body and still miss the overlay");
+  // Blame widens the gutter; the overlay has to widen with it, so that override moved to the viewer too.
+  assert.match(cssRules, /\.source-viewer:has\(>\s*\.source-body\.source-blame-visible\)/,
+    "the blame override is keyed off the viewer so the sticky header tracks it");
+});
+
+test("the history graph can never squeeze the commit out of its own row", () => {
+  // --hgraph-w is one width for the whole page (lanes must line up row to row), so a repository whose
+  // busiest moment is sixty concurrent branches sized every row to it. As a FIXED grid track that width
+  // could not shrink: measured in the running app at 110 lanes on a 1728px window, the graph cell took
+  // 1764px, .hmsg measured 0, and the date ended at x=1920 — off-screen. The list showed a commit graph
+  // with no commits next to it.
+  const hrow = ruleDeclaring(".hrow", "grid-template-columns");
+  assert.ok(hrow, ".hrow must lay its columns out");
+  assert.match(hrow, /grid-template-columns:\s*minmax\(0,\s*var\(--hgraph-w/,
+    "the graph track must be able to shrink when the row cannot hold both");
+  assert.match(ruleDeclaring(".hgraph-cell", "overflow"), /overflow:\s*hidden/,
+    "and must clip rather than overflow once it has shrunk");
 });

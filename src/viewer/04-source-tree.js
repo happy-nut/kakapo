@@ -159,13 +159,15 @@ function expandUntilFiles(details, budget) {
   var scope = details.querySelector(':scope > .mc-virtual-children') || details;
   if (scope.querySelector(':scope > .tree-file')) return; // real content here — stop, this is what they opened
   var dirs = Array.prototype.slice.call(scope.querySelectorAll(':scope > .tree-dir'));
-  // ponytail: a flat cap, not a per-branch one — a folder-only subtree is tiny in practice, and the cap only
-  // exists so a pathological one cannot expand the whole tree from a single click.
-  for (var i = 0; i < dirs.length && budget > 0; i++) {
-    budget -= 1;
-    dirs[i].open = true;
-    expandUntilFiles(dirs[i], budget);
-  }
+  // A chain, not a fan. Descending through a lone subfolder saves a click that had no choice in it —
+  // that is the whole case this exists for (src/main/kotlin/com/<org>/<app>). Two or more subfolders ARE
+  // the choice, and opening all of them spilled a subtree the reader then had to collapse by hand; one
+  // click on a folder of folders could unfold most of a project. So: keep going only while there is
+  // exactly one way down. (IntelliJ draws the same line with Compact Middle Packages: it joins a.b.c, it
+  // never opens a into b and c.)
+  if (dirs.length !== 1 || budget <= 0) return;
+  dirs[0].open = true;
+  expandUntilFiles(dirs[0], budget - 1);
 }
 // Auto-opened folders are transient like the revealed path: they are the app walking the user to the files,
 // not a fold the user chose, so they must not be written to the persisted open-folder set.

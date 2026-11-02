@@ -74,6 +74,31 @@ test("history graph: a merge opens a 2nd lane that collapses at the shared ances
   v.close();
 });
 
+test("history graph: a page with more branches than fit folds its lanes instead of widening the row", async () => {
+  const v = await loadViewer(html);
+  // 60 branch tips whose parents are off this page: every one opens a lane that nothing closes. This is
+  // what a busy repository's first page looks like, and the graph used to be sized to it — 10 + 59*16 + 10
+  // = 964px of graph on EVERY row, which left the `minmax(0, 1fr)` message track nothing and pushed the
+  // subject, author and date off the right edge. The list showed a commit graph with no commits beside it.
+  const commits = [];
+  for (let i = 0; i < 60; i++) commits.push({ hash: "c" + i, parents: ["ghost" + i] });
+  const rows = v.window.computeHistoryGraph(commits);
+  assert.equal(rows.maxLane, 59, "the lanes really are that deep — the fixture is not the thing being capped");
+
+  v.window.historyCommits = commits.map((c, i) => ({ ...c, author: "A", email: "a@test", date: "2026-10-01T10:00:00+09:00", refs: "", subject: "commit " + i }));
+  v.window.historyGraph = rows;
+  v.window.historyMaxLane = rows.maxLane;
+  v.window.renderHistoryList();
+
+  const width = Number(v.$(".hrow svg.hgraph").getAttribute("width"));
+  assert.ok(width <= 340, `graph width stays bounded (was ${width})`);
+  assert.equal(v.$("#history-list").style.getPropertyValue("--hgraph-w"), width + "px", "the grid track is told the same number the SVG drew");
+  // Folded, not clipped: the deepest row still has a dot, and it is on the last column rather than off it.
+  const deepest = v.$all(".hrow svg.hgraph circle.hgraph-dot").pop();
+  assert.ok(Number(deepest.getAttribute("cx")) <= width, "every row's dot stays inside the graph it is drawn in");
+  v.close();
+});
+
 test("history graph: refs use branch and tag chips while merges retain topology", async () => {
   const v = await loadViewer(html);
   v.window.kakapoGit = {

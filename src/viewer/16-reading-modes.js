@@ -16,17 +16,25 @@ function enclosingSymbols(path, line) {
   var symbols = cached.value && Array.isArray(cached.value.symbols) ? cached.value.symbols : [];
   return symbols
     .filter(function (s) {
+      // A one-line symbol encloses its OWN line and nothing else. The clause used to read
+      // `s.endLineIndex === s.lineIndex`, which is true of every `var`, property and single-line function
+      // in the file — so each of them "enclosed" every line below it, with no end. Sticky lines then
+      // pinned the three nearest one-liners instead of the declarations the reader is inside (siblings,
+      // not ancestors: `fun ping()` held above `fun authV3()`), and Focus Mode was worse — `inner` became
+      // the last one-liner before the caret, so it dimmed the whole file including the caret's own line.
       return s && typeof s.lineIndex === 'number'
-        && s.lineIndex <= line && (s.endLineIndex >= line || s.endLineIndex === s.lineIndex);
+        && s.lineIndex <= line && (s.endLineIndex >= line || s.lineIndex === line);
     })
     .sort(function (a, b) { return a.lineIndex - b.lineIndex; });
 }
 
 // ---- Sticky lines -----------------------------------------------------------------------------------
 // The enclosing declarations' own rows, held at the top of the scroll container while their bodies run off
-// it. They are CLONES of the real rows rather than rebuilt markup: a clone carries the same cells, the same
-// highlighting and the same column widths, so the pinned header lines up with the code under it without a
-// single measurement. Only rows that have actually been rendered can be cloned, which is the right
+// it. They are CLONES of the real rows rather than rebuilt markup: a clone carries the same cells and the
+// same highlighting, so the pinned header lines up with the code under it without a single measurement —
+// as long as the widths it is sized from are declared above the overlay as well as above the body, which
+// is why --source-gutter-width sits on .source-viewer and not on .source-body.
+// Only rows that have actually been rendered can be cloned, which is the right
 // behaviour on a progressively-filled file — a declaration above the fill point is simply not pinned yet.
 var STICKY_DEPTH_LIMIT = 3;
 var stickyLinesRaf = 0;
