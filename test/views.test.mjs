@@ -549,6 +549,34 @@ test("syntax highlighter tags function calls, PascalCase types, and decorators",
   v.close();
 });
 
+test("a file past 10,000 lines is still coloured — the ceiling is on code insight, not on the lexer", async () => {
+  // The source view used to swap the language for "text" past 10,000 lines, which switched off the hand
+  // tokenizer and the server's tokens together. node_modules/electron/electron.d.ts — 27,088 lines,
+  // 1,094 KiB — opened as flat grey in a tool whose whole job is reading code, and the guard bought
+  // nothing for it: rows are built a window at a time, so only ~400 of them are ever tokenized per paint
+  // (183ms for the WHOLE file, measured out of process).
+  //
+  // IntelliJ draws its lexer-based highlighting for every file it will open at all and stops only code
+  // assistance, past idea.max.intellisense.filesize — "The file size ({0}) exceeds the configured limit
+  // ({1}). Code insight features are not available." Colour is not in that sentence.
+  const lines = ["class Widget extends Base {}"];
+  while (lines.length < 10_500) lines.push(`let a${lines.length}=1;`);
+  // One changed line, not 10,500: what is under test is the SOURCE view's language, and a whole-file diff
+  // would spend the test's time building a second 10,500-row table nothing here looks at.
+  const before = lines.slice();
+  before[5_000] = "let a5000=0;";
+  const { html } = await makeReviewHtml([
+    { path: "huge.ts", before: before.join("\n") + "\n", after: lines.join("\n") + "\n" },
+  ]);
+  const v = await loadViewer(html);
+  await v.openSourceFile("huge.ts");
+  const body = v.$("#source-body");
+  assert.ok(body.querySelectorAll(".source-row").length > 100, "the window is painted");
+  assert.ok(body.querySelector(".tok-keyword"), "class/extends → keyword tokens past the old 10k cutoff");
+  assert.ok(body.querySelector(".tok-type"), "Widget → PascalCase type token past the old 10k cutoff");
+  v.close();
+});
+
 test("header strip carries the compare pill and nothing else (no file/hunk counts, indexed ratio, or ISO timestamp)", async () => {
   // The reviewer found the file/hunk counts, the static "<embedded>/<total> indexed" ratio (which never
   // moves and reads as a frozen progress bar), and the raw generatedAt ISO string noisy and space-hungry.

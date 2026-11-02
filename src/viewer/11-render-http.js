@@ -919,6 +919,28 @@ function sourceProgressiveLimits() {
     chunkRows: 2000, // appended per frame afterwards
   };
 }
+/**
+ * The ceiling on CODE INSIGHT — the server's semantic tokens — and on nothing else.
+ *
+ * IntelliJ draws its lexer-based highlighting for every file it will open at all, and switches off only
+ * code assistance past `idea.max.intellisense.filesize`: 2500 KiB in Contents/bin/idea.properties, whose
+ * own comment reads "Maximum file size (in KiB) IDE should provide code assistance for", and whose editor
+ * banner is message.file.size.0.exceeds.code.insight.limit.1 — "The file size ({0}) exceeds the configured
+ * limit ({1}). Code insight features are not available." Highlighting is not in that sentence because it
+ * never stops; a 10 MB file in IntelliJ is still coloured, just not resolved.
+ *
+ * This renderer used to drop BOTH past 10,000 lines, which is the wrong quantity measured against the
+ * wrong thing. Rows are built a window at a time, so the tokenizer only ever runs on the ~400 rows a paint
+ * actually makes — 1.8ms at the measured 4.5ms/1000 lines — and the guard bought nothing at the only
+ * moment it could have. What it cost was every colour in electron.d.ts (27,088 lines, 1,094 KiB): a file
+ * IntelliJ both highlights AND gives code insight for opened as flat grey.
+ *
+ * Asking a server to tokenize a megabyte of .d.ts is the part that is genuinely expensive, and that is
+ * what this bounds — the same line IntelliJ draws, in the same place.
+ */
+function codeInsightMaxBytes() {
+  return 2500 * 1024;
+}
 // Declared WITHOUT initialisers on purpose. `var` hoists the declaration but runs the assignment when the
 // statement is reached — and a session restored into the source view renders a table from an earlier slice
 // during script load, so `= null` here would run AFTER that render and wipe the fill it had just set up.
@@ -1028,15 +1050,15 @@ function sourceLineHtml(line, byLine, index, language) {
 function renderSourceTable(file, query) {
   const normalizedQuery = query.trim().toLowerCase();
   const lines = file.content.split(/\r?\n/);
-  // Past ~10k lines, skip syntax highlighting: tokenizing every line is ~half the render cost (measured
-  // ~4.5ms/1000 lines) and blocks the renderer, while plain escaped rows keep the exact same line structure
-  // comments/caret/search/find anchor on — only color is lost, the way editors drop highlighting past a size.
-  const renderLanguage = lines.length > 10000 ? 'text' : (file.language || 'text');
+  const renderLanguage = file.language || 'text';
   // Markup files carry two other languages inside them; everything else is one language for every line.
   const lineLanguages = renderLanguage === 'markup' ? markupBlockLanguages(lines) : null;
   const languageAt = (index) => (lineLanguages ? lineLanguages[index] : renderLanguage);
-  // The server's own tokens for this file, if it has answered. One lookup per render, not per line.
-  const semanticByLine = renderLanguage === 'text' ? null : semanticTokensFor(file.path);
+  // The server's own tokens for this file, if it has answered. One lookup per render, not per line, and
+  // not at all past the code-insight ceiling — see codeInsightMaxBytes.
+  const semanticByLine = renderLanguage === 'text' || file.size > codeInsightMaxBytes()
+    ? null
+    : semanticTokensFor(file.path);
   const cursor = viewerCursor && viewerCursor.path === file.path ? viewerCursor : null;
   const changedSet = new Set(file.changedLines || []);
   // Bookmarked lines get a gutter mark. Read once per render rather than per row, and written here so a
