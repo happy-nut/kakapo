@@ -1,3 +1,26 @@
+/**
+ * The Changes rows' accessible name — "src/viewer.css — Modified, +56 −19".
+ *
+ * Rendered server-side (render-tree.ts) with the raw git status word, which is the one part of the row a
+ * screen reader hears that never changed language: the visible name, the stat and the viewed checkbox all
+ * carry data-i18n*, and the label wrapping them did not. Recomposed here instead of given a key because it
+ * is a sentence built from three per-row facts, and the row already carries all three — the status in its
+ * `ch-<status>` class, the counts in data-added/data-deleted.
+ *
+ * Status words follow IntelliJ's own (PlatformEditorBundle `file.status.name.*`, GitBundle
+ * `git.status.renamed`), which is where the rest of this tree's vocabulary comes from.
+ */
+function paintTreeRowAriaLabels(root) {
+  (root || document).querySelectorAll('a.file-link[data-file]').forEach(function (row) {
+    var match = /\bch-([a-z]+)\b/.exec(row.className || '');
+    var status = match ? match[1] : 'modified';
+    var added = Number(row.getAttribute('data-added')) || 0;
+    var deleted = Number(row.getAttribute('data-deleted')) || 0;
+    var stat = added || deleted ? ', +' + added + ' −' + deleted : '';
+    row.setAttribute('aria-label', row.getAttribute('data-file') + ' — ' + t('tree.status.' + status) + stat);
+  });
+}
+
 function isTreeRowVisible(el) {
   var node = el;
   while (node) {

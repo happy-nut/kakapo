@@ -613,38 +613,50 @@ if (window.kakapoMenu && typeof window.kakapoMenu.onCloseTab === 'function') {
 // page load meant a release published afterwards was invisible until something happened to reload the page. The version you are told about must not depend on
 // when you last restarted.
 var UPDATE_CHECK_MS = 6 * 60 * 60 * 1000;
+function updateIsNewer(a, b) {
+  var pa = String(a).split('.'), pb = String(b).split('.');
+  for (var i = 0; i < 3; i++) {
+    var x = parseInt(pa[i], 10) || 0, y = parseInt(pb[i], 10) || 0;
+    if (x > y) return true;
+    if (x < y) return false;
+  }
+  return false;
+}
+// Module scope, not a closure inside the check, because this line is the one place in Settings that says
+// what version you are on — and it is written straight onto the element, so a language switch could not
+// reach it and it kept saying "Update available" (or "업데이트 있음") in whichever language the check
+// happened to run in. repaintUpdateStatus below is what applyI18n calls.
+function paintUpdateStatus(latest) {
+  var current = window.__KAKAPO_VERSION__ || '';
+  if (!latest || !current) return;
+  var status = document.getElementById('app-info-status');
+  if (status) status.classList.remove('is-loading');
+  if (updateIsNewer(latest, current)) {
+    // One-click auto-update needs the Electron main process (it spawns npm). When available, reveal the
+    // button so a click installs + restarts; otherwise (browser/static export) name the command instead.
+    var ub = document.getElementById('app-info-update');
+    if (ub && window.kakapoUpdate && typeof window.kakapoUpdate.run === 'function') {
+      ub.textContent = t('settings.updateRestart');
+      ub.classList.remove('hidden');
+      if (status) { status.textContent = t('settings.updateAvailable') + ': v' + latest; status.classList.add('has-update'); }
+    } else if (status) {
+      status.textContent = t('settings.updateAvailable') + ': v' + latest + ' — github.com/happy-nut/kakapo/releases';
+      status.classList.add('has-update');
+    }
+  } else if (status) {
+    status.textContent = t('settings.upToDate') + ' (v' + current + ')';
+  }
+}
+/** Repaint the Settings update line from what the last check found, without asking GitHub again. */
+function repaintUpdateStatus() {
+  var latest = '';
+  try { latest = sessionStorage.getItem('kakapo-update-latest') || ''; } catch (e) {}
+  if (latest) paintUpdateStatus(latest);
+}
 function checkForUpdate() {
   var current = window.__KAKAPO_VERSION__ || '';
   if (!current) return;
-  var isNewer = function (a, b) {
-    var pa = String(a).split('.'), pb = String(b).split('.');
-    for (var i = 0; i < 3; i++) {
-      var x = parseInt(pa[i], 10) || 0, y = parseInt(pb[i], 10) || 0;
-      if (x > y) return true;
-      if (x < y) return false;
-    }
-    return false;
-  };
-  var apply = function (latest) {
-    if (!latest) return;
-    var status = document.getElementById('app-info-status');
-    if (status) status.classList.remove('is-loading');
-    if (isNewer(latest, current)) {
-      // One-click auto-update needs the Electron main process (it spawns npm). When available, reveal the
-      // button so a click installs + restarts; otherwise (browser/static export) name the command instead.
-      var ub = document.getElementById('app-info-update');
-      if (ub && window.kakapoUpdate && typeof window.kakapoUpdate.run === 'function') {
-        ub.textContent = t('settings.updateRestart');
-        ub.classList.remove('hidden');
-        if (status) { status.textContent = t('settings.updateAvailable') + ': v' + latest; status.classList.add('has-update'); }
-      } else if (status) {
-        status.textContent = t('settings.updateAvailable') + ': v' + latest + ' — github.com/happy-nut/kakapo/releases';
-        status.classList.add('has-update');
-      }
-    } else if (status) {
-      status.textContent = t('settings.upToDate') + ' (v' + current + ')';
-    }
-  };
+  var apply = paintUpdateStatus;
   // Cached for the session so watch-mode reloads reuse it instead of refetching — but with an age now, or the
   // cache would answer every later check with the same stale version and the timer below would buy nothing.
   var cached = '', cachedAt = 0;
@@ -874,7 +886,7 @@ setInterval(checkForUpdate, UPDATE_CHECK_MS);
   }
   // Both refs point at the one renderer: applyI18n(), applyTheme() and applySyntaxTheme() each re-render
   // through them (01-core.js), and the grid is the single surface all three used to update separately.
-  themeSelectRef = syntaxThemeSelectRef = { render: renderThemeGrid };
+  themeSelectRef = syntaxThemeSelectRef = registerLocalizedPaint({ render: renderThemeGrid });
   renderThemeGrid();
   var themeGrid = document.getElementById('settings-theme-grid');
   if (themeGrid) themeGrid.addEventListener('click', function (event) {

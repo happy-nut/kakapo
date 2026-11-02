@@ -1868,7 +1868,10 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
   gap: 4px;
   min-height: 24px;
   padding: 1px 5px 1px calc(7px + (var(--depth) * var(--tree-indent)));
-  cursor: default;
+  /* `cursor: default` is the UA default for <summary> and it was simply never overridden, so in one list of
+     identically sized 280x24 rows the file rows said "clickable" and the folder rows above them said
+     "inert" — while clicking a folder row is the only way to open it. */
+  cursor: pointer;
   list-style: none;
 }
 .tree-dir summary::-webkit-details-marker { display: none; }
@@ -2312,12 +2315,22 @@ h1 { margin: 0; font-size: 18px; }
   color: var(--muted);
   min-width: 0;
 }
-.compare-ref { color: var(--text); overflow: hidden; text-overflow: ellipsis; max-width: 16ch; }
+/* --chrome-text, not --text. The pill sits on the TOOLBAR, and --text is the canvas ink: the syntax families
+   repaint it (Solarized base1, Darcula's #a9b7c6) without touching the chrome, so these two spans drifted
+   off the ground they are actually painted on. Measured on the pill's own fill before this:
+   dark/darcula 4.22:1 and dark/solarized 4.44:1 at 10.5px — under the 4.5 floor in two of the twelve
+   themes, and light/solarized passed by 0.02. --chrome-text is the token token-contrast guards against the
+   chrome ground, which is the guarantee this needs; it is also what button.compare-pill above already
+   moved to, for this exact reason, and these two children did not follow. */
+.compare-ref { color: var(--chrome-text); overflow: hidden; text-overflow: ellipsis; max-width: 16ch; }
 /* The arrow is not decoration: it is the glyph that says which of the two refs is the base and which is
    the target. At --muted knocked down to 70% it measured 2.88:1 dark and 2.08:1 light against the pill's
    own fill — the least legible ink in a control whose whole job is answering "what am I looking at".
-   It joins two .compare-ref spans, so it takes their colour. */
-.compare-arrow { color: var(--text); opacity: 0.85; }
+   `aria-hidden` keeps it out of the accessible name (the two refs read on their own); the contrast floor
+   still applies, because it is visible text a sighted reader needs. The 0.85 that sets it a step behind the
+   refs is kept — on --text it put the glyph at 3.46–3.65:1 in three themes, but the same 0.85 over
+   --chrome-text has 7.07:1 to spend in the worst theme (light/solarized) and lands well clear of 4.5. */
+.compare-arrow { color: var(--chrome-text); opacity: 0.85; }
 /* Three accents, not five: the states the app CHOSE for you carry colour, and the two you asked for by name
    (--staged, an explicit base/target) stay neutral — you already know what you picked. */
 .compare-local { --compare-state: var(--chrome-vcs-staged); }

@@ -404,8 +404,8 @@ export function renderDiffHtml(input: {
     ? `<span id="analysis-status" class="analysis-status is-idle" role="status" aria-live="polite" data-phase="idle" data-generation="0" title="Code analysis has not started"><span class="analysis-status-dot" aria-hidden="true"></span><span class="analysis-status-label">Analysis idle</span></span>`
     : `<span class="app-version" id="app-version" aria-label="Kakapo${packageVersion ? " v" + escapeAttr(packageVersion) : ""}">${brandMark}${packageVersion ? '<span class="app-version-text">v' + escapeHtml(packageVersion) + "</span>" : ""}</span>`;
   const settingsButton = '<button type="button" id="app-info-btn" class="brand-reveal brand-settings" aria-haspopup="dialog" data-i18n-aria="settings.title" aria-label="Settings" ' + keyHint('openSettings') + ' data-i18n-title="settings.title" title="Settings"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.7 3.2h4.6l.5 2.1c.6.2 1.1.5 1.6.9l2-.7 2.3 4-1.6 1.4a7 7 0 0 1 0 2.2l1.6 1.4-2.3 4-2-.7c-.5.4-1 .7-1.6.9l-.5 2.1H9.7l-.5-2.1c-.6-.2-1.1-.5-1.6-.9l-2 .7-2.3-4 1.6-1.4a7 7 0 0 1 0-2.2L3.3 9.5l2.3-4 2 .7c.5-.4 1-.7 1.6-.9z"/><circle cx="12" cy="12" r="3"/></svg></button>';
-  const revealButton = '<button type="button" class="brand-reveal" id="brand-reveal"' + keyHint('revealInTree') + ' data-i18n-title="brand.revealFile" title="Reveal open file in the sidebar" aria-label="Reveal open file in the sidebar"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.4"/><path d="M12 3v3.2"/><path d="M12 17.8V21"/><path d="M3 12h3.2"/><path d="M17.8 12H21"/></svg></button>';
-  const brandLoader = `<span class="kakapo-loader kakapo-loader-boot" role="status" aria-label="Kakapo is loading">${brandMark}</span>`;
+  const revealButton = '<button type="button" class="brand-reveal" id="brand-reveal"' + keyHint('revealInTree') + ' data-i18n-title="brand.revealFile" title="Reveal open file in the sidebar" data-i18n-aria="brand.revealFile" aria-label="Reveal open file in the sidebar"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.4"/><path d="M12 3v3.2"/><path d="M12 17.8V21"/><path d="M3 12h3.2"/><path d="M17.8 12H21"/></svg></button>';
+  const brandLoader = `<span class="kakapo-loader kakapo-loader-boot" role="status" data-i18n-aria="app.loading" aria-label="Kakapo is loading">${brandMark}</span>`;
   return [
     "<!doctype html>",
     '<html lang="en">',
@@ -429,7 +429,7 @@ export function renderDiffHtml(input: {
     "<body>",
     // Boot overlay (removed by the renderer once bootstrap has painted) covers the blank gap after loadFile.
     `<div id="boot-overlay">${brandLoader}</div>`,
-    '<aside class="sidebar" aria-label="Review navigation">',
+    '<aside class="sidebar" data-i18n-aria="a11y.reviewNav" aria-label="Review navigation">',
     `<div class="sidebar-brand" title="${escapeAttr(input.projectPath)}"><span class="brand-project">${escapeHtml(input.projectName)}</span><span class="brand-branch${input.branch ? "" : " hidden"}" data-i18n-title="rail.branch" title="Current branch"><svg class="brand-branch-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6.5" cy="6" r="2.2"/><circle cx="6.5" cy="18" r="2.2"/><circle cx="17.5" cy="8.5" r="2.2"/><path d="M6.5 8.2v7.6"/><path d="M17.5 10.7c0 3.2-2.2 4.4-5.5 4.9"/></svg><span class="brand-branch-name" id="brand-branch-name" title="${escapeAttr(input.branch || "")}">${escapeHtml(input.branch || "")}</span></span>${sidebarSwitch(input.lazy ? "changes" : "files")}</div>`,
     '<div class="sidebar-scroll">',
     `<div class="tab-panel${input.lazy ? "" : " hidden"}" id="changes-panel">${fileNav}</div>`,
@@ -443,7 +443,7 @@ export function renderDiffHtml(input: {
     // Handed-over reviews. Outside the tab panels on purpose: a watch rebuild replaces #changes-panel
     // wholesale, and the archive is client state that must survive that. Hidden until there is something
     // in it, so a review nobody has handed over yet shows no empty drawer.
-    '<div id="archive-panel" class="archive-panel hidden" aria-label="Archived reviews"></div>',
+    '<div id="archive-panel" class="archive-panel hidden" data-i18n-aria="a11y.archivedReviews" aria-label="Archived reviews"></div>',
     "</div>",
     // No sidebar footer any more: the usage quota moved to the rail (per-account, not per-workspace), the
     // version and its update-download ring moved to the rail's foot (per-app, not per-workspace), and the
@@ -536,7 +536,7 @@ export function renderDiffHtml(input: {
         + '<div class="patchset-side patchset-side-target">'
         + '<div class="patchset-nums" id="patchset-target-nums" role="group" data-i18n-aria="patchset.pickTarget" aria-label="Target patch set"></div>'
         + '<span class="patchset-kind" data-i18n="patchset.target">Target</span>'
-        + '<button type="button" id="patchset-reset" class="patchset-reset hidden" data-i18n-title="patchset.exitCompare" title="Exit compare (back to working tree)" aria-label="Exit compare"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>'
+        + '<button type="button" id="patchset-reset" class="patchset-reset hidden" data-i18n-title="patchset.exitCompare" title="Exit compare (back to working tree)" data-i18n-aria="patchset.exitCompare" aria-label="Exit compare"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>'
         + '</div>'
         + '</div>'
       : '',
@@ -613,7 +613,7 @@ export function renderDiffHtml(input: {
     // rail now rides along in every search mode and ⌘⇧F is the single door into all of them.
     // The review-comments dock is deliberately NOT listed: commenting happens in the code itself, so the
     // merged view is a legacy surface — reachable by ⌘⇧/ and its rail dispatch, but not advertised here.
-    '<nav id="quick-open-side" class="quick-open-side" aria-label="Sections">',
+    '<nav id="quick-open-side" class="quick-open-side" data-i18n-aria="a11y.quickOpenSections" aria-label="Sections">',
     '<button type="button" class="quick-open-side-item" data-section="content"' + keyHint('findInFiles') + '><span data-i18n="quickopen.findInFiles">Find in Files</span></button>',
     '<button type="button" class="quick-open-side-item" data-section="all"' + keyHint('searchFiles') + '><span data-i18n="quickopen.searchFiles">Search files</span></button>',
     // Every row names its chord. "Search files" showed none on the grounds that it HAS none, which the
@@ -676,7 +676,7 @@ export function renderDiffHtml(input: {
     "</div>",
     '<div id="settings-modal" class="settings-modal hidden" role="dialog" aria-modal="true" data-i18n-aria="settings.aria" aria-label="Settings">',
     '<div class="settings-panel">',
-    '<button type="button" id="settings-close" class="settings-close" aria-label="Close settings" title="Close (Esc)">×</button>',
+    '<button type="button" id="settings-close" class="settings-close" data-keyhint-id="closeDialog" data-i18n-aria="settings.close" aria-label="Close settings" data-i18n-title="settings.closeTitle" title="Close">×</button>',
     '<aside class="settings-nav">',
     `<div class="settings-nav-brand" aria-label="Kakapo${packageVersion ? " v" + escapeAttr(packageVersion) : ""}">${brandMark}<div class="settings-nav-brand-meta"><span class="settings-nav-brand-name">Kakapo</span><span class="settings-ver">${packageVersion ? "v" + escapeHtml(packageVersion) : ""}</span></div></div>`,
     '<div class="settings-nav-title" data-i18n="settings.title">Settings</div>',
@@ -741,7 +741,7 @@ export function renderDiffHtml(input: {
     // there is a value — so the moment this does something, it stops saying what it is.
     '<input id="history-search" type="search" class="history-search" autocomplete="off" spellcheck="false" data-i18n-ph="history.search" data-i18n-aria="history.search" aria-label="Filter by message, or type a hash to go to it" placeholder="Filter by message, or a hash to go to">',
     '<button type="button" id="history-filter-toggle" class="dock-btn" aria-expanded="false" aria-controls="history-filters" data-i18n-title="history.filters" title="More filters" data-i18n-aria="history.filters" aria-label="More filters">&#9662;</button>',
-    '<button type="button" id="history-close" class="dock-btn" data-keyhint-id="closeDialog" data-i18n-title="history.close" title="Close" aria-label="Close">&times;</button>',
+    '<button type="button" id="history-close" class="dock-btn" data-keyhint-id="closeDialog" data-i18n-title="history.close" title="Close" data-i18n-aria="history.close" aria-label="Close">&times;</button>',
     "</div>",
     // The three read-only histories of one repository: the log, where HEAD has been, and what is stashed.
     // Separate tool windows in IntelliJ; one list with three sources here, because they answer the same

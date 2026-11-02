@@ -57,7 +57,19 @@ function tabbablesWithin(root) {
     // would have been the obvious spelling and the wrong one: it is null for EVERYTHING under jsdom, so
     // the trap would have quietly degraded to "no tabbables" in every test that covers it, which is the
     // same blindness that let a dialog render 0x0 for several releases.
-    return !el.closest('.hidden') && !el.hasAttribute('disabled');
+    if (el.closest('.hidden') || el.hasAttribute('disabled')) return false;
+    // ...and hidden the way the REST of the app hides things, which the class test alone does not see. Quick
+    // Open holds the controls of every mode it can show — the find-in-files filters, the usage chips — and
+    // the modes it is not in are switched off by a `display:none` that carries no `.hidden` class. Counting
+    // them made the dialog look 22 tabbables deep when exactly one was real, so the search box was never the
+    // LAST item and the boundary below never fired: Tab walked straight out of an aria-modal dialog into the
+    // file tree behind its own scrim, and ⇧Tab could not come back.
+    //
+    // checkVisibility is the question the browser answers for itself. jsdom does not implement it (29.1.1
+    // has no layout at all, which is why offsetParent was rejected above), so under test this falls back to
+    // the class test and nothing changes; in the app it is the whole answer.
+    if (typeof el.checkVisibility === 'function' && !el.checkVisibility({ checkVisibilityCSS: true })) return false;
+    return true;
   });
 }
 function trapTabWithin(root, event) {

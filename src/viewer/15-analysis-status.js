@@ -1,4 +1,9 @@
 var analysisStatusUpdatedAt = '';
+// The last status main sent us, kept so the tooltip can be rebuilt without one. The chip's visible label
+// carries data-i18n and follows a language switch; the tooltip is written straight onto `el.title` by the
+// render below, so without this it kept the phase name in whichever language was on when the analyzer last
+// reported — which, on a project whose server is already up, is forever.
+var analysisStatusLast = null;
 // How long the current phase has been running, and the ticker that keeps saying so.
 //
 // "Analysis starting" on its own is a label that looks identical after two seconds and after two minutes,
@@ -37,12 +42,31 @@ function paintAnalysisElapsed() {
   span.textContent = ' · ' + t('analysis.elapsed').replace('{n}', String(Math.round(elapsed / 1000)));
 }
 
+/**
+ * The chip's hover detail, rebuilt from the last status rather than from the one being delivered — which is
+ * what lets applyI18n call it with no status at all after a language switch. The phase name is the only
+ * translated part; the family, the server and any error are names the server itself chose and stay as sent.
+ */
+function paintAnalysisStatusTitle() {
+  var el = document.getElementById('analysis-status');
+  var status = analysisStatusLast;
+  if (!el || !status) return;
+  var phase = el.dataset.phase || 'idle';
+  var detail = [t('analysis.' + phase), t('analysis.generation').replace('{n}', String(Math.max(0, Number(status.generation) || 0)))];
+  if (status.family) detail.push(String(status.family));
+  if (status.server) detail.push(String(status.server) + (status.serverSource ? ' (' + String(status.serverSource) + ')' : ''));
+  if (status.fallbackReason) detail.push(String(status.fallbackReason));
+  if (status.error) detail.push(String(status.error));
+  el.title = detail.join('\n');
+}
+
 function renderAnalysisStatus(status) {
   var el = document.getElementById('analysis-status');
   if (!el || !status || typeof status !== 'object') return;
   var updatedAt = typeof status.updatedAt === 'string' ? status.updatedAt : '';
   if (updatedAt && analysisStatusUpdatedAt && updatedAt < analysisStatusUpdatedAt) return;
   analysisStatusUpdatedAt = updatedAt || analysisStatusUpdatedAt;
+  analysisStatusLast = status;
   var allowed = ['idle', 'starting', 'indexing', 'ready', 'fallback', 'failed'];
   var phase = allowed.indexOf(status.phase) >= 0 ? status.phase : 'failed';
   var generation = Math.max(0, Number(status.generation) || 0);
@@ -72,12 +96,7 @@ function renderAnalysisStatus(status) {
     analysisElapsedTimer = 0;
   }
   paintAnalysisElapsed();
-  var detail = [t('analysis.' + phase), 'generation ' + generation];
-  if (status.family) detail.push(String(status.family));
-  if (status.server) detail.push(String(status.server) + (status.serverSource ? ' (' + String(status.serverSource) + ')' : ''));
-  if (status.fallbackReason) detail.push(String(status.fallbackReason));
-  if (status.error) detail.push(String(status.error));
-  el.title = detail.join('\n');
+  paintAnalysisStatusTitle();
   // The moment the index finishes is the moment the earlier answers are worth having again. A file opened
   // while a server was still starting was told, honestly, that nothing could judge it: the diagnostics
   // cache holds that as the file's state and the decoration cache drops its entry, and neither is asked a
