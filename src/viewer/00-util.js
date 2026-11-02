@@ -151,7 +151,13 @@ var overlayFocusReturn = null;
 
 // Call when an overlay opens, BEFORE moving focus into it. An element inside the overlay is not a caller —
 // re-opening a panel from one of its own controls must not make that control the thing to return to.
+//
+// Nor is <body>. An overlay that blurs on the way in (Quick Open's speed-search modes do) leaves focus
+// there, so a mode switch while it is open came back through here with activeElement === body and wiped
+// the slot — the reader's origin, lost to an action that never left the dialog. Already-open is the
+// clean test for that: the slot belongs to this showing of the overlay, and only the first open sets it.
 function rememberOverlayFocus(overlay) {
+  if (overlay && overlay.classList && !overlay.classList.contains('hidden')) return; // already up; slot stands
   var active = typeof document !== 'undefined' && document ? document.activeElement : null;
   if (!active || active === document.body) { overlayFocusReturn = null; return; }
   if (overlay && overlay.contains && overlay.contains(active)) return;
@@ -161,28 +167,53 @@ function rememberOverlayFocus(overlay) {
 // The surfaces a reader is actually reading, in the order they can be the current one. Also the fallback
 // when whatever opened the overlay is gone — a sidebar row that a re-render replaced, say.
 function focusReadingSurface() {
-  var body = document.getElementById('source-body');
-  if (body && body.offsetParent !== null && typeof body.focus === 'function') { body.focus({ preventScroll: true }); return true; }
-  var diff = document.getElementById('diff2html-container');
-  if (diff && typeof diff.focus === 'function') { diff.focus({ preventScroll: true }); return true; }
-  return false;
+  // tabIndex FIRST. These are plain <div>s: focus() on an element with no tabindex does nothing at all,
+  // in Chromium as in the spec, so every version of this that skipped the stamp reported a successful
+  // restore while focus fell to <body> — which is the bug the slot exists to prevent. Measured in the
+  // running app: #diff2html-container takes focus with the attribute and refuses it without.
+  // Try, then check — no offsetParent test. "Is it on screen" is a layout question, and layout is the one
+  // thing a test environment does not have: guarding on offsetParent disabled this whole function under
+  // jsdom while reading as correct, so the negative controls for every caller came back green. Focusing
+  // a hidden element is a no-op anyway, which is exactly what the landed check detects.
+  var tryFocus = function (el) {
+    if (!el || typeof el.focus !== 'function') return false;
+    el.tabIndex = -1;
+    try { el.focus({ preventScroll: true }); } catch (e) { try { el.focus(); } catch (ignore) {} }
+    return document.activeElement === el;
+  };
+  if (tryFocus(document.getElementById('source-body'))) return true;
+  return tryFocus(document.getElementById('diff2html-container'));
 }
 
-// Call when an overlay closes, AFTER hiding it. Does nothing unless the overlay held the keyboard, so a
-// close that was never an interaction (a view switch, a re-render) leaves the caret where the reader put it.
-function restoreOverlayFocus(overlay, heldFocus) {
-  var held = typeof heldFocus === 'boolean'
-    ? heldFocus
-    : !!(overlay && overlay.contains && document && overlay.contains(document.activeElement));
+// Call when an overlay closes, AFTER hiding it.
+//
+// The second argument is "was this overlay actually up", NOT "does it have focus right now". Asking about
+// focus looks equivalent and is not: by the time a close runs, focus has usually already left. A click
+// outside blurs on mousedown; Quick Open's recent/symbol modes blur on the way IN by design; following a
+// result closes the panel before navigating. In every one of those the overlay plainly held the keyboard a
+// moment ago, `contains(activeElement)` said no, and the restore was skipped — so Escape returned the
+// reader to where they came from while an outside click dropped them on <body>, for the same dismissal.
+//
+// "Was it up" still screens the case this guard exists for: a close() called defensively on something that
+// was never open, which is the view switch and the re-render.
+function restoreOverlayFocus(overlay, wasOpen) {
+  var held = typeof wasOpen === 'boolean'
+    ? wasOpen
+    : !!(overlay && overlay.classList && !overlay.classList.contains('hidden'));
   var target = overlayFocusReturn;
   overlayFocusReturn = null;
   if (!held) return false;
-  // isConnected, not just truthiness: a row the sidebar re-rendered is still a live object and focusing it
-  // silently does nothing, which reads exactly like the bug this replaces.
+  // Ask, do not predict. isConnected is necessary and not sufficient — a row the sidebar re-rendered is
+  // still a live object, and so is a control inside an overlay that is now display:none; focus() on
+  // either silently does nothing, which reads exactly like the bug this replaces. Every predicate for
+  // "is it really focusable" is a guess about layout, and the one tried here first (offsetParent) is
+  // null for everything in jsdom, so it disabled the restore wholesale under test while looking
+  // correct. Calling focus() and then checking where focus actually went needs no predicate and is
+  // right in both places.
   if (target && target.isConnected && typeof target.focus === 'function'
       && !(overlay && overlay.contains && overlay.contains(target))) {
-    target.focus({ preventScroll: true });
-    return true;
+    try { target.focus({ preventScroll: true }); } catch (e) { try { target.focus(); } catch (ignore) {} }
+    if (document.activeElement === target) return true;
   }
   return focusReadingSurface();
 }

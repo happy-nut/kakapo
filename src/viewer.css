@@ -140,9 +140,18 @@
      The strength is not a weakening: flat, these measured 1.6-2.7:1 against their own row, while
      IntelliJ's own Darcula step (#49544a on its #3c3f41 tree) is 1.34:1. At these percentages they
      land on 1.21-1.30 — the tint this is a port of. The light values need no mix; they pass at full
-     strength, being a pale wash on a pale ground already. */
-  --file-color-test: color-mix(in srgb, #49544a 39%, var(--chrome-bg));
-  --file-color-generated: color-mix(in srgb, #4f4b41 45%, var(--chrome-bg));
+     strength, being a pale wash on a pale ground already.
+     Two grounds, because the tint has two paint sites: the trees sit on --chrome-bg and the tab strip on
+     --chrome-panel, and a mix anchored to the wrong one is a step from a colour that is not behind it.
+     Anchored to --chrome-bg alone, the tinted TAB measured 1.07:1 against its own strip on Darcula —
+     indistinguishable from an untinted tab. The hue and the strength are written once each; only the
+     ground changes. */
+  --file-tint-test: #49544a;
+  --file-tint-generated: #4f4b41;
+  --file-color-test: color-mix(in srgb, var(--file-tint-test) 39%, var(--chrome-bg));
+  --file-color-generated: color-mix(in srgb, var(--file-tint-generated) 45%, var(--chrome-bg));
+  --file-color-test-tab: color-mix(in srgb, var(--file-tint-test) 39%, var(--chrome-panel));
+  --file-color-generated-tab: color-mix(in srgb, var(--file-tint-generated) 45%, var(--chrome-panel));
 }
 /* Light theme. Everything (chrome, diff2html, syntax tokens) reads these var()s, so overriding the
    palette flips the whole UI — no per-rule light styles needed. Toggled in Settings → General, which
@@ -201,6 +210,13 @@
   --token-decorator: #6639ba;
   --file-color-test: #effae7;
   --file-color-generated: #ffffe4;
+  /* Light needs no mix — these are a pale wash on a pale ground and clear every ink at full strength —
+     so the tab takes the same value. Measured separately and NOT fixed here: on the tab strip these
+     land at 1.00-1.08 against --chrome-panel (Solarized light is exactly 1.00, i.e. invisible), which
+     is how they measured before this ground existed too. That is a light-palette problem, not a
+     grounding one, and it wants its own pass. */
+  --file-color-test-tab: #effae7;
+  --file-color-generated-tab: #ffffe4;
 }
 /* JetBrains theme family. Appearance selects its matching member: Darcula Dark or IntelliJ Light.
    These palettes own both application chrome and code tokens so a light window never contains a
@@ -459,9 +475,16 @@
   --chrome-stat-add: #15c38a;
   --chrome-stat-del: #e09999;
   --chrome-status-bad: #e09999;
-  --chrome-vcs-new: #8ea300;
-  --chrome-vcs-edited: #469fdd;
-  --chrome-vcs-staged: #2ca9a0;
+  /* Lifted 8-9% off Solarized's accents, hue kept. This is the one theme whose --chrome-panel (#002b36) is
+     LIGHTER than its --chrome-bg (#012129), so the File Color tint mixed into the tab strip lands lighter
+     than the same tint on the canvas, and these three fell to 4.16-4.27 there. Darkening the tint instead
+     was the wrong trade: it already reads at only 1.23-1.29 against its own surround, so buying ink
+     contrast with it would have erased the File Color to save the status. On the untinted panel the
+     originals were fine (5.19-5.28) — the headroom was in the ink, so the ink moved. Worst case now 4.63,
+     which also lifts the canvas pair off the 4.50 it was sitting exactly on. */
+  --chrome-vcs-new: #97aa14;
+  --chrome-vcs-edited: #57a8e0;
+  --chrome-vcs-staged: #3fb1a9;
   --token-comment: #8a9ea5;
   --token-keyword: #8fa500;
   --token-string: #2daca2;
@@ -1270,7 +1293,7 @@ body {
 .patchset-side-target { justify-content: flex-end; }
 .patchset-nums { display: flex; align-items: center; gap: 3px; flex-wrap: wrap; }
 .patchset-num {
-  flex: none; min-width: 22px; height: 22px; padding: 0 5px; box-sizing: border-box;
+  flex: none; min-width: 24px; height: 24px; padding: 0 5px; box-sizing: border-box;
   display: inline-flex; align-items: center; justify-content: center;
   border: 1px solid var(--border); border-radius: 6px; background: var(--panel); color: var(--muted);
   font: 600 11.5px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; cursor: pointer;
@@ -1300,7 +1323,7 @@ body {
 /* It is a button now — it stops hiding the folded sets rather than guessing which one you meant — so it
    looks like one it is safe to press, and says how many it is holding. */
 .patchset-gap {
-  flex: none; height: 22px; padding: 0 6px; box-sizing: border-box;
+  flex: none; height: 24px; padding: 0 6px; box-sizing: border-box;
   display: inline-flex; align-items: center; justify-content: center;
   border: 1px dashed var(--border); border-radius: 6px; background: transparent;
   color: var(--chrome-muted); font: 600 10.5px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -1312,7 +1335,7 @@ body {
 .patchset-nums.is-expanded { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: thin; }
 .patchset-reset {
   display: inline-flex; align-items: center; justify-content: center; flex: none;
-  width: 22px; height: 22px; padding: 0; border: 1px solid var(--border); border-radius: 6px;
+  width: 24px; height: 24px; padding: 0; border: 1px solid var(--border); border-radius: 6px;
   color: var(--muted); background: var(--panel); cursor: pointer;
 }
 .patchset-reset:hover { border-color: var(--active); color: var(--text); }
@@ -1843,7 +1866,7 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
   grid-template-columns: 14px minmax(0, 1fr);
   align-items: center;
   gap: 4px;
-  min-height: 18px;
+  min-height: 24px;
   padding: 1px 5px 1px calc(7px + (var(--depth) * var(--tree-indent)));
   cursor: default;
   list-style: none;
@@ -2957,8 +2980,8 @@ body.cmd-link-active .source-code { cursor: pointer; }
 /* The tab too, which is where IntelliJ's File Colors are most often seen: the tint is behind the name of
    the file you are actually reading. The active tab keeps its own background — that one says "this is the
    one on screen", which outranks what kind of file it is. */
-.source-tab.is-test-file:not(.active) { background: var(--file-color-test); }
-.source-tab.is-generated-file:not(.active) { background: var(--file-color-generated); }
+.source-tab.is-test-file:not(.active) { background: var(--file-color-test-tab); }
+.source-tab.is-generated-file:not(.active) { background: var(--file-color-generated-tab); }
 .is-generated-file { background: var(--file-color-generated); }
 .tree-dir.is-test-root > summary { background: var(--file-color-test); }
 .source-link.not-embedded { opacity: 0.45; }

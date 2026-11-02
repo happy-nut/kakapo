@@ -29,10 +29,7 @@ function closeQuickDoc() {
   // Hand the keyboard back, as the peek does — Chromium drops focus from a hidden element on its own, and
   // relying on that leaves the keyboard scope reading "a text field is focused" everywhere that does not.
   if (!hadFocus) return true;
-  var body = document.getElementById('source-body');
-  if (body && body.offsetParent !== null && typeof body.focus === 'function') { body.focus({ preventScroll: true }); return true; }
-  var diff = document.getElementById('diff2html-container');
-  if (diff && typeof diff.focus === 'function') diff.focus({ preventScroll: true });
+  focusReadingSurface();
   return true;
 }
 

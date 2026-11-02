@@ -519,13 +519,15 @@ function handleUsagesKey(event) {
 }
 function openUsageItem(item) {
   if (!item) return;
-  closeUsages();
+  closeUsages(true); // going somewhere, not coming back — the destination owns the keyboard
   openSourceAt(item.path, item.lineIndex, item.column);
 }
-function closeUsages() {
+// `navigating` is the caller saying "I am about to move the view myself": the panel is being dismissed
+// on the way somewhere, so handing the keyboard back to whatever opened it would land it behind.
+function closeUsages(navigating) {
   var box = document.getElementById('usages');
   if (!box) return;
-  var held = box.contains(document.activeElement);
+  var held = !navigating && !box.classList.contains('hidden');
   box.classList.add('hidden');
   var panel = box.querySelector('.quick-open-panel');
   if (panel) resetUsagesAnchor(box, panel); // clear inline anchoring so the next open re-measures cleanly

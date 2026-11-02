@@ -952,7 +952,12 @@ if (window.kakapoMenu && typeof window.kakapoMenu.onReadingAction === 'function'
   container.addEventListener('beforeinput', block);
   container.addEventListener('paste', block);
   container.addEventListener('drop', block);
-  container.addEventListener('dragstart', block);
+  // 'dragstart' is NOT in this list. The other three stop the diff being EDITED — typed into, pasted
+  // into, dropped onto — and dragging a selection OUT of it edits nothing; it is a way of reading, the
+  // same as Cmd+C. Grouped with them it silently removed drag-and-drop of selected code to another
+  // window, and only from the diff: the source view never blocked it, and that asymmetry is what gives
+  // the grouping away as a reflex rather than a decision. The app's own selection IS the native one
+  // (see test/drag-select.test.mjs), so nothing here is protecting a gesture of its own either.
   container.addEventListener('keydown', (event) => {
     if (inComment(event)) return;
     if (event.metaKey || event.ctrlKey || event.altKey) return;

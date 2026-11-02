@@ -352,15 +352,14 @@ function openLightbox(src, alt, vector) {
   img.classList.toggle('mc-lightbox-vector', !!vector);
   img.src = src;
   img.alt = alt || '';
-  rememberOverlayFocus(lb);
   lb.classList.remove('hidden');
 }
+// No remember/restore pair here on purpose. The lightbox is one <img> with no tabindex; nothing in it
+// can hold the keyboard, so there is nothing to hand back — and taking the shared slot on the way in
+// would only take it from an overlay that does.
 function closeLightbox() {
   var lb = document.getElementById('mc-lightbox');
-  if (!lb) return;
-  var held = lb.contains(document.activeElement);
-  lb.classList.add('hidden');
-  restoreOverlayFocus(lb, held);
+  if (lb) lb.classList.add('hidden');
 }
 function lightboxOpen() {
   var lb = document.getElementById('mc-lightbox');
@@ -1317,6 +1316,34 @@ function highlightYamlLine(text) {
   return out + highlightYamlValue(rest);
 }
 
+// Line-comment markers for the generic tokenizer below. Not every language needs one — the default is
+// `//` — but a `#`, `--`, `%` or `;` language on that default has its comments painted as code, and a
+// mis-coloured comment is harder to read past than a grey one.
+//
+// It is a function holding its table rather than a top-level object because the slices are concatenated and
+// run in order: an earlier slice opens the default source file during its own top-level execution, and that
+// reaches highlightLine before this slice's `var` initializers have run. A function declaration hoists over
+// the whole script, so it is callable then; an object literal assigned to a `var` is still undefined, and
+// read as one it threw on every file the app opened at startup. Built once, on first use.
+var lineCommentCache = null;
+function lineCommentPrefixes(language) {
+  if (!lineCommentCache) lineCommentCache = {
+    python: ['#'], ruby: ['#'], shell: ['#'], yaml: ['#'], toml: ['#'],
+    perl: ['#'], r: ['#'], julia: ['#'], elixir: ['#'], powershell: ['#'],
+    makefile: ['#'], dockerfile: ['#'], ini: ['#', ';'], gherkin: ['#'], nginx: ['#'],
+    graphql: ['#'],
+    // The .http dialect's own parser accepts either (`/^\s*(?:#+|\/\/)/` in applyHttpDirective), so a
+    // file mixing them is normal and the default would have painted every `#` line as code.
+    http: ['#', '//'],
+    lua: ['--'], haskell: ['--'], vhdl: ['--'], sql: ['--'],
+    erlang: ['%'], latex: ['%'],
+    clojure: [';'],
+    // OCaml has no line comment at all — only (* … *). Given one, every `(*` line would be missed anyway,
+    // so it keeps the default and lets the string/keyword passes do what they can.
+  };
+  return lineCommentCache[language] || ['//'];
+}
+
 function highlightLine(text, language) {
   if (language === 'text') return escapeHtml(text);
   // CSS has none of the generic tokenizer's shapes — no keywords, no // comments, and `8px` is not a number
@@ -1380,7 +1407,11 @@ function highlightLine(text, language) {
   }
   const sets = tokenSets();
   const keywords = language === 'kotlin' ? sets.kotlin : sets.base;
-  const commentPrefixes = ['python','ruby','shell','yaml','toml'].includes(language) ? ['#'] : ['//'];
+  // A language's line comment, because getting this wrong is worse than not colouring at all: on the
+  // default a `#` line reads as code and the keyword pass paints words inside it. `//` is the default
+  // because the C family is most of what a reviewer opens, and every language this file can now be
+  // asked for (util.ts's language map) has a row here or is deliberately on that default.
+  const commentPrefixes = lineCommentPrefixes(language);
   let output = '';
   let index = 0;
   while (index < text.length) {

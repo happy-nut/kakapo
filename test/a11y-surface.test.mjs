@@ -18,9 +18,12 @@ const rules = css.replace(/\/\*[\s\S]*?\*\//g, "");
 
 let html;
 before(async () => {
+  // { app: true } so the desktop chrome renders — the compare pill, the patch-set bar, the source tabs.
+  // Without it this page simply has no patch-set bar, so the sweep below could not have seen that its
+  // four buttons were 22px: the coverage of a DOM-driven sweep is whatever the fixture draws.
   ({ html } = await makeReviewHtml([
     { path: "src/app.ts", before: "export const x = 1;\n", after: "export const x = 2;\n" },
-  ]));
+  ], { app: true }));
 });
 after(cleanupFixtures);
 
@@ -120,8 +123,9 @@ test("nothing you have to click is smaller than 24 CSS pixels", async () => {
   let controlClasses;
   try {
     const interactive = v.window.document.querySelectorAll(
-      'button, a[href], input, select, textarea, [role="button"], [role="option"], [role="menuitem"], ' +
-      '[role="menuitemradio"], [role="tab"], [role="checkbox"], [tabindex]:not([tabindex="-1"])');
+      'button, a[href], input, select, textarea, summary, [role="button"], [role="option"], ' +
+      '[role="menuitem"], [role="menuitemradio"], [role="tab"], [role="checkbox"], ' +
+      '[tabindex]:not([tabindex="-1"])');
     assert.ok(interactive.length > 10, `the page renders its controls (found ${interactive.length})`);
     controlClasses = new Set();
     for (const el of interactive) for (const c of el.classList) controlClasses.add(c);
@@ -129,6 +133,16 @@ test("nothing you have to click is smaller than 24 CSS pixels", async () => {
     v.close();
   }
   assert.ok(controlClasses.size > 15, `the controls carry classes to match on (${controlClasses.size})`);
+
+  // The honest limit of asking the page: a DOM-driven sweep measures what the fixture DRAWS, and some
+  // controls are drawn from data the fixture has none of. The patch-set bar renders its reset button
+  // from markup — which is why that one is caught above — but its numbered buttons come from
+  // 22-patchset.js once there are patch sets to number, so a review of two files never shows them.
+  // They were 22px for exactly that reason: the sweep's coverage was its fixture's coverage.
+  //
+  // Named, not inferred. Every entry here is a control this file could not see, and the list is short
+  // on purpose: the moment a fixture CAN draw one of these, it belongs above instead.
+  for (const cls of ["patchset-num", "patchset-gap"]) controlClasses.add(cls);
 
   const small = [];
   let measured = 0;
@@ -149,7 +163,9 @@ test("nothing you have to click is smaller than 24 CSS pixels", async () => {
       // sizes the svg, not the button, which is exactly the distinction the regex version missed.
       const last = sel.split(/[\s>+~]+/).filter(Boolean).pop() || "";
       const classes = [...last.matchAll(/\.([\w-]+)/g)].map((m) => m[1]);
-      const isControl = /^button\b/.test(last) || classes.some((c) => controlClasses.has(c));
+      // `summary` as well as `button`: the folder row is styled by `.tree-dir summary`, so its last
+      // compound carries no class at all and class matching alone cannot reach it.
+      const isControl = /^(?:button|summary)\b/.test(last) || classes.some((c) => controlClasses.has(c));
       if (!isControl) continue;
       measured += 1;
       // The declared size IS the target: `* { box-sizing: border-box }` is set globally, so padding and

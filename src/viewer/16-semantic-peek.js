@@ -194,10 +194,7 @@ function closeSemanticPeek() {
   panel.classList.add('hidden');
   panel.style.left = panel.style.top = panel.style.bottom = panel.style.width = panel.style.maxHeight = '';
   if (!hadFocus) return;
-  var body = document.getElementById('source-body');
-  if (body && body.offsetParent !== null && typeof body.focus === 'function') { body.focus({ preventScroll: true }); return; }
-  var diff = document.getElementById('diff2html-container');
-  if (diff && typeof diff.focus === 'function') diff.focus({ preventScroll: true });
+  focusReadingSurface();
 }
 
 function openActiveSemanticPeekSource() {

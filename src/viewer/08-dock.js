@@ -707,6 +707,7 @@ setInterval(checkForUpdate, UPDATE_CHECK_MS);
   }
   function open(cat) {
     if (cat) showCat(cat);
+    rememberOverlayFocus(modal);
     modal.classList.remove('hidden');
     // Focus goes IN, and that is what makes the trap below real. It was wired and correct and never ran,
     // because nothing moved focus into the dialog: the keydown listener is on `modal`, so a key pressed
@@ -721,7 +722,16 @@ setInterval(checkForUpdate, UPDATE_CHECK_MS);
   // document handler, and the gear — which stopPropagation()s its own click — did not. The sheet then
   // went away with the listener still on: the keyboard was dead, nothing on screen said why, and the
   // next free chord was written into the overrides with no row to show for it.
-  function close() { endShortcutCapture(); modal.classList.add('hidden'); }
+  // ...and giving the keyboard back is the other part. This is the most focus-aware overlay in the app
+  // — it moves focus IN deliberately and traps Tab inside — which is exactly why leaving it out of the
+  // shared pair was wrong: it is the one overlay guaranteed to be holding the keyboard when it closes,
+  // so <body> is guaranteed to be where focus lands.
+  function close() {
+    endShortcutCapture();
+    var wasOpen = !modal.classList.contains('hidden');
+    modal.classList.add('hidden');
+    restoreOverlayFocus(modal, wasOpen);
+  }
   if (gearBtn) gearBtn.addEventListener('click', function (e) { e.stopPropagation(); if (modal.classList.contains('hidden')) open('general'); else close(); });
   if (closeBtn) closeBtn.addEventListener('click', close);
   cats.forEach(function (c) { c.addEventListener('click', function () { showCat(c.dataset.cat); }); });

@@ -90,10 +90,6 @@ function showCaretHint(message, anchor, sticky) {
   if (caretHintTimer) clearTimeout(caretHintTimer);
   if (!sticky) caretHintTimer = setTimeout(hideCaretHint, caretHintLifetime(message));
 }
-function hideCaretHint() {
-  if (caretHintEl) caretHintEl.classList.remove('show');
-  caretHintTimer = 0;
-}
 // How long a hint stays up.
 //
 // A flat 2000ms was the rule, and the wrong shape: "definition not found" and a four-line compiler
@@ -1774,12 +1770,19 @@ function gotoComment(delta) {
   commentNavPendingDelta = delta; // the last press names the direction, not the first
   if (commentNavAwaitingIndex) return true;
   commentNavAwaitingIndex = true;
-  ensureProjectIndex().then(function () {
+  var release = function (landed) {
     commentNavAwaitingIndex = false;
     var direction = commentNavPendingDelta || delta;
     commentNavPendingDelta = 0;
-    step(sortedNavThread().filter(commentIsReachable), direction);
-  });
+    if (landed) step(sortedNavThread().filter(commentIsReachable), direction);
+    else showCaretHint(t('comment.nav.unreachable'));
+  };
+  // Both arms, because the promise CAN reject: ensureProjectIndex swallows a failed fetch, but it runs
+  // installProjectIndex inside its own success handler, and a throw there comes back here. Left
+  // unhandled, the latch stays true for the rest of the session — every later press that needs the
+  // index short-circuits on it and never asks again — and the stale direction leaks into whichever
+  // deferral finally succeeds.
+  ensureProjectIndex().then(function () { release(true); }, function () { release(false); });
   return true;
 }
 

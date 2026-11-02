@@ -141,8 +141,62 @@ export function languageForPath(path: string): string {
   if (lower.endsWith(".toml")) return "toml";
   if (lower.endsWith(".sql")) return "sql";
   if (lower.endsWith(".http") || lower.endsWith(".rest")) return "http";
-  return "text";
+  const extra = EXTRA_LANGUAGE_BY_EXTENSION.get(extensionOf(lower)) ?? FILENAME_LANGUAGE.get(baseNameOf(lower));
+  return extra ?? "text";
 }
+
+function extensionOf(lowerPath: string): string {
+  const base = lowerPath.slice(lowerPath.lastIndexOf("/") + 1);
+  const dot = base.lastIndexOf(".");
+  return dot > 0 ? base.slice(dot + 1) : "";
+}
+function baseNameOf(lowerPath: string): string {
+  return lowerPath.slice(lowerPath.lastIndexOf("/") + 1);
+}
+
+/**
+ * The rest of what highlight.js can already read.
+ *
+ * It ships 192 grammars and this file was asking for 19 of them, so everything else fell through to
+ * "text" — which switches highlighting off in BOTH views, because this one function is what the diff's
+ * hljs pass and the source view's own tokenizer both ask. A Groovy file, whose grammar is sitting in the
+ * bundle unused, rendered as flat grey in a tool whose whole job is reading code. Nothing is downloaded
+ * or bundled to fix that; the grammars are already here.
+ *
+ * Every value is a real hljs language name (asserted in test/language-coverage.test.mjs) and every one is
+ * also given a comment style for the source view's generic tokenizer, which assumes `//` unless told
+ * otherwise — a `#`-comment language left on the default paints its comments as code, which is worse
+ * than the plain text it replaces.
+ */
+const EXTRA_LANGUAGE_BY_EXTENSION = new Map<string, string>([
+  // C family and friends: the generic tokenizer's defaults are right for all of these.
+  ["groovy", "groovy"], ["gradle", "groovy"],
+  ["c", "c"], ["h", "c"],
+  ["cc", "cpp"], ["cpp", "cpp"], ["cxx", "cpp"], ["hpp", "cpp"], ["hh", "cpp"], ["hxx", "cpp"],
+  ["cs", "csharp"], ["swift", "swift"], ["scala", "scala"], ["sc", "scala"],
+  ["dart", "dart"], ["m", "objectivec"], ["mm", "objectivec"],
+  ["proto", "protobuf"], ["graphql", "graphql"], ["gql", "graphql"],
+  ["fs", "fsharp"], ["fsx", "fsharp"], ["v", "verilog"], ["sv", "verilog"],
+  // `#` comments.
+  ["pl", "perl"], ["pm", "perl"], ["r", "r"], ["jl", "julia"],
+  ["ex", "elixir"], ["exs", "elixir"], ["ps1", "powershell"], ["psm1", "powershell"],
+  ["mk", "makefile"], ["ini", "ini"], ["cfg", "ini"], ["conf", "ini"], ["properties", "ini"],
+  ["feature", "gherkin"], ["nginx", "nginx"],
+  // `--` comments.
+  ["lua", "lua"], ["hs", "haskell"], ["vhd", "vhdl"], ["vhdl", "vhdl"],
+  // `%` comments.
+  ["erl", "erlang"], ["hrl", "erlang"], ["tex", "latex"], ["m4", "latex"],
+  // `;` comments.
+  ["clj", "clojure"], ["cljs", "clojure"], ["cljc", "clojure"],
+  // `(* *)` — block only, so the source view leaves it to the keyword pass rather than mis-reading `//`.
+  ["ml", "ocaml"], ["mli", "ocaml"],
+]);
+
+/** Files that declare their language by NAME rather than by extension. */
+const FILENAME_LANGUAGE = new Map<string, string>([
+  ["makefile", "makefile"], ["gnumakefile", "makefile"],
+  ["dockerfile", "dockerfile"], ["containerfile", "dockerfile"],
+]);
 
 /**
  * The encoding a byte-order mark declares, or null when there is none (or when it declares one we cannot

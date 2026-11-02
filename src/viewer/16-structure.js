@@ -319,7 +319,7 @@ function renderRecentLocationResults(query) {
 /** Opening a recent location restores the whole caret position, diff side included. */
 function openRecentLocationItem(item) {
   if (!item || item.kind !== 'location') return false;
-  closeQuickOpen();
+  closeQuickOpen(true); // restoring a caret position IS the navigation
   restoreNav(navList[item.navIndex]);
   return true;
 }

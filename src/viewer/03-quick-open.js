@@ -33,6 +33,18 @@ var QUICK_LAUNCHER_MODES = ['recent', 'all', 'content'];
 // it wants, so a column of the other sections beside a short list of recent files is all frame and no list.
 function openQuickOpen(mode, hideRail) {
   if (!quickOpen || !quickInput || !quickModeLabel) return;
+  // Nothing stays open underneath. KEY_OWNERS puts the compare menu and the semantic peek above this one
+  // and explains that the order is harmless "because [they stand] down the moment [they are] hidden" —
+  // but Cmd+P opens OVER them, and then Escape went to the popover underneath while the dialog it was
+  // meant for stayed on screen. Worse, that popover's own restore pulled focus out to the toolbar pill,
+  // so a search dialog was up with the keyboard on the header.
+  //
+  // Closed here rather than reordered there: this is the surface that calls itself a true modal keyboard
+  // scope, and a modal with something live behind it is the contradiction, not the row order. Closed
+  // BEFORE the slot is taken, so the slot holds where their own dismissal left the reader.
+  closeCompareMenu();
+  closeSemanticPeek();
+  closeQuickDoc();
   rememberOverlayFocus(quickOpen);
   quickMode = mode;
   quickModeLabel.textContent = mode === 'recent'
@@ -122,7 +134,7 @@ document.getElementById('quick-open-side')?.addEventListener('click', function (
     openQuickOpen(section);
     return;
   }
-  closeQuickOpen();
+  closeQuickOpen(true); // handing over to another panel, which takes the keyboard itself
   // Every other row owns a panel of its own. These used to be dispatched by clicking the matching activity-rail
   // button; the rail is gone, so the row calls the panel directly — a row that quietly opened nothing is worse
   // than no row at all. Blur first: the launcher is closing, and its own row must not keep the keyboard.
@@ -137,17 +149,20 @@ function updateRecentFilterDisplay() {
   else { quickFilterEl.textContent = t('quickopen.typeToFilter'); quickFilterEl.className = 'quick-open-filter is-hint'; }
 }
 
-function closeQuickOpen() {
+function closeQuickOpen(navigating) {
   setQuickOpenOwnsEditKeys(false);
   // Hand the keyboard back explicitly. Chromium drops focus from an element that becomes display:none, so
   // in the app the focus would move on its own — but relying on that leaves the keyboard scope reading
   // "a text field is focused" in any environment that does not (jsdom), and every code-level shortcut
   // stands down while that is true. Saying it is cheaper than depending on it.
+  var wasOpen = !!(quickOpen && !quickOpen.classList.contains('hidden'));
   var focused = document.activeElement;
-  var held = !!(focused && quickOpen && quickOpen.contains(focused));
-  if (held && focused.blur) focused.blur();
+  if (focused && quickOpen && quickOpen.contains(focused) && focused.blur) focused.blur();
   quickOpen?.classList.add('hidden');
-  restoreOverlayFocus(quickOpen, held);
+  // `navigating` is the caller about to move the view itself — see openQuickItem. Restoring there would
+  // hand the keyboard to a surface this same action is tearing down, which is how Enter, the palette's
+  // most-used key, ended on <body>.
+  restoreOverlayFocus(quickOpen, wasOpen && !navigating);
   quickPreviewState = null;
   if (quickPreviewScrollFrame) cancelAnimationFrame(quickPreviewScrollFrame);
   quickPreviewScrollFrame = 0;
@@ -1043,7 +1058,7 @@ function openQuickItem(item) {
   // A recent location is a position (which pane, which side, which line), not a file — restoring it is a
   // different act from opening its path.
   if (openRecentLocationItem(item)) return;
-  closeQuickOpen();
+  closeQuickOpen(true); // going somewhere — the destination takes the keyboard, not the palette's opener
   rememberRecent(item.path, item.kind);
   if ((item.kind === 'search' || item.kind === 'symbol') && sourceByPath.has(item.path)) {
     var searchFile = sourceByPath.get(item.path);

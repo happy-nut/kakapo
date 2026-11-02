@@ -123,3 +123,98 @@ test("walking the review forward and backward visits the same changes", async ()
   assert.deepEqual(backward.slice().reverse(), forward, "backward visits exactly the same ones");
   v.close();
 });
+
+// Crossing files the reader has already ticked off, out loud.
+//
+// The walk skips viewed files on purpose: a viewed file's diff body is display:none, so stopping in one
+// would show an empty pane. It did it in silence, and ticking files off as you read is the normal way to
+// use this app — so F7 routinely jumped several entries down the sidebar with nothing on screen to say
+// why. Measured in the running app: with three files marked, F7 went from README.md straight to
+// src/analysis.ts and said nothing. The crossing is right; the silence was the defect.
+//
+// Names chosen against the MEASURED order, not an assumed one. The tree sorts by path, so these four
+// walk as four, one, three, two — the first version of this test marked the last two and then asserted
+// that stepping forward landed past them, which it cannot, because there is nothing past them.
+const SKIP_FILES = [
+  { path: "src/one.ts", before: lines(20), after: lines(20).replace("line 3\n", "line 3 EDITED\n") },
+  { path: "src/two.ts", before: lines(20), after: lines(20).replace("line 4\n", "line 4 EDITED\n") },
+  { path: "src/three.ts", before: lines(20), after: lines(20).replace("line 5\n", "line 5 EDITED\n") },
+  { path: "src/four.ts", before: lines(20), after: lines(20).replace("line 6\n", "line 6 EDITED\n") },
+];
+const markViewed = (v, paths) => v.window.eval(`(function(){
+  [].slice.call(document.querySelectorAll('.change-row[data-file]')).forEach(function (r) {
+    if (${JSON.stringify(paths)}.indexOf(r.getAttribute('data-file')) < 0) return;
+    var box = r.querySelector('.viewed-box');
+    if (box) box.click();
+  });
+})()`);
+const walkFrom = (v, path, delta) => JSON.parse(v.window.eval(`(function(){
+  var from = diffNavTargets().filter(function (x) { return x.path === ${JSON.stringify(path)}; })[0];
+  return JSON.stringify(nextUnviewedTarget(from.hunk, from.path, ${delta}));
+})()`));
+
+// The premise the whole complaint rests on, asserted rather than assumed: the order F7 walks IS the order
+// the sidebar lists. If these ever diverge, every finding about "skipping" means something else.
+test("the walk order is the sidebar order", async () => {
+  const { html: many } = await makeReviewHtml(SKIP_FILES);
+  const v = await loadViewer(many);
+  try {
+    const walk = JSON.parse(v.window.eval(`JSON.stringify(diffNavTargets().map(function(x){return x.path;}))`));
+    const rows = JSON.parse(v.window.eval(
+      `JSON.stringify([].slice.call(document.querySelectorAll('.change-row[data-file]')).map(function(r){return r.getAttribute('data-file');}))`));
+    assert.deepEqual(walk, rows, "F7 visits files in the order the sidebar shows them");
+  } finally {
+    v.close();
+  }
+});
+
+test("the walk reports how many viewed files it crossed", async () => {
+  const { html: many } = await makeReviewHtml(SKIP_FILES);
+  const v = await loadViewer(many);
+  try {
+    markViewed(v, ["src/one.ts", "src/three.ts"]); // the two in the MIDDLE of four, one, three, two
+    const walked = walkFrom(v, "src/four.ts", 1);
+    assert.equal(walked.path, "src/two.ts", "the walk landed past both viewed files");
+    assert.equal(walked.skipped, 2, "and it counted them");
+  } finally {
+    v.close();
+  }
+});
+
+test("crossing nothing reports nothing", async () => {
+  // The other half: without this, a fix that always announced would read as correct above.
+  const { html: many } = await makeReviewHtml(SKIP_FILES);
+  const v = await loadViewer(many);
+  try {
+    const walked = walkFrom(v, "src/four.ts", 1);
+    assert.equal(walked.path, "src/one.ts", "an ordinary step went to the very next file");
+    assert.equal(walked.skipped, 0, "and crossed nothing");
+  } finally {
+    v.close();
+  }
+});
+
+test("it counts files, not change blocks", async () => {
+  // A viewed file with several change blocks is ONE thing skipped. Counting targets would say two for a
+  // file the reader sees as one row, and the sentence is about sidebar rows.
+  const { html: multi } = await makeReviewHtml([
+    { path: "src/aaa.ts", before: lines(30), after: lines(30).replace("line 2\n", "line 2 EDITED\n") },
+    { path: "src/mmm-busy.ts", before: lines(30), after: twoBlocks },
+    { path: "src/zzz.ts", before: lines(30), after: lines(30).replace("line 7\n", "line 7 EDITED\n") },
+  ]);
+  const v = await loadViewer(multi);
+  try {
+    // The invariant the count rests on: one entry per file, however many change blocks that file holds.
+    // Stepping BETWEEN blocks happens earlier, inside next(); this list is the file queue. If it ever
+    // becomes one entry per block, `skipped` starts counting blocks and the sentence stops being true.
+    const entries = JSON.parse(v.window.eval(
+      `JSON.stringify(diffNavTargets().filter(function(x){return x.path==='src/mmm-busy.ts';}).length)`));
+    assert.equal(entries, 1, "the busy file is one entry in the walk, not one per change block");
+    markViewed(v, ["src/mmm-busy.ts"]);
+    const walked = walkFrom(v, "src/aaa.ts", 1);
+    assert.equal(walked.path, "src/zzz.ts", "the busy viewed file was crossed");
+    assert.equal(walked.skipped, 1, "one FILE, however many change blocks it holds");
+  } finally {
+    v.close();
+  }
+});

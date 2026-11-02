@@ -452,10 +452,10 @@ function closeHistory() {
   historyLoadSeq += 1;
   var v = document.getElementById('history-view');
   if (!v) return;
-  var held = v.contains(document.activeElement);
+  var wasOpen = !v.classList.contains('hidden');
   v.classList.add('hidden');
   v.classList.remove('history-direct-diff');
-  restoreOverlayFocus(v, held);
+  restoreOverlayFocus(v, wasOpen);
 }
 function historyScopeLabel() {
   if (!historyScope) return '';
@@ -487,10 +487,12 @@ function openHistory(scope) {
   var v = document.getElementById('history-view');
   if (!v) return;
   if (!window.kakapoGit) return; // browser/serve mode: no git bridge
-  rememberOverlayFocus(v);
   // The overlay renders UNDER the merged dock (z75 vs 77+), so opening it while that is up looked like the
   // shortcut did nothing. Full-screen surfaces switch, never stack.
+  // AFTER leaveFullScreenPanels, which routes through closeHistory() and would fire the restore and
+  // null the slot we are about to fill — leaving this overlay's eventual close with nothing to return to.
   leaveFullScreenPanels();
+  rememberOverlayFocus(v);
   v.classList.remove('history-direct-diff');
   historyScope = scope && scope.path
     ? { path: String(scope.path), line: Number(scope.line) >= 1 ? Math.trunc(Number(scope.line)) : 0 }

@@ -164,6 +164,10 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "diff.lastHunk": "Last change in this file — press {key} again to go to the next file.",
     "diff.firstHunk": "First change in this file — press {key} again to go to the previous file.",
     "diff.navEnd": "No more changes this way.",
+    // Said after the caret lands, naming what the walk crossed. A reviewer ticks files off as they
+    // read, so this walk routinely passes several — in silence it read as the key skipping.
+    "diff.skippedViewed": "Skipped {n} files you have already reviewed.",
+    "diff.skippedViewedOne": "Skipped a file you have already reviewed.",
     // Shift+Tab crosses panes; this is what it says when it cannot. Deliberately about the PANE and
     // not about the line: the usual cause is an added or deleted line, whose counterpart row is a
     // placeholder, but a hunk header or a folded import block has no counterpart either, and
@@ -904,6 +908,8 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "diff.lastHunk": "이 파일의 마지막 변경입니다 — {key}를 한 번 더 누르면 다음 파일로 이동합니다.",
     "diff.firstHunk": "이 파일의 첫 변경입니다 — {key}를 한 번 더 누르면 이전 파일로 이동합니다.",
     "diff.navEnd": "이 방향으로는 더 이상 변경사항이 없습니다.",
+    "diff.skippedViewed": "이미 확인한 파일 {n}개를 건너뛰었습니다.",
+    "diff.skippedViewedOne": "이미 확인한 파일 하나를 건너뛰었습니다.",
     "diff.noBaseLine": "기준 버전에는 이 줄의 맞은편이 없습니다.",
     "diff.noWorkingLine": "작업 트리에는 이 줄의 맞은편이 없습니다.",
     "diag.error": "오류",

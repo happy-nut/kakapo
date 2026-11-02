@@ -199,8 +199,10 @@ function applyCompareMode(mode, ref, announce) {
   };
   if (compareMenuState) {
     compareMenuState.mode = mode;
-    // Optimistically pinned too, or the guard above would screen the reader's immediate retry on the
-    // strength of a ref this call has not yet recorded.
+    // Pinned optimistically for the same reason the ref is: the menu repaints from this state before
+    // main answers, and a tick that says "picked" while the state says "not recorded" is a row that
+    // contradicts itself. It does mean an immediate retry of the SAME branch is screened — which is
+    // what the guard is for, since the request is already in flight.
     if (ref) { compareMenuState.ref = ref; compareMenuState.pinned = true; }
     renderCompareMenu();
   }

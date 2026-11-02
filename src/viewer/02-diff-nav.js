@@ -631,7 +631,16 @@ function next(delta) {
   hideCaretHint(); // about to cross files — drop the hint NOW (before the async body load) so it can't cover the next file
   // Backward entry lands on the target file's LAST change (IntelliJ's ScrollToPolicy.LAST_CHANGE), so the
   // walk back visits every change the walk forward did.
-  if (target >= 0) { setActive(target, true, false, delta < 0 ? 'last' : 'first'); return; }
+  if (target >= 0) {
+    const crossed = next && next.skipped ? next.skipped : 0;
+    setActive(target, true, false, delta < 0 ? 'last' : 'first');
+    // After the move, so the hint is anchored to where the caret LANDED rather than where it left.
+    if (crossed > 0) {
+      showCaretHint(t(crossed === 1 ? 'diff.skippedViewedOne' : 'diff.skippedViewed')
+        .replace('{n}', String(crossed)));
+    }
+    return;
+  }
   // A change with nothing to put a caret in: open the file itself.
   if (next && next.hunk < 0 && activateDiffFile(next.path, true)) return;
   // The walk ran off the end of the review. It used to wrap around to the other end, which reads as "the
@@ -719,8 +728,19 @@ function nextUnviewedTarget(fromHunk, fromPath, delta) {
     at = targets.findIndex(function (x) { return x.hunk === fromHunk; });
   }
   if (at < 0) at = delta > 0 ? -1 : targets.length;
+  // Count the FILES stepped over, not the targets: a reviewer ticking files off as they read is the normal
+  // way to use this app, so the walk routinely passes several, and it passed them in silence. From the
+  // outside that is F7 jumping from README.md to src/analysis.ts with three files between them still listed
+  // in the sidebar — the key looks like it skipped, and there was nothing on screen to say otherwise.
+  // A viewed file's diff body is display:none, so stopping in one would show an empty pane; the walk is
+  // right to cross it. What was missing is saying so.
+  // diffNavTargets() is one entry per FILE (the stepping between change blocks inside a file happens
+  // above, in next()), so counting entries counts files — which is what the sentence is about, since a
+  // file is one row in the sidebar however many blocks it holds.
+  let steppedOver = 0;
   for (let i = at + delta; i >= 0 && i < targets.length; i += delta) {
-    if (!isFileViewed(targets[i].path)) return targets[i];
+    if (!isFileViewed(targets[i].path)) return { hunk: targets[i].hunk, path: targets[i].path, skipped: steppedOver };
+    steppedOver += 1;
   }
   return null;
 }

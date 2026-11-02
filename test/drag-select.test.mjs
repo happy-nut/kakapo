@@ -105,3 +105,49 @@ test("selectCodeWord keeps a selection wider than the word it would select", asy
   assert.equal(String(v.window.getSelection()), dragged, "and it is exactly the range the drag made");
   v.close();
 });
+
+// Dragging a selection OUT is reading, not editing.
+//
+// The diff is deliberately not editable: beforeinput, paste and drop are all blocked on its container so
+// nothing can be typed into it, pasted into it or dropped onto it. `dragstart` was blocked alongside them
+// and does not belong there — it is how a reader carries selected code to another window, and it changes
+// nothing in the diff. Blocked, drag-and-drop of code was dead in the diff and alive in the source view,
+// for no reason either surface states.
+test("a selection can be dragged out of the diff, as it can out of the source view", async () => {
+  const v = await loadViewer(html);
+  try {
+    const started = {};
+    for (const id of ["diff2html-container", "source-body"]) {
+      const host = v.window.document.getElementById(id);
+      assert.ok(host, `${id} is on the page`);
+      const target = host.querySelector(".d2h-code-line-ctn, .source-code") || host;
+      // jsdom has no DragEvent constructor, and none is needed: the listener under test only ever calls
+      // preventDefault, so what reaches it is a cancelable event of the right type.
+      const Ctor = v.window.DragEvent || v.window.Event;
+      const event = new Ctor("dragstart", { bubbles: true, cancelable: true });
+      target.dispatchEvent(event);
+      started[id] = !event.defaultPrevented;
+    }
+    assert.equal(started["diff2html-container"], true, "the diff lets a drag start");
+    assert.equal(started["source-body"], true, "and so does the source view — they agree now");
+  } finally {
+    v.close();
+  }
+});
+
+// The three that DO belong there, so removing one of them fails here rather than quietly making the diff
+// editable. This is the half a one-sided change would have dropped.
+test("the diff still refuses to be typed into, pasted into or dropped onto", async () => {
+  const v = await loadViewer(html);
+  try {
+    const host = v.window.document.getElementById("diff2html-container");
+    const target = host.querySelector(".d2h-code-line-ctn") || host;
+    for (const type of ["beforeinput", "paste", "drop"]) {
+      const event = new v.window.Event(type, { bubbles: true, cancelable: true });
+      target.dispatchEvent(event);
+      assert.equal(event.defaultPrevented, true, `${type} is still refused`);
+    }
+  } finally {
+    v.close();
+  }
+});

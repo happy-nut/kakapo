@@ -409,14 +409,18 @@ test("text painted a literal colour is still readable on the light themes", () =
 // colour that name carries has to survive the tint. These were missing, and seventeen ink/ground pairs
 // were under AA behind them — the one axis of this round that a first pass walked straight past.
 const CHROME_GROUNDS = ["--chrome-bg", "--chrome-selected", "--chrome-panel", "--chrome-elevated",
-  "--file-color-test", "--file-color-generated"];
+  "--file-color-test", "--file-color-generated",
+  // The same tint over the tab strip. It is a separate value because it is a step from a separate
+  // ground, and a separate value is a separate ground: leaving it out is how the first version of this
+  // list missed the tree tints entirely.
+  "--file-color-test-tab", "--file-color-generated-tab"];
 // --muted is the code canvas's secondary ink. The canvas is the diff and the source, plus the sheets and
 // empty states that share its palette — NOT the sidebar: a chrome row uses --chrome-muted, which is the
 // rule the qualifier pills were moved onto and the rule a deleted filename was still breaking.
 const CANVAS_GROUNDS = ["--panel", "--bg", "--elevated", "--line",
   "--add", "--del", "--diff-modified", "--diff-added", "--diff-deleted"];
 const VCS_GROUNDS = ["--chrome-bg", "--chrome-panel", "--chrome-elevated",
-  "--file-color-test", "--file-color-generated"];
+  "--file-color-test", "--file-color-generated", "--file-color-test-tab", "--file-color-generated-tab"];
 const INK = [
   { name: "--text", floor: AA_NORMAL_TEXT, grounds: CANVAS_GROUNDS },
   { name: "--muted", floor: AA_NORMAL_TEXT, grounds: CANVAS_GROUNDS },
