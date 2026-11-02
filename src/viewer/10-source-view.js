@@ -898,7 +898,25 @@ function insertSourceCaret(row, column) {
 
 function openSourceAt(path, lineIndex, column) {
   var file = sourceByPath.get(path);
-  if (file && !sourceContentLoaded(file)) {
+  // Not in the project index at all. openSourceFile has known how to fetch one of these since library
+  // navigation shipped — a definition inside node_modules (the index skips it on purpose) or outside the
+  // review root — but openSourceAt never asked: it fell straight through to setSourceCursor for a file
+  // that had never been painted, which does nothing and says nothing. So ⌘↓ on any imported library
+  // symbol was completely silent, with the language server having answered correctly every time
+  // (`BrowserWindow` -> node_modules/electron/electron.d.ts:26347, engine lsp).
+  //
+  // Fixed HERE rather than in the goToDef handler because openSourceAt is the one door every jump goes
+  // through — definition, implementation, type definition, a usage row, a diagnostic — so each of them
+  // had the same hole.
+  if (!file) {
+    loadLibrarySourceFile(path).then(function (record) {
+      if (!record) { showCaretHint(t('source.libraryUnavailable').replace('{file}', sourceTabLabel(path))); return; }
+      openSourceFile(path);
+      loadSourceFile(path).then(function () { setSourceCursor(path, lineIndex, column, true, lineIndex); });
+    });
+    return;
+  }
+  if (!sourceContentLoaded(file)) {
     openSourceFile(path);
     loadSourceFile(path).then(function () { setSourceCursor(path, lineIndex, column, true, lineIndex); });
     return;

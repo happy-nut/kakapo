@@ -181,7 +181,7 @@ function renderDiffNode(
     const { added, deleted } = diffLineTotals(file);
     const trivial = trivialChange(file);
     return [
-      `<a class="${classes}${trivial ? " is-trivial" : ""}" href="#file-${node.fileIndex}" data-hunk="${node.firstHunk}" data-file="${escapeAttr(file.displayPath)}" data-added="${added}" data-deleted="${deleted}"${trivial ? ` data-trivial="${trivial}"` : ""} style="--depth:${depth}" aria-label="${escapeAttr(file.displayPath + " — " + file.status + statLabel(added, deleted))}">`,
+      `<a class="${classes}${trivial ? " is-trivial" : ""}" href="#file-${node.fileIndex}" data-hunk="${node.firstHunk}" data-file="${escapeAttr(file.displayPath)}" data-added="${added}" data-deleted="${deleted}"${trivial ? ` data-trivial="${trivial}"` : ""} style="--depth:${depth}" aria-label="${escapeAttr(file.displayPath + " — " + (CHANGE_STATUS_NAMES[file.status] ?? CHANGE_STATUS_NAMES.modified) + statLabel(added, deleted))}">`,
       viewedBox(),
       fileTypeIcon(file.displayPath),
       `<span class="change-name"><span class="path" title="${escapeAttr(node.name)}">${leafNameHtml(node.name)}</span></span>`,
@@ -285,6 +285,18 @@ function leafNameHtml(name: string): string {
 
 // The same magnitude, for the row's accessible name — the visible chip is aria-hidden so it is not read
 // twice, but "which of these is the big one" should not be a visual-only answer.
+// The status word a screen reader hears on a changed-file row. IntelliJ's own, so the tree says the same
+// thing this app's vocabulary says everywhere else: PlatformEditorBundle `file.status.name.added|deleted|
+// modified` and GitBundle `git.status.renamed`. The viewer re-composes this label in the reader's language
+// on every locale switch (paintTreeRowAriaLabels, 04-source-tree.js); this is the pre-script fallback and
+// what a static export ships with.
+const CHANGE_STATUS_NAMES: Record<string, string> = {
+  modified: "Modified",
+  added: "Added",
+  deleted: "Deleted",
+  renamed: "Renamed",
+};
+
 function statLabel(added: number, deleted: number): string {
   if (!added && !deleted) return "";
   return `, +${added} \u2212${deleted}`;

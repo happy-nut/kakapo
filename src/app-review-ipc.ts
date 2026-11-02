@@ -387,7 +387,10 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
     try {
       const root = state.options.root;
       const defaultRef = compareDefaultRef(root);
-      const ref = state.compareRef || defaultRef;
+      // `baseLabel` before the repository default: a reader who launched `kakapo --base develop` is in "All
+      // changes" mode measured against develop, and answering `origin/main` here put the row the menu ticks
+      // and the refs the pill prints on two different branches.
+      const ref = state.compareRef || state.options.baseLabel || defaultRef;
       // No explicit base AND no resolved one means the build fell through to HEAD-vs-worktree (build.ts's
       // "local" compare state) — which is the uncommitted row, arrived at automatically rather than picked.
       // A patch-set pick is the third way to be "somewhere neither row describes", and the only one that

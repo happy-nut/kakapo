@@ -73,5 +73,9 @@ test("visible product labels and wait states reuse the real Kakapo icon", async 
   assert.doesNotMatch(css, /\.boot-spinner|\.mc-spinner|@keyframes boot-spin/, "generic ring spinners are fully retired");
   assert.match(viewer, /function loadingStateHtml[\s\S]*kakapoLoaderHtml/, "dynamic loading surfaces share the parrot helper");
   assert.match(css, /data-context-loading="1"[\s\S]{0,300}var\(--kakapo-ui-icon\)/, "diff context hydration uses the same loading vocabulary");
-  assert.match(main, /Kakapo is loading/, "the native first-paint screen exposes an accessible loading label");
+  // Was the English literal. The label is now read from the catalogue (i18n `app.loading`) so the splash a
+  // Korean user sees before any window exists is not in English — so the assertion follows it there: the
+  // screen must still name itself, and the key must still have a value in both locales.
+  assert.match(main, /aria-label="\$\{escapeAttr\(tr\(\)\("app\.loading"\)\)\}"/, "the native first-paint screen exposes an accessible loading label");
+  assert.match(readFileSync(join(root, "src", "i18n.ts"), "utf8"), /"app\.loading":\s*"[^"]+"[\s\S]*"app\.loading":\s*"[^"]+"/, "both locales name the loading screen");
 });

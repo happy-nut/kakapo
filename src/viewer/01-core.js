@@ -647,9 +647,17 @@ function plural(text, counts) {
   });
 }
 var langSelectRef = null, themeSelectRef = null, syntaxThemeSelectRef = null;
-// The knowledge map's sweep-interval select (26-terms.js), held here for the same reason as the three above:
-// its labels are localized, so applyI18n has to be able to re-render it.
-var termsSweepSelectRef = null;
+// Every control whose own paint writes a localized label, registered WHERE IT IS CREATED rather than listed
+// by hand in applyI18n. The hand-written list is what this replaces, and it had already drifted: the
+// Changed-lines select is built by the same factory as the language select and was simply left out of it, so
+// its value stayed in the language it was first painted in ("The characters that differ" sitting in an
+// otherwise Korean panel) while everything around it switched. One list cannot disagree with itself — the
+// same rule SYNTAX_FAMILIES is written down for.
+var localizedPaints = [];
+function registerLocalizedPaint(ref) {
+  if (ref && typeof ref.render === 'function' && localizedPaints.indexOf(ref) < 0) localizedPaints.push(ref);
+  return ref;
+}
 // Replace a native <select> with a button that opens our custom dropdown (consistent with the comment
 // dropdown + themable; native <select> popups ignore the app theme). getOptions() -> [{value,label}];
 // returns { render } so localized labels can be refreshed on a language switch.
@@ -669,7 +677,7 @@ function setupCustomSelect(id, getOptions, getCurrent, onPick) {
     }), r.top - 4);
   });
   render();
-  return { render: render };
+  return registerLocalizedPaint({ render: render });
 }
 // A control that advertises a shortcut names the ID, not the chord: the chord is read off the table, so the
 // hover hint and the title say what the key actually is — including after it has been rebound. These were
@@ -697,16 +705,25 @@ function applyI18n() {
   document.querySelectorAll('[data-i18n-aria]').forEach(function (el) { el.setAttribute('aria-label', t(el.getAttribute('data-i18n-aria'))); });
   applyKeyHints(document);
   document.documentElement.lang = locale;
-  if (langSelectRef) langSelectRef.render();
-  if (themeSelectRef) themeSelectRef.render(); // theme labels are localized — refresh on a language switch too
-  if (syntaxThemeSelectRef) syntaxThemeSelectRef.render();
-  if (termsSweepSelectRef) termsSweepSelectRef.render();
+  localizedPaints.forEach(function (ref) { try { ref.render(); } catch (e) {} });
   refreshDiffContextFoldLabels();
   refreshCodeFoldLabels();
   // The collapsed-file note is written once, by the paint, and carries no data-i18n: without this it kept
   // its old-locale sentence (and a stale chord after toggleFold was rebound) while everything around it
   // changed language. The paint is idempotent, so re-running it is the whole fix.
   paintDiffFileCollapse();
+  // Five more paints that write a translated string straight into the DOM instead of leaving a data-i18n
+  // behind, so the loops above cannot reach them and each one froze in whichever language it first ran in:
+  // the changed-file rows' accessible name, the per-file comment-count tooltip, the analyzer's detail
+  // tooltip, the update line in Settings and the compare pill's. They are all idempotent, so re-running
+  // them is the whole fix. Declared in later slices and called bare: the slices are one script, so the
+  // declarations hoist, and each of these reads either the DOM or state 01-core has already initialized.
+  paintTreeRowAriaLabels();
+  renderCommentBadges();
+  paintAnalysisStatusTitle();
+  repaintUpdateStatus();
+  // After the title loop above, not before: it composes on top of what that loop writes.
+  paintComparePillTitle();
   // The action list caches its rows with their labels already translated, so a language switch has to drop
   // it or ⌘⇧A keeps answering in the language you just left.
   forgetFindActionItems();

@@ -195,6 +195,17 @@ document.addEventListener('mousedown', function (event) {
   closeQuickOpen();
 }, true);
 
+// The same trap Settings has (08-dock.js), for the same reason, on the overlay that was left out of that
+// pass. This dialog is `role="dialog" aria-modal="true"` and paints a full-viewport scrim, so the pointer
+// genuinely cannot reach anything behind it — elementFromPoint over the sidebar's own tabs returns
+// #quick-open. Tab went out there anyway: one press from the search box landed on the Changes/Files switch
+// behind the scrim and the next seven walked the file tree, with the dialog still open and ⇧Tab unable to
+// come back. The keyboard has to be held wherever the pointer is.
+quickOpen?.addEventListener('keydown', function (event) {
+  if (quickOpen.classList.contains('hidden')) return;
+  trapTabWithin(quickOpen, event);
+});
+
 // Focus moves between the search box, the extension filter and the rail while the dialog is up, and each
 // move changes whether the menu's edit keys belong to the page or to the field (see syncQuickOpenEditKeys).
 document.addEventListener('focusin', function () { if (quickOpen && !quickOpen.classList.contains('hidden')) syncQuickOpenEditKeys(); });

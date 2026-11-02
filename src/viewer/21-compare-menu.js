@@ -11,6 +11,29 @@
 var compareMenuState = null; // last { mode, ref, defaultRef, pinned, branches[] } from main
 var compareMenuBranchFilter = '';
 
+/**
+ * Put the two refs into the pill's own tooltip.
+ *
+ * Below 1000px `.diff-toolbar-meta .compare-refs` is display:none (viewer.css), so the control whose whole
+ * job is answering "what am I looking at" shrinks to the word "Comparing" — and the tooltip it had said only
+ * "What this diff is comparing", which describes the control instead of answering it. The refs are read back
+ * off the pill rather than passed in because the right-hand side is sometimes a translated word
+ * ("Working tree" / "Index") and sometimes a ref, and by the time this runs applyI18n has already put the
+ * right language in those spans.
+ */
+function paintComparePillTitle() {
+  document.querySelectorAll('.compare-pill').forEach(function (pill) {
+    var refs = pill.querySelector('.compare-refs');
+    // textContent of the two spans and the arrow runs them together ("HEAD~3→Working tree"), so the parts
+    // are read individually and joined with the spacing the pill itself shows.
+    var detail = refs
+      ? Array.prototype.map.call(refs.children, function (c) { return (c.textContent || '').trim(); })
+        .filter(Boolean).join(' ')
+      : '';
+    pill.setAttribute('title', detail ? t('compare.title') + '\n' + detail : t('compare.title'));
+  });
+}
+
 function compareMenuEl() { return document.getElementById('compare-menu'); }
 function compareMenuOpen() {
   var el = compareMenuEl();

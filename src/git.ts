@@ -170,6 +170,27 @@ export function validateReviewBase(root: string, ref: string): string {
   return trimmed;
 }
 
+/**
+ * Is this `--base` value the name of a branch, as opposed to a tag, a SHA or a revision expression?
+ *
+ * `baseLabel` means "the reader named a BRANCH", and the compare menu's mode derivation reads it that way:
+ * a base with a label is the "All changes" row, a base without one is somewhere neither row describes. The
+ * CLI used to label every `--base` value, so `kakapo --base HEAD~3` claimed to be a branch and the menu
+ * ticked "All changes vs origin/main" while the pill said `HEAD~3 → Working tree` — the one control a
+ * reader opens to find out what the diff measures against, answering with a different ref.
+ *
+ * Checked against the ref namespaces rather than `rev-parse`, because `HEAD~3` resolves perfectly well as a
+ * commit and that is exactly the case being excluded.
+ */
+export function isBranchRef(root: string, ref: string): boolean {
+  const trimmed = ref.trim();
+  if (!trimmed || !/^[\w./-]+$/.test(trimmed)) return false;
+  return Boolean(
+    git(root, ["rev-parse", "--verify", "--quiet", `refs/heads/${trimmed}`])
+    || git(root, ["rev-parse", "--verify", "--quiet", `refs/remotes/${trimmed}`]),
+  );
+}
+
 // Resolve the repository root. `git diff` and `git ls-files` print paths relative to it, and the
 // desktop tree shows them as-is — so every filesystem read of those paths must resolve against the
 // SAME root, not process.cwd(). When `kakapo` runs from a monorepo subdirectory (cwd != root), joining a

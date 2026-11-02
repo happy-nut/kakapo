@@ -606,7 +606,7 @@ function applyDiffUpdate(u) {
     });
   }
   var changesPanel = document.getElementById('changes-panel');
-  if (changesPanel) changesPanel.innerHTML = u.changesPanel || '';
+  if (changesPanel) { changesPanel.innerHTML = u.changesPanel || ''; paintTreeRowAriaLabels(changesPanel); }
   // Files tree: keep the inert island (lazy, not yet opened) in sync, and refresh the live panel when it's
   // already materialized — or always, in eager mode where the panel holds the tree directly.
   var filesIsland = document.getElementById('files-tree-html');
@@ -614,7 +614,7 @@ function applyDiffUpdate(u) {
   var filesPanel = document.getElementById('files-panel');
   if (filesPanel && u.filesTree && (!REVIEW_LAZY || filesPanel.innerHTML.trim())) filesPanel.innerHTML = u.filesTree;
   var statusEl = document.querySelector('.review-status');
-  if (statusEl) statusEl.innerHTML = u.reviewStatus || '';
+  if (statusEl) { statusEl.innerHTML = u.reviewStatus || ''; paintComparePillTitle(); }
   // What the review compares can change between watch ticks without a single file changing — commit your work
   // and "local changes" becomes "unpushed"; push it and the review swings round to what the remote is ahead by.
   // The pill and its banner are rebuilt from the payload for exactly that reason.

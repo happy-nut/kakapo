@@ -5,7 +5,7 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, net, protocol, shell } from "electron";
 import type { WebContents } from "electron";
-import { git, gitAsync, isCommitSha, isGitRepository, resolveWorkspaceRoot, validateReviewBase } from "./git.js";
+import { git, gitAsync, isBranchRef, isCommitSha, isGitRepository, resolveWorkspaceRoot, validateReviewBase } from "./git.js";
 import { renderWelcomeHtml } from "./render.js";
 import { makeTranslator, normalizeLocale, type Locale } from "./i18n.js";
 import { relaunchUpdatedApp, selfUpdateInstallAttempts } from "./self-update.js";
@@ -19,7 +19,7 @@ import { reviewBodyCount, reviewDiffSignature } from "./review-bodies.js";
 import { ReviewBuilder, type BuildSnapshot } from "./review-builder.js";
 import { decideWatchTick, shouldPushUpdate } from "./watch-decision.js";
 import { parseReviewArgs, readOption } from "./cli-args.js";
-import { ByteBudgetCache, errorMessage } from "./util.js";
+import { ByteBudgetCache, errorMessage, escapeAttr, escapeHtml } from "./util.js";
 import { AppPreferences } from "./app-preferences.js";
 import { compareDefaultRef, registerReviewIpc } from "./app-review-ipc.js";
 import { usableCompareBase } from "./patch-sets.js";
@@ -171,7 +171,7 @@ function loadingHtml(light: boolean, compact = false): string {
   .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
   @keyframes kakapo-peck{0%,100%{transform:translateY(0) rotate(0);opacity:.9}38%{transform:translateY(-3px) rotate(-3deg);opacity:1}62%{transform:translateY(1px) rotate(2deg)}}
   @media(prefers-reduced-motion:reduce){.kakapo-mark{animation:kakapo-breathe 1.6s ease-in-out infinite}@keyframes kakapo-breathe{50%{opacity:.65}}}
-</style></head><body><span class="kakapo-loader" role="status" aria-label="Kakapo is loading">${mark}<span class="sr-only">Kakapo is loading</span></span></body></html>`;
+</style></head><body><span class="kakapo-loader" role="status" aria-label="${escapeAttr(tr()("app.loading"))}">${mark}<span class="sr-only">${escapeHtml(tr()("app.loading"))}</span></span></body></html>`;
 }
 // The persisted theme (set by the renderer via kakapoSettings): 'light' or 'dark', nothing else. It used to
 // also accept 'system', which answered two questions at once — which palette, and who decides — so every
@@ -1535,7 +1535,13 @@ function parseArgs(args: string[]): AppOptions {
     // printed the resolved sha for a base the reader had asked for by name, and the compare menu's mode
     // derivation (app-review-ipc) read "a base with no label" as a patch-set pick and stopped ticking
     // "모든 변경사항" for `kakapo --base main` — the launch README documents as the main way to use this.
-    baseLabel: parsed.baseValue || undefined,
+    //
+    // Only when it IS a branch, though. `--base HEAD~3` is a revision, and labelling it as a branch sent
+    // the menu down the "All changes" path, where it ticked a row measured against origin/main while the
+    // pill above it read `HEAD~3 → Working tree`.
+    baseLabel: parsed.baseValue && isGitRepository(root) && isBranchRef(root, parsed.baseValue)
+      ? parsed.baseValue
+      : undefined,
     staged: parsed.staged,
     includeUntracked: parsed.includeUntracked,
     context: parsed.context,

@@ -25,6 +25,22 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "tab.changes.title": "Changes",
     "tab.files.title": "All files",
     "tree.markViewed": "Reviewed this file (Space)",
+    // The status word a changed-file row announces, and the only part of its accessible name that was never
+    // translated. IntelliJ's own words: PlatformEditorBundle `file.status.name.added|deleted|modified` and
+    // GitBundle `git.status.renamed`. render-tree.ts ships the same four as the pre-script fallback.
+    "tree.status.modified": "Modified",
+    "tree.status.added": "Added",
+    "tree.status.deleted": "Deleted",
+    "tree.status.renamed": "Renamed",
+    // Landmark and control names that lived as hardcoded aria-labels in render.ts. An aria-label OUTRANKS a
+    // title in the accessible-name computation, so the three that had both were announcing English while the
+    // tooltip beside them had already switched language.
+    "a11y.reviewNav": "Review navigation",
+    "a11y.archivedReviews": "Archived reviews",
+    "a11y.quickOpenSections": "Sections",
+    "app.loading": "Kakapo is loading",
+    "settings.close": "Close settings",
+    "settings.closeTitle": "Close",
     "rail.branch": "Current branch",
     "brand.revealFile": "Reveal open file in the sidebar",
     "rail.history": "History",
@@ -118,6 +134,9 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "analysis.failed": "Analysis failed",
     // How long the current phase has been running, shown once it is long enough to wonder about.
     "analysis.elapsed": "{n}s",
+    // The analyzer's index number, in the chip's hover detail. Was glued on as the literal "generation N"
+    // and stayed English in a Korean tooltip.
+    "analysis.generation": "generation {n}",
     "monaco.peek": "Semantic Peek",
     "monaco.peekHint": "↑/↓ Select · Enter Open · Esc Close",
     "monaco.noResults": "No semantic locations found.",
@@ -779,6 +798,16 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "region.diffToolbar": "비교 도구",
     "region.sourceToolbar": "소스 도구",
     "tree.markViewed": "이 파일 확인함 (Space)",
+    "tree.status.modified": "수정됨",
+    "tree.status.added": "추가됨",
+    "tree.status.deleted": "삭제됨",
+    "tree.status.renamed": "이름 변경됨",
+    "a11y.reviewNav": "리뷰 탐색",
+    "a11y.archivedReviews": "보관된 리뷰",
+    "a11y.quickOpenSections": "섹션",
+    "app.loading": "Kakapo 로드 중",
+    "settings.close": "설정 닫기",
+    "settings.closeTitle": "닫기",
     "rail.branch": "현재 브랜치",
     "brand.revealFile": "열린 파일을 사이드바에서 보기",
     "rail.history": "히스토리",
@@ -872,6 +901,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "analysis.fallback": "추정 분석",
     "analysis.failed": "분석 실패",
     "analysis.elapsed": "{n}초",
+    "analysis.generation": "세대 {n}",
     "monaco.peek": "시맨틱 미리보기",
     "monaco.peekHint": "↑/↓ 선택 · Enter 열기 · Esc 닫기",
     "monaco.noResults": "의미 분석으로 위치를 찾지 못했습니다.",
