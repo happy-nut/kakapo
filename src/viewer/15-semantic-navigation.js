@@ -254,14 +254,25 @@ async function goToDefOrUsages(name, explicitLoc) {
       return;
     }
     var def = defs[0];
-    // A compiled target is a real answer this app cannot open — a JDK class, a class inside a dependency
-    // jar. Say where it is. Before this, the location was mangled into a path that exists nowhere and then
-    // filtered away for having no readable text, so every stdlib and dependency symbol in Kotlin and Java
-    // reported "definition not found" while the server had answered.
+    // A compiled target — a JDK class, a class inside a dependency jar — is a real answer that is not a
+    // file. It used to end here, at a one-line "it is in rt.jar": the location had been mangled into a
+    // path that exists nowhere, and before that every stdlib and dependency symbol in Kotlin and Java
+    // reported "definition not found" while the server had answered correctly.
+    //
+    // It no longer has to end here. The server that named the URI can also produce its text — the
+    // library's own source when it attached a sources jar, a decompilation when it did not, which is
+    // IntelliJ's pair of answers to the same question — so ask for it and open it read-only like any other
+    // library file. The old message stays as the honest fallback for the servers and schemes that cannot:
+    // "somewhere in rt.jar" beats an empty editor.
     if (def && def.external) {
-      showCaretHint(t('monaco.definitionExternal')
-        .replace('{symbol}', String(name || ''))
-        .replace('{where}', externalLocationLabel(def.path)));
+      var external = await loadLibrarySourceFile(def.path);
+      if (!external || !String(external.content || '')) {
+        showCaretHint(t('monaco.definitionExternal')
+          .replace('{symbol}', String(name || ''))
+          .replace('{where}', externalLocationLabel(def.path)));
+        return;
+      }
+      openSourceAt(def.path, def.lineIndex, def.column);
       return;
     }
     // The same question alreadyAtLocation answers, and it has to be asked the same way: comparing only the

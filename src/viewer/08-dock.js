@@ -63,6 +63,18 @@ function closeMergedDock() {
   if (hadDock) { try { refreshComments(); } catch (e) {} }
 }
 window.__kakapoCloseDocks = closeMergedDock;
+// The chord that shows the review comments has to be the chord that puts them away again.
+//
+// It used to only ever OPEN: pressing it with the panel already up ran openMergedView again, whose first act
+// is mountDock's closeMergedDock — so the panel was torn down and rebuilt in the same frame and the reader,
+// who had pressed the key to get rid of it, watched it flicker and stay. Three presses, three times open
+// (measured). The only ways out were Escape and the close button, which is why a panel nobody had asked to
+// keep read as one that was "always open". Everything else about the panel is unchanged: a locale switch
+// still re-opens it deliberately (applyLocale), because there it IS a rebuild.
+function toggleMergedView() {
+  if (document.getElementById('mc-merged-panel')) { closeMergedDock(); return; }
+  openMergedView();
+}
 // Retry-focus a docked field (Electron async-restores focus to <body>, so a one-shot focus can lose the race).
 function focusDockField(field, panelSel) {
   var tries = 0;
@@ -589,7 +601,7 @@ refreshComments();
 // In Electron, the Review menu's Cmd/Ctrl+Shift+/ and +. accelerators arrive here via IPC
 // (macOS reserves Cmd+? for its Help search, so the menu claims it and routes to these views).
 if (window.kakapoMenu && typeof window.kakapoMenu.onMergedView === 'function') {
-  window.kakapoMenu.onMergedView(function () { openMergedView(); });
+  window.kakapoMenu.onMergedView(function () { toggleMergedView(); });
 }
 if (window.kakapoMenu && typeof window.kakapoMenu.onDiffUpdate === 'function') {
   // Electron watch: refresh review data in place so comments and navigation context stay stable.

@@ -166,7 +166,7 @@ export function renderWelcomeHtml(
     "  window.kakapoApp.openFolder().then(function (r) {",
     "    btn.disabled = false;",
     "    if (r && r.ok) return;",
-    `    if (r && r.error === 'not-git') hint.textContent = ${jsonForScript(t("welcome.notGit"))};`,
+    `    if (r && r.error === 'unopenable') hint.textContent = ${jsonForScript(t("welcome.unopenable"))};`,
     "  }).catch(function () { btn.disabled = false; });",
     "});",
     // Recent Projects: click a row to reopen that repo in this window. A removed/non-git folder drops out.

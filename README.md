@@ -57,7 +57,9 @@ installed, so there is no second copy to go stale, and `kakapo uninstall-app` ta
 
 ## Running it
 
-Run `kakapo` inside any Git repository or a package folder inside a monorepo:
+Run `kakapo` inside any Git repository or a package folder inside a monorepo — or any folder at all,
+whose review is its source tree with an empty diff, indexed and navigable like any other. File > Open
+Folder and the welcome screen's recent list take the same folders the command does:
 
 ```bash
 kakapo
@@ -139,7 +141,7 @@ else's repository behind their back is a worse thing to do than making them type
 | `Space` | Toggle *Viewed* on the selected changed file |
 | `?` | Comment on the current line |
 | `F8` / `⇧F8` | Next / previous comment |
-| `⌘⇧/` | All review comments (one hand-off document). Copying hands it over and archives it — the sidebar puts it back, `⌘Z` undoes |
+| `⌘⇧/` | All review comments (one hand-off document); press it again to put the panel away. Copying hands it over and archives it — the sidebar puts it back, `⌘Z` undoes |
 | `⌘C` | In that document: hand over the selected comment — copying IS the hand-off, so what you copy is archived (`⌘A` first for all of it) |
 | `⌥Enter` | In that document: hand the whole review over — the same copy-and-archive the button does |
 | `⌘9` | Git history — commits, reflog, stashes |
@@ -193,7 +195,7 @@ else's repository behind their back is a worse thing to do than making them type
 | `⌘U` | Go to the supertype |
 | `F3` / `⌘F3` | Bookmark this line / show every bookmark |
 | `⇧⌥1`…`⇧⌥9` / `⌥1`…`⌥9` | Number this line / go to that number |
-| `⌘↓` / `⌘`-click | Go to definition — including into library code (a dependency, a stdlib module, a bundled type stub), which opens read-only |
+| `⌘↓` / `⌘`-click | Go to definition — including into library code (a dependency, a stdlib module, a bundled type stub, a compiled class in a jar or in the JDK image), which opens read-only |
 | `⌥F1` | Reveal the open file in the sidebar |
 | `F2` / `⇧F2` | Next / previous problem the language server found |
 | `⌥Enter` | On a flagged line: draft the change request that asks an agent to fix it |

@@ -8,6 +8,8 @@ import {
   type AnalysisSemanticToken,
   type AnalysisHighlight,
   type AnalysisSymbol,
+  externalUriSampleFile,
+  isKnownExternalUri,
   LspClient,
   lspSymbolKindName,
   resolveBundledLanguageServer,
@@ -700,6 +702,28 @@ export class ProjectAnalysis {
       : { lineIndex, column: col };
   }
 
+  /**
+   * The text behind a non-file definition target, for the source view to paint.
+   *
+   * The URI has to have come from a server in this session (isKnownExternalUri) and its scheme has to be
+   * one some language's server can read; the sample filename is how the right server is chosen, since a
+   * `jdt://` URI carries no path for serverCandidates to classify. Returns the empty string when there is
+   * no server, no answer, or an error — the caller turns that into "it is over there" rather than an
+   * empty editor.
+   */
+  async externalSourceText(uri: string): Promise<string> {
+    if (!isKnownExternalUri(uri)) return "";
+    const sample = externalUriSampleFile(uri);
+    if (!sample) return "";
+    const client = this.clientFor(sample);
+    if (!client) return "";
+    try {
+      return await client.externalSourceText(uri);
+    } catch {
+      return "";
+    }
+  }
+
   private clientFor(path: string): LspClient | undefined {
     for (const server of this.serverCandidates(path)) {
       const key = this.serverKey(server);
@@ -982,6 +1006,15 @@ export class ProjectAnalysis {
         if (method === "textDocument/definition" && locations.length && locations.length <= 4) {
           const resolved: AnalysisLocation[] = [];
           for (const candidate of locations) {
+            // A target that is not a file cannot be asked a follow-up question. `client.locations` opens
+            // the document first, and `jdt://contents/java.util/List.class` has no document: the open
+            // lstat'd `<root>/jdt:/contents/java.util/List.class`, threw ENOENT, and the catch below turned
+            // the server's correct answer into "Language server returned no semantic locations" with the
+            // ENOENT as the reason. So EVERY definition in compiled code — every JDK class, every class in
+            // a dependency jar — was discarded here, one layer above the normalizer that had been fixed to
+            // produce it, and the reader was told the definition could not be found. It is also already
+            // the declaration by construction: a class file holds no import binding to follow.
+            if (candidate.external) { resolved.push(candidate); continue; }
             if (await this.isIndexedDeclaration(candidate, symbol)) { resolved.push(candidate); continue; }
             let followed: AnalysisLocation[] = [];
             if (client.server.family === "typescript") {

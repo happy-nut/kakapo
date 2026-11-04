@@ -176,3 +176,45 @@ test("the card list answers Home and End", async () => {
     v.close();
   }
 });
+
+// The chord that opens the review comments is the chord that puts them away.
+//
+// It used to be open-only: a second press re-ran openMergedView, whose first act is mountDock's
+// closeMergedDock, so the panel was destroyed and rebuilt in one frame — three presses, three times open,
+// measured in the app. With Escape and the close button as the only exits, a panel that reopened under the
+// key meant to dismiss it read as one that was simply always there.
+test("the review-comments shortcut toggles the panel instead of only opening it", async () => {
+  const v = await loadViewer(html);
+  v.window.addComment("?", "src/app.ts", 1, "export const a = 2;", "why", 1, 1, "new");
+  v.window.saveComments();
+
+  v.window.SHORTCUT_ACTIONS.allComments();
+  await v.settle(60);
+  assert.ok(v.$("#mc-merged-panel"), "first press opens the panel");
+
+  v.window.SHORTCUT_ACTIONS.allComments();
+  await v.settle(60);
+  assert.equal(v.$("#mc-merged-panel"), null, "second press closes it");
+  assert.equal(v.window.document.body.classList.contains("dock-open"), false,
+    "and releases the body state the open panel holds");
+
+  v.window.SHORTCUT_ACTIONS.allComments();
+  await v.settle(60);
+  assert.ok(v.$("#mc-merged-panel"), "third press opens it again");
+  v.close();
+});
+
+// The menu item is the same action on a different surface (its accelerator is held by the app menu, so the
+// page never sees that chord — see test/menu-accelerators.test.mjs). It must answer the same way.
+test("the menu's Review Comments item toggles too", async () => {
+  const v = await loadViewer(html);
+  v.window.addComment("?", "src/app.ts", 1, "export const a = 2;", "why", 1, 1, "new");
+  v.window.saveComments();
+  v.window.toggleMergedView();
+  await v.settle(60);
+  assert.ok(v.$("#mc-merged-panel"), "opens");
+  v.window.toggleMergedView();
+  await v.settle(60);
+  assert.equal(v.$("#mc-merged-panel"), null, "and closes");
+  v.close();
+});

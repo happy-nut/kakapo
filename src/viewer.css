@@ -2883,6 +2883,9 @@ button.compare-pill[aria-expanded="true"] { border-color: color-mix(in srgb, cur
   position: relative;
 }
 .code-cursor-empty { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); margin: 0; }
+/* The diff's caret anchor is the line container INSIDE the already-padded code cell, so the source view's
+   10px gutter inset would push it a character to the right of column 0. */
+.d2h-code-line-ctn > .code-cursor-empty { left: 0; }
 /* ⌘-hover over a token: the underline that says a click will navigate. Positioned over the code, never
    inside it — see updateCmdLink. */
 .mc-cmd-link {

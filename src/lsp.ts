@@ -126,9 +126,39 @@ export function isKnownLibraryPath(path: string): boolean {
   return libraryPaths.has(path.replace(/\\/g, "/"));
 }
 
+/**
+ * The same rule for a definition that is not a path at all.
+ *
+ * A JDK class and a class inside a dependency jar are answered as `jdt://contents/...` or `jrt:/...`, and
+ * only the server that produced one can say what is in it. So the renderer may ask for the contents of a
+ * URI this session has already been handed, and nothing else — the reader is otherwise a "decompile any
+ * URI you like" channel into a language server that will happily open archives anywhere on the disk.
+ */
+const externalUris = new Set<string>();
+
+/** True for a non-file definition target some language server reported in this session. */
+export function isKnownExternalUri(uri: string): boolean {
+  return externalUris.has(uri);
+}
+
+/** Which language's server can read a scheme, by the one sample filename that resolves to it. */
+const EXTERNAL_URI_SAMPLE_FILE: Record<string, string> = {
+  // Eclipse JDT answers both: `jdt://` for a class inside a jar on the classpath, `jrt:/` for one in a
+  // JDK image. Its `java/classFileContents` request reads either.
+  jdt: "Library.java",
+  jrt: "Library.java",
+};
+
+/** The sample path whose language server owns this URI's scheme, or undefined when nothing does. */
+export function externalUriSampleFile(uri: string): string | undefined {
+  const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(uri)?.[1]?.toLowerCase();
+  return scheme ? EXTERNAL_URI_SAMPLE_FILE[scheme] : undefined;
+}
+
 /** Test seam: forget the session's library paths. */
 export function resetKnownLibraryPaths(): void {
   libraryPaths.clear();
+  externalUris.clear();
 }
 
 export type DiagnosticSeverity = "error" | "warning" | "weak";
@@ -338,11 +368,47 @@ const SERVER_SPECS: Record<string, ServerSpec[]> = {
 // nothing measurable. What it does buy is an abort: 512 dies of heap exhaustion, and a server that dies stays
 // dead for the session (failedServers). V8's own default already ceilings the heap.
 
+/**
+ * What IntelliJ does when you follow a symbol into a dependency, expressed in jdtls's own settings.
+ *
+ * IntelliJ shows you the real source when a `-sources.jar` is available and decompiled bytecode when it is
+ * not, and it fetches the sources jar for you. jdtls can do all three and does none of them unless asked:
+ * out of the box a definition in a dependency comes back as a `jdt://` URI whose contents nobody has
+ * offered to produce, which is why every JDK and dependency symbol ended at a one-line "it is in
+ * rt.jar" message. `includeDecompiledSources` is what makes the class-file content request answer at all;
+ * the two downloadSources flags are what make that answer be the library's own source rather than a
+ * decompilation of it.
+ */
+const JAVA_LIBRARY_SETTINGS = {
+  maven: { downloadSources: true },
+  eclipse: { downloadSources: true },
+  references: { includeDecompiledSources: true },
+  // jdtls ships a disassembler and, when the Fernflower-backed provider is present, a decompiler. Naming a
+  // preference is harmless when it is absent — the request falls back to whatever provider is registered.
+  contentProvider: { preferred: "fernflower" },
+};
+
 // Per-family LSP initializationOptions, applied whether the server came from the bundle or from PATH.
 // typescript-language-server's automatic type acquisition spawns a third process (typingsInstaller, 34 MB)
 // that npm-installs @types packages and watches node_modules for changes — a background download and a pile
 // of fs watchers in aid of a read-only review. A whole process gone is a real saving, unlike a heap flag.
 const INIT_OPTIONS: Record<string, Record<string, unknown>> = {
+  // jdtls takes its configuration at the handshake under `settings`, and the push below repeats it: a cold
+  // server has already resolved the classpath by the time didChangeConfiguration lands, and whether it
+  // attached sources jars was decided then.
+  //
+  // `classFileContentsSupport` is the one that decides whether there is anything to configure at all. JDT
+  // will not NAME a class file as a definition target unless the client has declared it can render one:
+  // without this flag its navigation handler drops those targets and answers with an empty array, which is
+  // indistinguishable from "no such symbol". Measured on a Maven project whose file jdtls was already
+  // diagnosing cleanly (so the JDK was resolved and `java.util.List` was known): go-to-definition on
+  // `List`, on `names.add` and on `String` each came back with zero locations, twenty attempts over two
+  // minutes, server `ready` and `indexed`. The settings below were already being sent and could not help —
+  // they govern what the content REQUEST returns, and the request was never reachable.
+  java: {
+    extendedClientCapabilities: { classFileContentsSupport: true },
+    settings: { java: JAVA_LIBRARY_SETTINGS },
+  },
   typescript: {
     disableAutomaticTypingAcquisition: true,
     // Pin tsserver to the copy kakapo ships. Without this, typescript-language-server resolves the
@@ -431,6 +497,8 @@ const WORKSPACE_SETTINGS: Record<string, Record<string, unknown>> = {
   // inspections, and it is in the bundle, but it re-compiles the crate graph with its own lint pass:
   // measured at over 150 seconds on a ten-line file against `check`'s 3.7, so `check` is what ships.
   rust: { "rust-analyzer": { checkOnSave: true, check: { command: "check" } } },
+  // The pull road for the same object: jdtls asks for section "java".
+  java: { java: JAVA_LIBRARY_SETTINGS },
 };
 
 // Resolve one pulled configuration section against a family's settings. A server asks for what it wants
@@ -1180,6 +1248,22 @@ export class LspClient {
     return normalizeLocationResult(result, this.root);
   }
 
+  /**
+   * The text behind a non-file definition target — a class in a dependency jar, a class in the JDK image.
+   *
+   * `java/classFileContents` is Eclipse JDT's own request (it is not in LSP): hand it the `jdt://` or
+   * `jrt:/` URI the server itself produced and it answers with source — the library's real source when a
+   * sources jar is attached, otherwise a decompilation. An empty string means the server has nothing for
+   * that URI, which is a different answer from a thrown request and is reported as such upstream.
+   */
+  async externalSourceText(uri: string): Promise<string> {
+    if (this.server.family !== "java") return "";
+    // A cold JDT answers the handshake long before it has a classpath, and until it has one it reports the
+    // contents of nothing. This is the same retry the navigation requests use.
+    const result = await this.requestAfterWorkspaceReady("java/classFileContents", { uri });
+    return typeof result === "string" ? result : "";
+  }
+
   async warmup(path: string): Promise<void> {
     await this.ensureDocument(path);
     await this.waitForWorkspaceReady();
@@ -1815,6 +1899,7 @@ export function normalizeLocationResult(result: unknown, root: string): Analysis
     // So Kotlin and Java reported "definition not found" for every stdlib and dependency symbol, while the
     // server had answered correctly every time.
     if (!uri.startsWith("file:")) {
+      externalUris.add(uri);
       out.push({
         path: uri,
         external: true as const,

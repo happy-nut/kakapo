@@ -1,8 +1,9 @@
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { basename } from "node:path";
 import { SOURCE_MAX_LAZY_FILE_BYTES } from "./constants.js";
 import type { SourceFile } from "./types.js";
 import { formatBytes, hashText, isLikelyBinary, languageForPath, readTextFile } from "./util.js";
+import { externalLocationLabel } from "./lsp.js";
 
 /**
  * A file read for library navigation — a dependency, a stdlib module, a bundled type stub — after a
@@ -45,5 +46,35 @@ export function readLibrarySourceFile(absolutePath: string, displayPath = absolu
     content,
     embedded: true,
     signature: hashText(`${displayPath}\0${stats.size}\0${stats.mtimeMs}`),
+  };
+}
+
+/**
+ * A definition target that is not a file at all — `jdt://contents/…`, `jrt:/…/Instant.class` — rendered as
+ * a read-only source record from text the language server produced for it.
+ *
+ * IntelliJ's two answers for the same question are one answer here: the string is the library's own source
+ * when the server found a sources jar and a decompilation when it did not, and in both cases what reaches
+ * the reader is Java to read rather than the "it is somewhere in rt.jar" line this used to end at. The
+ * record is keyed by the URI, because that is what the renderer asked for and what the location it came
+ * from names; the NAME is the archive-and-entry label the page already uses for these targets, so the tab
+ * says `rt.jar / java/time/Instant.class` rather than a 200-character URI.
+ */
+export function externalSourceFile(uri: string, content: string, language = "java"): SourceFile {
+  // The entry, without the query. A jdt URI is `jdt://contents/<jar>/<package>/<Class>.class?=<project>…`
+  // and that query holds its own slash-separated path, so the last segment of the WHOLE uri is the jar
+  // named at the end of the query — the tab came out called `rt.jar`. Cut at the `?` first.
+  const label = externalLocationLabel(uri.split("?")[0] ?? uri);
+  return {
+    path: uri,
+    name: label.split("/").filter(Boolean).pop() || label || uri,
+    language,
+    content,
+    size: Buffer.byteLength(content, "utf8"),
+    changed: false,
+    embedded: true,
+    changedLines: [],
+    signature: hashText(`${uri}\0${content.length}`),
+    library: true,
   };
 }

@@ -176,9 +176,16 @@ async function openQuickDefinition() {
     if (body) body.innerHTML = '<div class="quick-doc-empty">' + escapeHtml(t('quickdef.none').replace('{symbol}', symbol.name)) + '</div>';
     return true;
   }
-  // A definition outside the review — a dependency, a stdlib module, a class inside a JDK image — has no
-  // body this page can read. Saying where it is beats showing an empty box.
-  if (target.external || !sourceByPath.has(target.path)) {
+  // A definition outside the review — a dependency, a stdlib module, a class inside a JDK image — is not
+  // in the project index, so fetch it the way the source view does before giving up on showing a body.
+  // This is the same read that opens one in a tab; a compiled class reaches it as text the language server
+  // produced for the URI.
+  if (!sourceByPath.has(target.path)) {
+    await loadLibrarySourceFile(target.path);
+    if (seq !== quickDocSeq) return true;
+  }
+  // Nothing came back: name the place instead of showing an empty box.
+  if (!sourceByPath.has(target.path)) {
     if (meta) meta.textContent = semanticFileLabel(target.path, target.lineIndex);
     if (body) body.innerHTML = '<div class="quick-doc-empty">' + escapeHtml(t('quickdef.outside').replace('{key}', shortcutLabel('goToDef'))) + '</div>';
     return true;

@@ -197,12 +197,16 @@ function renderDiffCaret() {
   var ctn = diffCellCtn(row);
   if (!ctn) return;
   // Empty line (ctn is just a <br>): an inline caret span would wrap onto a 2nd visual line and break the
-  // row height, so position the caret absolutely — it shows without affecting the layout.
+  // row height, so take the caret out of the flow — and then PLACE it, which is the half this used to skip.
+  // `position: absolute` with no offsets keeps the static position, and the static position of a span
+  // appended after a <br> is the line BELOW the one the row shows: measured on a 20px row, the 15px caret
+  // started 18px down and drew 13px of itself over the next row. That is the "caret straddles the blank
+  // line" report. code-cursor-empty (shared with the source view, 10-source-view.js) pins it to the cell's
+  // own box instead; the ctn is already inside the cell's padding here, so it starts at the cell's left edge.
   if ((ctn.textContent || '').length === 0) {
     var espan = document.createElement('span');
-    espan.className = 'code-cursor';
+    espan.className = 'code-cursor code-cursor-empty';
     espan.setAttribute('aria-hidden', 'true');
-    espan.style.position = 'absolute';
     ctn.appendChild(espan);
     diffCaretSpan = espan;
     return;

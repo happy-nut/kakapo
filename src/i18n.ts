@@ -763,14 +763,14 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "menu.closeWindow": "Close Window",
     // --- Native dialogs (quit warning, folder picker, not-a-repo) ---
     "dialog.openRepo.title": "Open a Git repository",
-    "dialog.notGit.title": "Not a Git repository",
-    "dialog.notGit.message": "{path} is not a Git repository.",
+    "dialog.unopenable.title": "Can't open that folder",
+    "dialog.unopenable.message": "{path} could not be opened as a folder.",
     "welcome.heading": "Review a Git repository",
     "welcome.subtitle": "Pick a folder under Git version control to review its changes.",
     "welcome.openFolder": "Open Folder…",
     "welcome.recentProjects": "Recent projects",
     "welcome.unavailable": "Open Folder is unavailable.",
-    "welcome.notGit": "That folder is not a Git repository.",
+    "welcome.unopenable": "That folder could not be opened.",
     "welcome.projectMissing": "That project folder is no longer available.",
 
     // Composer (one per-line review comment — ask, request a change, or both)
@@ -1499,14 +1499,14 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "menu.closeWindow": "창 닫기",
     // --- Native dialogs (quit warning, folder picker, not-a-repo) ---
     "dialog.openRepo.title": "Git 저장소 열기",
-    "dialog.notGit.title": "Git 저장소가 아닙니다",
-    "dialog.notGit.message": "{path} 은(는) Git 저장소가 아닙니다.",
+    "dialog.unopenable.title": "폴더를 열 수 없습니다",
+    "dialog.unopenable.message": "{path} 을(는) 폴더로 열 수 없습니다.",
     "welcome.heading": "Git 저장소 리뷰",
     "welcome.subtitle": "Git 버전 관리 중인 폴더를 선택해 변경사항을 리뷰하세요.",
     "welcome.openFolder": "폴더 열기…",
     "welcome.recentProjects": "최근 프로젝트",
     "welcome.unavailable": "폴더 열기를 사용할 수 없습니다.",
-    "welcome.notGit": "해당 폴더는 Git 저장소가 아닙니다.",
+    "welcome.unopenable": "해당 폴더를 열 수 없습니다.",
     "welcome.projectMissing": "해당 프로젝트 폴더를 더 이상 사용할 수 없습니다.",
 
     // Composer

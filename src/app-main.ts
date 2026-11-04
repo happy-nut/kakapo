@@ -1,4 +1,4 @@
-import { appendFileSync, createWriteStream, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, watch as watchFs, writeFileSync } from "node:fs";
+import { appendFileSync, createWriteStream, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, watch as watchFs, writeFileSync } from "node:fs";
 import { execFile, spawn, spawnSync } from "node:child_process";
 import { homedir, tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
@@ -18,6 +18,7 @@ import { kakapoIconCssVariable, kakapoIconHtml } from "./brand.js";
 import { reviewBodyCount, reviewDiffSignature } from "./review-bodies.js";
 import { ReviewBuilder, type BuildSnapshot } from "./review-builder.js";
 import { usableCompareBase } from "./patch-sets.js";
+import { handoffRoot } from "./handoff.js";
 import { localRevisionFor, lookupPullRequest, parsePullRequestRef, remoteSlug } from "./github-pr.js";
 import { decideWatchTick, shouldPushUpdate } from "./watch-decision.js";
 import { parseReviewArgs, readOption } from "./cli-args.js";
@@ -244,13 +245,27 @@ const runtimeArgs = app.isPackaged ? process.argv.slice(1) : process.argv.slice(
 const options = parseArgs(runtimeArgs);
 // Electron forwards this small, serializable payload to the primary process. Keeping the canonical path
 // in additionalData avoids relying on platform-specific command-line/cwd behavior during handoff.
-const hasSingleInstanceLock = app.requestSingleInstanceLock({ workspaceRoot: options.root });
+const hasSingleInstanceLock = app.requestSingleInstanceLock({ workspaceRoot: options.root, explicitRoot: options.explicitRoot });
 const states = new Map<number, WinState>();
 // Every review build runs in this one worker thread, so a rebuild never blocks the main loop's IPC/terminal
 // handling — the main thread only pays the compact snapshot clone. Warmed up at startup (whenReady).
 const reviewBuilder = new ReviewBuilder();
 let quitConfirmed = false;
-const preferences = new AppPreferences(app.getPath("userData"), isGitRepository);
+// What counts as a folder kakapo can review. It used to be "a git repository", and that answer is now wrong
+// in both directions: a plain source tree opens fine (its review is the tree with an empty diff), while a
+// path that vanished or was never a directory cannot open whether git knows it or not. Every entrance — the
+// CLI handoff, File > Open Folder, the welcome screen's picker, Recent Projects, and what gets REMEMBERED as
+// a recent project — asks this one function, because five copies of the question is how `kakapo` in a
+// non-git folder came to open a window from the terminal and nothing at all from the second instance.
+function isReviewableFolder(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+const preferences = new AppPreferences(app.getPath("userData"), isReviewableFolder);
 
 if (!existsSync(options.root)) {
   throw new Error(`Repository path does not exist: ${options.root}`);
@@ -570,15 +585,17 @@ ipcMain.handle("kakapo:set-compare-mode", async (event, payload: { mode?: unknow
   }
 });
 
-// Welcome screen's "Open Folder" button: pick a directory; load it into the window that asked if it's a
-// git repo, else return the "not-git" code so the welcome renderer can show its inline hint (it keys off
-// r.error === "not-git"). This flow reports errors in-page, so — unlike the File menu — no native box.
+// Welcome screen's "Open Folder" button: pick a directory and load it into the window that asked. Any
+// folder will do — the gate used to be "is it a git repository", which turned away the plain source trees
+// the command line opens perfectly well. What is left is the folder having gone away between the picker
+// and here, reported as the "unopenable" code the welcome renderer keys its inline hint off. This flow
+// reports errors in-page, so — unlike the File menu — no native box.
 ipcMain.handle("kakapo:open-folder", async (event) => {
   const state = stateFromEvent(event);
   if (!state || state.win.isDestroyed()) return { ok: false };
   const root = await pickDirectory(BrowserWindow.getFocusedWindow() ?? undefined, state.options.root);
   if (!root) return { ok: false };
-  if (!isGitRepository(root)) return { ok: false, error: "not-git" };
+  if (!isReviewableFolder(root)) return { ok: false, error: "unopenable" };
   await openReview(state, root);
   return { ok: true };
 });
@@ -595,7 +612,7 @@ ipcMain.handle("kakapo:open-recent", async (event, payload: { path?: string }) =
   if (!preferences.readRecentProjects().some((project) => project.path === resolve(path))) {
     return { ok: false, error: "unknown" };
   }
-  if (!existsSync(path) || !isGitRepository(path)) {
+  if (!isReviewableFolder(path)) {
     preferences.forgetRecentProject(path);
     return { ok: false, error: "missing" };
   }
@@ -747,12 +764,12 @@ ipcMain.on("kakapo:set-ignore-menu-shortcuts", (event, msg: { ignore?: boolean }
 });
 
 if (hasSingleInstanceLock) app.on("second-instance", (_event, commandLine, workingDirectory, additionalData) => {
-  const handoff = additionalData as { workspaceRoot?: unknown } | undefined;
-  const suppliedRoot = handoff && typeof handoff.workspaceRoot === "string"
-    ? handoff.workspaceRoot
-    : readOption(commandLine, "--cwd") ?? workingDirectory;
-  if (!suppliedRoot || !existsSync(suppliedRoot) || !isGitRepository(suppliedRoot)) return;
-  openOrFocusWorkspace(resolveWorkspaceRoot(suppliedRoot));
+  const root = handoffRoot(
+    { additionalData, commandLineRoot: () => readOption(commandLine, "--cwd"), workingDirectory },
+    { reviewable: isReviewableFolder, gitRepository: isGitRepository },
+  );
+  if (!root) return;
+  openOrFocusWorkspace(resolveWorkspaceRoot(root));
 });
 
 if (hasSingleInstanceLock) app.whenReady().then(async () => {
@@ -1551,7 +1568,7 @@ async function openFolderInNewWindow(): Promise<void> {
   if (root) createWindow(root);
 }
 // Shared directory picker — just the dialog; returns the chosen path or undefined if canceled. Callers
-// validate (the welcome flow reports not-git in-page; the File menu shows the custom overlay via pickRepo).
+// validate (the welcome flow reports it in-page; the File menu shows the custom overlay via pickRepo).
 async function pickDirectory(parent: BrowserWindow | undefined, defaultPath?: string): Promise<string | undefined> {
   const dialogOptions: Electron.OpenDialogOptions = {
     properties: ["openDirectory"],
@@ -1564,14 +1581,14 @@ async function pickDirectory(parent: BrowserWindow | undefined, defaultPath?: st
   return result.canceled ? undefined : (result.filePaths[0] || undefined);
 }
 
-// File-menu picker: a directory that's a validated git repo, or undefined (canceled, or not-git with a
-// custom overlay message). Used by Open Folder / Open in New Window, which have no in-page error surface.
+// File-menu picker: a directory this app can review, or undefined (canceled, or gone — with a custom
+// overlay message). Used by Open Folder / Open in New Window, which have no in-page error surface.
 async function pickRepo(parent: BrowserWindow | undefined, defaultPath?: string): Promise<string | undefined> {
   const root = await pickDirectory(parent, defaultPath);
   if (!root) return undefined;
-  if (!isGitRepository(root)) {
+  if (!isReviewableFolder(root)) {
     const t = tr();
-    dialog.showErrorBox(t("dialog.notGit.title"), t("dialog.notGit.message", { path: root }));
+    dialog.showErrorBox(t("dialog.unopenable.title"), t("dialog.unopenable.message", { path: root }));
     return undefined;
   }
   return resolveWorkspaceRoot(root);

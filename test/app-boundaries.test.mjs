@@ -94,7 +94,12 @@ test("external-link boundary opens only http(s) URLs from untrusted text", () =>
 
 test("main process is a composition root for extracted persistence and IPC adapters", () => {
   const main = readFileSync(new URL("../src/app-main.ts", import.meta.url), "utf8");
-  assert.match(main, /new AppPreferences\(app\.getPath\("userData"\), isGitRepository\)/);
+  // The point is that main hands the persistence adapter BOTH the absolute location and the policy for
+  // what counts as a project. The policy itself used to be `isGitRepository` and is now
+  // `isReviewableFolder`: a plain source tree is a perfectly good thing to review, and asking git about it
+  // was answering a different question by accident — the one entrance that still asked git was the only
+  // reason `kakapo` in such a folder opened nothing while a window was up.
+  assert.match(main, /new AppPreferences\(app\.getPath\("userData"\), isReviewableFolder\)/);
   // The .http runner's cookie jar and `>>` output live under userData, so main hands the adapter that
   // path too — it is still main that owns every absolute location, which is what this test is about.
   assert.match(main, /registerReviewIpc\(ipcMain, stateFromEvent, app\.getPath\("userData"\)\)/);

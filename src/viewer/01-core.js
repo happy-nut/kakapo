@@ -1034,14 +1034,19 @@ function loadLibrarySourceFile(path) {
   if (!(typeof window !== 'undefined' && window.kakapoFile && typeof window.kakapoFile.getSource === 'function')) {
     return Promise.resolve(null);
   }
+  // A FAILED read is not an answer to cache. The text behind a compiled target is produced by a language
+  // server, and a server that has not finished reading the project yet answers nothing — so the first ⌘↓
+  // after opening a Java file could lose the file for the rest of the session while the server went on to
+  // become perfectly able to decompile it. Only a record that arrived is remembered; a miss forgets itself
+  // and the next press asks again.
   var promise = Promise.resolve()
     .then(function () { return window.kakapoFile.getSource(path); })
     .then(function (record) {
-      if (!record || !record.path) return null;
+      if (!record || !record.path) { delete libraryLoadPromises[path]; return null; }
       record.__loaded = true;
       sourceByPath.set(record.path, record);
       return sourceByPath.get(path) || null;
-    }, function () { return null; });
+    }, function () { delete libraryLoadPromises[path]; return null; });
   libraryLoadPromises[path] = promise;
   return promise;
 }

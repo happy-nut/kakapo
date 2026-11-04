@@ -190,7 +190,7 @@ var KEY_OWNERS = [
 var SHORTCUT_ACTIONS = {
   // -- window level: these belong to the window, so they fire from a focused dock or the History overlay
   maximizePanel: function () { return toggleDockMaximized() ? undefined : false; },
-  allComments: function () { openMergedView(); },
+  allComments: function () { toggleMergedView(); },
   openHistory: function () { toggleHistory(); },
   // ⌘2/⌘1 mean "take me to the tree"; activate* itself puts every full-screen surface away first
   // (leaveFullScreenPanels) — otherwise the view they activate would be switched invisibly underneath one.

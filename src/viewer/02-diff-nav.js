@@ -127,7 +127,14 @@ function renderBreadcrumb(container, path) {
     container.appendChild(sep);
     const leaf = document.createElement('span');
     leaf.className = 'crumb crumb-leaf';
-    leaf.textContent = String(path || '');
+    // A compiled target is not a path either: `jdt://contents/java.base/java.util/List.class?=javalib/
+    // %5C/Users%5C/happynut%5C/repos%5C/…` is 300 characters of which the first 40 are the only ones about
+    // the class. externalLocationLabel is the shortening the hint and the peek list already use; the full
+    // URI stays in the tooltip, because it is the only exact name this file has.
+    // Two characters at least before the colon, so a Windows `C:/opt/...` library path is left alone.
+    leaf.textContent = /^[a-z][a-z0-9+.-]+:/i.test(String(path || ''))
+      ? externalLocationLabel(String(path).split('?')[0])
+      : String(path || '');
     leaf.title = String(path || '');
     container.appendChild(leaf);
     return;

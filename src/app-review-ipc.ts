@@ -23,8 +23,8 @@ import { readUnifiedDiff } from "./diff.js";
 import { readPatchSets } from "./patch-sets.js";
 import { materializeDeferredSourceFile } from "./diff.js";
 import { containedRealPath, languageForPath } from "./util.js";
-import { isKnownLibraryPath } from "./lsp.js";
-import { readLibrarySourceFile } from "./library-source.js";
+import { isKnownExternalUri, isKnownLibraryPath } from "./lsp.js";
+import { externalSourceFile, readLibrarySourceFile } from "./library-source.js";
 import { allReviewBodies, readReviewBody, reviewBodyCount } from "./review-bodies.js";
 import { searchProject } from "./search.js";
 import type { AnalysisRequest, ProjectAnalysis } from "./analysis.js";
@@ -134,7 +134,8 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
 
   ipc.handle("kakapo:get-source", async (event, request: { path?: string }) => {
     const state = stateFromEvent(event);
-    const path = String(request?.path ?? "").replace(/\\/g, "/").replace(/^\.\//, "");
+    const asked = String(request?.path ?? "");
+    const path = asked.replace(/\\/g, "/").replace(/^\.\//, "");
     if (!state || !path || path.startsWith("../")) return null;
     let record = state.sourceFiles.get(path);
     if (!record) {
@@ -143,7 +144,20 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
       await state.ensureFullIndex?.();
       record = state.sourceFiles.get(path);
     }
-    if (!record) return librarySource(state.options.root, path);
+    if (!record) {
+      // A definition target that is not a path — a class in a dependency jar, a class in the JDK image.
+      // Its text exists only inside the language server that named it, so it is fetched rather than read.
+      // Matched against what the renderer ASKED for, not the normalised path: the normaliser turns every
+      // backslash into a slash, which is right for a file path and wrong for a URI whose query can contain
+      // one — a rewritten URI matches nothing in the registry and is not the string the server would
+      // recognise either. Both forms are tried so a path that normalising did not touch still works.
+      const external = isKnownExternalUri(asked) ? asked : isKnownExternalUri(path) ? path : "";
+      if (external) {
+        const text = await state.analysis.externalSourceText(external);
+        return text ? externalSourceFile(external, text) : null;
+      }
+      return librarySource(state.options.root, path);
+    }
     if (!record.deferred) return record;
     const materialized = materializeDeferredSourceFile(state.options.root, record, state.reviewTarget ?? state.options.target);
     state.sourceFiles.set(path, materialized);
