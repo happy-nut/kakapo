@@ -167,6 +167,37 @@ function patchSetNumButton(which, opt) {
 }
 
 // Fill both groups. Hidden when there are no patch sets to pick and no active A→B compare.
+/**
+ * ⌥] / ⌥[ : step the BASE through the patch sets the bar lists, in the order it lists them.
+ *
+ * The base, not the target, because the base is the question the row of numbers answers — "compare against
+ * this one" — and the target side is the working tree in every ordinary reading. Stepping walks the FULL
+ * option list rather than the numbers currently on screen: patchSetWindow folds the middle of a long list
+ * away, and a key that stopped at the edge of what happens to be drawn would stop in a different place on
+ * a different window.
+ *
+ * At either end it says so rather than silently doing nothing, which is the same bargain F7 makes at a file
+ * boundary. In between it stays quiet: the bar marks the active number and rewrites its own summary, so a
+ * sentence per press would be saying what is already on screen.
+ */
+function stepPatchSet(delta) {
+  var bar = patchSetBarEl();
+  if (!bar || bar.classList.contains('hidden') || !patchSetData) return false;
+  var opts = patchSetBaseOptions(patchSetData);
+  if (!opts.length) return false;
+  var at = -1;
+  for (var i = 0; i < opts.length; i += 1) if (opts[i].active) { at = i; break; }
+  // Nothing marked (a base outside this list): enter from the end the direction comes from, so the first
+  // press lands somewhere rather than guessing at a position the reader is not in.
+  var next = at < 0 ? (delta > 0 ? 0 : opts.length - 1) : at + delta;
+  if (next < 0 || next >= opts.length) {
+    showCaretHint(t(delta > 0 ? 'patchset.atLast' : 'patchset.atFirst'));
+    return true;
+  }
+  selectPatchSet('base', opts[next].ref);
+  return true;
+}
+
 function renderPatchSetBar() {
   var bar = patchSetBarEl();
   if (!bar) return;

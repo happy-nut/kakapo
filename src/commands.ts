@@ -79,9 +79,8 @@ function launchReviewApp(args: string[]): void {
   // What to open: `--cwd <path>`, a bare path, or the current directory. A FILE is legal — kakapo opens the
   // folder around it and lands on the file, which is how you read a design note that lives outside any repo
   // (`kakapo ~/.claude/projects/…/PLAN.md`). chdir up front so the launched app resolves to one place.
-  // Did the user name a place, or are we just inheriting a cwd? A GUI launch (Launchpad, Spotlight, the
-  // Applications icon) inherits "/" — and --cwd is passed inward either way, so without this marker the app
-  // reads "/" as a deliberate choice and tries to index the whole filesystem instead of showing the picker.
+  // Where to open. A path argument or --cwd names one outright; otherwise it is the directory this was
+  // typed in, which names one just as well — see the --opened push below.
   const named = readOption(args, "--cwd") ?? positionalPath(args);
   const requested = resolve(named ?? process.cwd());
   if (!existsSync(requested)) {
@@ -97,7 +96,18 @@ function launchReviewApp(args: string[]): void {
     process.cwd(),
     "--include-untracked", // new AI-created files are visible by default
   ];
-  if (named !== undefined) appArgs.push("--opened");
+  // Every launch that reaches this file was told where to go, so the marker always goes with it.
+  //
+  // It exists to keep a GUI launch — Launchpad, Spotlight, the Applications icon — from reading the "/" it
+  // inherits as a deliberate choice and indexing the whole filesystem instead of showing the picker. But a
+  // GUI launch does not come through here at all: package.json's `main` is dist/app-main.js and `bin` is
+  // this CLI, so the icon starts the app directly and sends neither --cwd nor --opened. What was being
+  // separated instead was two TERMINAL launches from each other: `kakapo /some/path` counted as naming a
+  // place and a bare `kakapo` did not — so typing it inside a folder that is not a git repository opened
+  // the folder picker rather than the folder the reader was standing in, which is as clear a statement of
+  // where to go as a path argument is. (A git repository was unaffected: bootWindow's welcome test needs
+  // BOTH no marker and no repository.)
+  appArgs.push("--opened");
   if (openFile) appArgs.push("--open", openFile);
   // Forward the review flags. They used to stop here: `--help` and the README documented --base/--staged/
   // --ignore-whitespace, and the app never saw any of them — only --cwd and the default context were passed

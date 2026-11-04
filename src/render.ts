@@ -553,6 +553,11 @@ export function renderDiffHtml(input: {
     // .diff-pane-header below, which the diff nav fills with the focused file's old→new path.
     input.app
       ? '<div class="patchset-bar" id="patchset-bar" role="group" data-i18n-aria="patchset.bar" aria-label="Compare patch sets">'
+        // The control's own name, said once where the row is read first. These numbers are a branch's
+        // commits offered as comparison points, and the word for that has been "patch set" everywhere this
+        // is written down — the module, the IPC, the tooltips, the aria-labels — while the bar itself
+        // showed "Base 1 2 3 Target" and named the concept nowhere a reader could see it.
+        + '<span class="patchset-name" data-i18n="patchset.name">Patch sets</span>'
         + '<div class="patchset-side patchset-side-base">'
         + '<span class="patchset-kind" data-i18n="patchset.base">Base</span>'
         + '<div class="patchset-nums" id="patchset-base-nums" role="group" data-i18n-aria="patchset.pick" aria-label="Base patch set"></div>'

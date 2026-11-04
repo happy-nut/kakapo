@@ -102,17 +102,30 @@ test("only a NAMED path counts as explicit — an inherited cwd does not", () =>
     "--opened is the marker the CLI adds when the user actually named somewhere");
 });
 
-test("the CLI adds --opened for a named path and omits it for a bare launch", () => {
-  const root = mkdtempSync(join(tmpdir(), "kakapo-argv-"));
-  try {
-    // launchReviewApp spawns Electron, so read the contract off the source rather than booting a window:
-    // the marker must be tied to `named`, never emitted unconditionally beside --cwd.
-    const cli = readFileSync(new URL("../src/commands.ts", import.meta.url), "utf8");
-    assert.match(cli, /const named = readOption\(args, "--cwd"\) \?\? positionalPath\(args\);/,
-      "a named path is --cwd or the bare argument");
-    assert.match(cli, /if \(named !== undefined\) appArgs\.push\("--opened"\);/,
-      "and only that emits the marker");
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
+test("a terminal launch always names its folder; only the GUI can be unmarked", () => {
+  // The marker separates "told where to go" from "inherited a cwd". The second one is a GUI launch —
+  // Launchpad, Spotlight, the Applications icon — which comes up in "/" and must reach the picker instead
+  // of indexing the whole filesystem. That is a real hazard and this guard still covers it; what changed is
+  // WHERE the line falls.
+  //
+  // It used to be drawn inside the CLI: `kakapo /some/path` counted as naming a place and a bare `kakapo`
+  // did not. But both of those are someone typing in a terminal, and the directory they typed in is as
+  // clear a statement of where to go as an argument is — so typing `kakapo` in a folder that is not a git
+  // repository opened the folder picker instead of the folder they were standing in. A git repository hid
+  // it, because bootWindow's welcome test needs BOTH no marker and no repository.
+  //
+  // The GUI cannot reach this file at all, and that is the fact the rule rests on, so assert it: `main` is
+  // what the icon starts and `bin` is what a shell runs. If those ever became the same entry point, a GUI
+  // launch would start sending --opened and "/" would read as a choice again — which is the regression this
+  // test is named after, and it would land here rather than in someone's fan.
+  const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+  assert.equal(pkg.main, "dist/app-main.js", "the GUI starts the app directly");
+  assert.equal(pkg.bin?.kakapo, "bin/kakapo.js", "and the terminal goes through the CLI");
+  assert.notEqual(pkg.main, pkg.bin?.kakapo, "two entry points, which is what lets the CLI speak for all of its launches");
+
+  const cli = readFileSync(new URL("../src/commands.ts", import.meta.url), "utf8");
+  assert.match(cli, /^\s*appArgs\.push\("--opened"\);/m,
+    "so every launch through it is marked, named path or not");
+  assert.doesNotMatch(cli, /if \(named !== undefined\) appArgs\.push\("--opened"\);/,
+    "and not only the ones that named a path");
 });

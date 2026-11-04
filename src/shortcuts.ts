@@ -52,6 +52,10 @@ export const SHORTCUTS: ShortcutDef[] = [
   // Paste a pull request link and read it here. Not a compare MODE — it sets both sides at once from
   // something the reader already has in the clipboard, which is a different gesture from picking either.
   { id: "openPullRequest", keys: ["⌥L"], where: "any", i18n: "kbd.openPullRequest" },
+  // Step the patch-set bar's base. The bracket family already means "move along a list here" (⌘[ / ⌘] walk
+  // the cursor's history, ⌘⇧[ / ⌘⇧] the tabs), and ⌥ is the modifier the compare controls use. Matched by
+  // `code`, so the "“" and "‘" a Mac puts out for ⌥[ and ⌥] never reach the lookup.
+  { id: "patchSetStep", keys: ["⌥]", "⌥["], where: "any", i18n: "kbd.patchSetStep" },
   { id: "gotoLine", keys: ["⌘L"], where: "code", i18n: "kbd.gotoLine" },
   { id: "revealInTree", keys: ["⌥F1", "⌘↑"], where: "any", i18n: "kbd.revealInTree" },
   { id: "rowActions", keys: ["⌥Enter"], where: "tree", i18n: "kbd.rowActions", fixed: "structural" },
@@ -349,7 +353,7 @@ export const MENU_OWNED_CHORDS_MAC: string[] = ["⌘H", "⌘M", "⌘Q", "⌘⌥H
 export const SHORTCUT_GROUPS: { i18n: string; ids: string[] }[] = [
   { i18n: "settings.kbd.cat.app", ids: [
     "openFolder", "openNewWindow", "openSettings", "openHistory", "compareMode", "compareRef",
-    "openPullRequest",
+    "openPullRequest", "patchSetStep",
     "gotoLine", "revealInTree", "rowActions", "closeDialog",
   ] },
   { i18n: "settings.kbd.cat.nav", ids: [

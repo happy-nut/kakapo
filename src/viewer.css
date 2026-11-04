@@ -1326,7 +1326,11 @@ body {
   color: var(--chrome-muted);
   font-size: 11px;
 }
-.patchset-kind { flex: none; color: var(--muted); font-size: 10px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.04em; }
+/* The bar's own name, styled as one of the labels it leads (the rule below takes both selectors) so the
+   row reads "PATCH SETS · BASE 1 2 3 … TARGET" rather than putting a heading over a toolbar. */
+.patchset-name { margin-right: 2px; }
+.patchset-kind,
+.patchset-name { flex: none; color: var(--muted); font-size: 10px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.04em; }
 
 /* It is a button now — it stops hiding the folded sets rather than guessing which one you meant — so it
    looks like one it is safe to press, and says how many it is holding. */

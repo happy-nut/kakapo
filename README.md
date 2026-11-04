@@ -82,6 +82,7 @@ The toolbar pill says what the diff is comparing, and opens the two states you s
 | `⌥T` | How this working tree differs from that branch's tip |
 | `⌥C` | Pick that branch — local branches and each remote's, asked a side at a time |
 | `⌥L` | Open a pull request from its link |
+| `⌥]` / `⌥[` | Next / previous patch set |
 
 "All changes" uses the **merge-base**, not the branch tip: `git diff main` against a `main` that has moved on shows other people's commits as your deletions.
 

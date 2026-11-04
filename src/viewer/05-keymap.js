@@ -274,6 +274,7 @@ var SHORTCUT_ACTIONS = {
   // usable if you already know which one you are on, and not knowing that is why you reached for the key.
   compareMode: function (event, i) { pickCompareMode(['all', 'uncommitted', 'tip'][i] || 'all'); },
   openPullRequest: function () { return openPullRequestPrompt() ? undefined : false; },
+  patchSetStep: function (event, i) { return stepPatchSet(i ? -1 : 1) ? undefined : false; },
   compareRef: function () { openCompareBranchPicker(); },
   goToDef: function () { if (isSourceViewerVisible()) goToDefinitionUnderCursor(); else openDiffFileAtCaret(); },
   quickDefinition: function () {
