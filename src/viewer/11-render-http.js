@@ -713,8 +713,8 @@ function httpScriptLogHtml(log) {
     html += '<div class="http-tests' + (failed ? ' has-failures' : '') + '">'
       + '<div class="http-tests-head">' + escapeHtml(
         failed
-          ? t('http.testsFailed').replace('{failed}', String(failed)).replace('{total}', String(log.tests.length))
-          : t('http.testsPassed').replace('{total}', String(log.tests.length)))
+          ? t('http.testsFailed', { failed: failed, total: log.tests.length })
+          : t('http.testsPassed', { total: log.tests.length }))
       + '</div>'
       + log.tests.map(function (entry) {
         return '<div class="http-test ' + (entry.ok ? 'ok' : 'bad') + '">'
@@ -766,10 +766,10 @@ function renderHttpResponse(target, result, extra) {
   const meta = [];
   if (result.redirects && result.redirects.length) {
     meta.push('<span class="http-resp-meta" title="' + escapeHtml(result.redirects.join('\n')) + '">'
-      + escapeHtml(t('http.redirects').replace('{count}', String(result.redirects.length))) + '</span>');
+      + escapeHtml(t('http.redirects', { count: result.redirects.length })) + '</span>');
   }
   if (result.cookies && result.cookies.length) {
-    meta.push('<span class="http-resp-meta">' + escapeHtml(t('http.cookies').replace('{count}', String(result.cookies.length))) + '</span>');
+    meta.push('<span class="http-resp-meta">' + escapeHtml(t('http.cookies', { count: result.cookies.length })) + '</span>');
   }
   target.innerHTML =
     '<div class="http-resp-head">'
@@ -802,9 +802,9 @@ function renderWebSocketTranscript(target, result) {
     + '<span class="http-status ' + (result && result.ok ? 'ok' : 'bad') + '">'
     + escapeHtml(t(result && result.ok ? 'ws.closed' : 'http.notSent')) + '</span>'
     + '<span class="http-resp-meta">' + (Number(result && result.durationMs) || 0) + ' ms</span>'
-    + '<span class="http-resp-meta">' + escapeHtml(t('ws.messages').replace('{count}', String(entries.filter(function (entry) {
+    + '<span class="http-resp-meta">' + escapeHtml(t('ws.messages', { count: entries.filter(function (entry) {
       return entry.direction === 'in' || entry.direction === 'out';
-    }).length))) + '</span>'
+    }).length })) + '</span>'
     + '</div>';
   const rows = entries.map(function (entry) {
     const mark = entry.direction === 'out' ? '\u2191' : entry.direction === 'in' ? '\u2193' : '\u25cf';
@@ -831,8 +831,8 @@ function renderHttpRunSummary(target, path, outcomes) {
   target.innerHTML = '<div class="http-resp-head">'
     + '<span class="http-status ' + (failed ? 'bad' : 'ok') + '">'
     + escapeHtml(failed
-      ? t('http.ranAllWithFailures').replace('{count}', String(outcomes.length)).replace('{failed}', String(failed))
-      : t('http.ranAll').replace('{count}', String(outcomes.length)))
+      ? t('http.ranAllWithFailures', { count: outcomes.length, failed: failed })
+      : t('http.ranAll', { count: outcomes.length }))
     + '</span>'
     + '<span class="http-resp-meta">' + escapeHtml(path) + '</span>'
     + '</div>'

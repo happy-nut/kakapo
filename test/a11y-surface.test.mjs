@@ -184,3 +184,43 @@ test("nothing you have to click is smaller than 24 CSS pixels", async () => {
   assert.ok(measured >= 8, `the scan reached the sized controls (measured ${measured})`);
   assert.deepEqual(small, [], "an interactive target under the 24px floor");
 });
+
+// Every popup this app opens instead of a native <select> or context menu is the one factory in
+// 07-comments.js — the language, theme, scale and highlight pickers in Settings, the source-tab overflow
+// list, and three context menus. It was an anonymous <div> of <button>s: arrow keys and Enter worked, so
+// SC 2.1.1 passed, and nothing on the page said a menu had opened, so SC 4.1.2 did not. Measured on the
+// Settings language control: trigger aria-expanded null and no aria-haspopup, #mc-dropdown role none, its
+// items role none. A reader was told a button was pressed and nothing about the choices under it.
+//
+// Driven through the real control rather than asserted against the factory's source, because the half that
+// kept breaking is the state coming back DOWN — there are four ways out of this popup.
+test("a custom dropdown says it is open, and stops saying so", async () => {
+  const v = await loadViewer(html);
+  try {
+    const { document, window } = v.window;
+    const trigger = document.getElementById("settings-language");
+    assert.ok(trigger, "the language picker is still a custom select");
+    assert.equal(trigger.getAttribute("aria-expanded"), null, "it does not claim to be open before it is");
+
+    trigger.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }));
+    const dd = document.getElementById("mc-dropdown");
+    assert.ok(dd, "the popup opened");
+    assert.equal(trigger.getAttribute("aria-haspopup"), "true", "the trigger says it opens something");
+    assert.equal(trigger.getAttribute("aria-expanded"), "true", "and that it is open now");
+    assert.equal(dd.getAttribute("role"), "menu", "the popup is a menu, not an unnamed div");
+    const items = [...dd.children];
+    assert.ok(items.length >= 2, `the locales are listed (got ${items.length})`);
+    for (const item of items) {
+      assert.equal(item.getAttribute("role"), "menuitem", "each choice announces itself as one");
+      assert.equal(item.tagName, "BUTTON", "and is still a real button, so Tab and Enter keep working");
+    }
+
+    // Escape is one of four exits — a pick, Escape, a click outside, and the next dropdown replacing this
+    // one. All four run close(), which is why the state lives in the factory and not at the call site.
+    document.dispatchEvent(new window.KeyboardEvent("keydown", { bubbles: true, key: "Escape" }));
+    assert.equal(document.getElementById("mc-dropdown"), null, "the popup is gone");
+    assert.equal(trigger.getAttribute("aria-expanded"), "false", "and the trigger no longer claims otherwise");
+  } finally {
+    v.close();
+  }
+});

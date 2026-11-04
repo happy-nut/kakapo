@@ -100,7 +100,9 @@ test("sidebar project name resolves from the main repository, not a linked workt
   // Asked of the element's CONTENT, not of what sits between the id and the ">": this pinned the attribute
   // order, so adding the title that makes a truncated branch readable broke it without anything changing
   // about the claim.
-  assert.match(build.html, new RegExp(`id="brand-branch-name"[^>]*>${branchName}<`), "the branch chip still names the actual branch");
-  assert.match(build.html, new RegExp(`id="brand-branch-name"[^>]*title="${branchName}"`),
+  // By class, not id: the chip is rendered into both toolbars now (render.ts branchChip), and an id would
+  // have been two elements claiming one name.
+  assert.match(build.html, new RegExp(`class="brand-branch-name"[^>]*>${branchName}<`), "the branch chip still names the actual branch");
+  assert.match(build.html, new RegExp(`class="brand-branch-name"[^>]*title="${branchName}"`),
     "and carries the whole name as its tooltip, which is the only place a cut-off branch can still be read");
 });

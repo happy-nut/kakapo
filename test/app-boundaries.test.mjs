@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { AppPreferences } from "../dist/app-preferences.js";
@@ -231,5 +231,138 @@ test("the external-location label is the same in the main process and in the vie
     assert.match(source, /slice\(bang \+ 2\)/, `${side} keeps what is inside the archive`);
     assert.match(source, /\\\.\(jar\|zip\)\$/i, `${side} recognises an archive by the same extensions`);
     assert.match(source, /\^\[a-z\]\+:/i, `${side} strips the scheme when there is no archive separator`);
+  }
+});
+
+// A catalog sentence is finished twice — by makeTranslator (i18n.ts) for the application menu, the native
+// dialogs and the welcome screen, and by t() (01-core.js) for everything the page builds. The viewer cannot
+// import the first one: the catalog reaches the page as JSON in a <script> tag, so the resolver reaches it
+// as a second copy. Same reason as the leaf-name split above, same guard — except this one compares what
+// the two functions DO rather than how they are written, because one is TypeScript with arrow callbacks
+// and the other is ES5 and they are allowed to differ there.
+//
+// Written because the two had already drifted: makeTranslator substituted {name} and left {{n:one|many}}
+// untouched, so the day a menu string grew the plural token the catalog has used for a year, the menu was
+// going to print it raw.
+test("the two message resolvers finish a sentence the same way", async () => {
+  const { fillMessage } = await import("../dist/i18n.js");
+  const source = readFileSync(new URL("../src/viewer/01-core.js", import.meta.url), "utf8");
+  const found = /\nfunction t\(key, values\) \{([\s\S]*?)\n\}\n/.exec(source);
+  assert.ok(found, "the viewer still resolves a message in t()");
+  // Give it the two globals it reads off the page, and one catalog entry to find.
+  const build = new Function("I18N", "locale", `return function t(key, values) {${found[1]}\n};`);
+
+  const CASES = [
+    ["{n} {{n:usage|usages}}", { n: 1 }],
+    ["{n} {{n:usage|usages}}", { n: 0 }],
+    ["{n} {{n:usage|usages}}", { n: 2 }],
+    ["{n} {{n:problem|problems}} ({errors} {{errors:error|errors}}) in {files} {{files:file|files}}",
+      { n: 1, errors: 1, files: 1 }],
+    ["{n} {{n:problem|problems}} ({errors} {{errors:error|errors}}) in {files} {{files:file|files}}",
+      { n: 25, errors: 0, files: 272 }],
+    // A count that is not a number: Quick Open prints "134+" when the result list was truncated, and that
+    // is plural however it is spelled.
+    ["{n} {{n:result|results}}", { n: "134+" }],
+    ["{n} {{n:result|results}}", { n: "1" }],
+    // Zero is a value, not a missing one — a resolver that tests truthiness prints "" here.
+    ["{count} unchanged {{count:line|lines}}", { count: 0 }],
+    // A placeholder nobody passed stays visible: "{symbol}" is a bug report, "undefined" is a mystery.
+    ["{symbol} has no type", {}],
+    ["{n} of {total}", { n: 3 }],
+    // A form whose count was never passed: NaN is not 1, so the plural reads.
+    ["{{n:file has|files have}} no language server", {}],
+    ["nothing to interpolate", { n: 1 }],
+    ["{n}%", { n: 100 }],
+  ];
+  for (const [text, values] of CASES) {
+    const viewer = build({ en: { probe: text } }, "en")("probe", values);
+    const main = fillMessage(text, values);
+    assert.equal(viewer, main, `both finish ${JSON.stringify(text)} with ${JSON.stringify(values)} the same way`);
+  }
+  // No values at all is the common case and has to short-circuit identically.
+  assert.equal(build({ en: { probe: "{n} {{n:a|b}}" } }, "en")("probe"), fillMessage("{n} {{n:a|b}}", undefined));
+});
+
+// Two functions with one name are this repository's recurring defect, and the three guards above are each a
+// separate response to one instance of it. This is the response to the CLASS: the sweep that finds them.
+//
+// It was written after it found two nobody had noticed. `readTextFile` existed in util.ts, honouring a BOM
+// and dropping it, and in project-layout.ts as `readFileSync(path, "utf8")` — so a manifest saved
+// UTF-8-with-BOM, which is what Windows editors write, kept the mark as an invisible first character and
+// JSON.parse threw on .idea/modules.xml and tsconfig.json while the layout came back empty with nothing to
+// say about why. `executable` existed in lsp.ts and search.ts and the two disagreed about Windows. Both are
+// now one function; the ones that remain are listed here with what keeps them honest.
+//
+// A pair where both copies are TypeScript is a copy to DELETE — they are in one program and can import
+// each other. A pair split across the server and the viewer cannot be: the viewer is 39 concatenated .js
+// slices served to a page, with no module system to import through. Those get a behavioural guard.
+const KNOWN_TWINS = {
+  escapeHtml: "server / viewer, and a divergence here is an injection — guarded behaviourally below",
+  escapeRegExp: "server / viewer, and a divergence here is a wrong match or a ReDoS — guarded below",
+  formatBytes: "server / viewer: the same figure under the same name — guarded below",
+  leafNameHtml: "server / viewer: guarded by the leaf-name split test above",
+  externalLocationLabel: "main / viewer: guarded by the external-location label test above",
+  applyUiScale: "main / viewer: guarded by the UI scale tests above",
+};
+
+test("no function is declared in two files without a reason on record", () => {
+  const dirs = [new URL("../src/", import.meta.url).pathname, new URL("../src/viewer/", import.meta.url).pathname];
+  const where = new Map();
+  for (const dir of dirs) {
+    for (const file of readdirSync(dir).filter((f) => /\.(ts|js)$/.test(f))) {
+      const source = readFileSync(join(dir, file), "utf8");
+      for (const found of source.matchAll(/^(?:export )?(?:async )?function (\w+)\s*\(/gm)) {
+        const name = found[1];
+        if (!where.has(name)) where.set(name, new Set());
+        where.get(name).add(dir.endsWith("/viewer/") ? `viewer/${file}` : file);
+      }
+    }
+  }
+  const twins = [...where].filter(([, files]) => files.size > 1)
+    .map(([name, files]) => [name, [...files].sort()]);
+  // The sweep has to be finding something, or a refactor that renames `function` out of this codebase
+  // turns this guard into a test that passes by seeing nothing.
+  assert.ok(twins.length > 0, "the sweep still recognises a declaration at all");
+
+  const unexplained = twins.filter(([name]) => !(name in KNOWN_TWINS))
+    .map(([name, files]) => `${name}  (${files.join(", ")})`);
+  assert.deepEqual(unexplained, [],
+    `delete one copy if both are TypeScript — they are in one program. If the pair straddles the server and\n`
+    + `the viewer, give it a behavioural guard and a line in KNOWN_TWINS saying so:\n  ${unexplained.join("\n  ")}`);
+
+  // And the list is not a parking space: an entry for a pair that is no longer a pair is a line that would
+  // quietly excuse the next real one to take that name.
+  const stale = Object.keys(KNOWN_TWINS).filter((name) => !twins.some(([twin]) => twin === name));
+  assert.deepEqual(stale, [], "these are no longer declared twice");
+});
+
+// The three pairs that cannot be deduplicated, compared by what they DO. Source comparison is no good here:
+// one side is TypeScript and the other ES5, and they are allowed to differ in spelling.
+test("the server and the viewer agree on escaping, and on a size", async () => {
+  const util = await import("../dist/util.js");
+  const analysis = readFileSync(new URL("../src/analysis.ts", import.meta.url), "utf8");
+  const viewerSource = (file) => readFileSync(new URL(`../src/viewer/${file}`, import.meta.url), "utf8");
+  const lift = (source, name) => {
+    const found = new RegExp(`\\nfunction ${name}\\(([^)]*)\\) \\{([\\s\\S]*?)\\n\\}\\n`).exec(source);
+    assert.ok(found, `${name} is still declared in the viewer`);
+    return new Function(found[1], found[2]);
+  };
+  const viewerEscapeHtml = lift(viewerSource("00-util.js"), "escapeHtml");
+  const viewerFormatBytes = lift(viewerSource("00-util.js"), "formatBytes");
+  const viewerEscapeRegExp = lift(viewerSource("15-semantic-navigation.js"), "escapeRegExp");
+  // analysis.ts's copy is TypeScript but this function is plain ES in both, so the same lift reads it.
+  const serverEscapeRegExp = lift(analysis.replace(/: string\)/g, ")").replace(/\): string \{/g, ") {"), "escapeRegExp");
+
+  for (const value of ["", "plain", "<script>alert(1)</script>", `a & b`, `"quoted"`, "it's", "&amp;",
+    "<img src=x onerror=alert(1)>", "a\u0000b", "<<&&>>''\"\"", "»– "]) {
+    assert.equal(viewerEscapeHtml(value), util.escapeHtml(value), `both escape ${JSON.stringify(value)} alike`);
+  }
+  for (const value of ["", "plain", "a.b", "a|b", "[a-z]+", "(group)", "^$", "a\\b", "{1,2}", "a*?+", "안녕"]) {
+    assert.equal(viewerEscapeRegExp(value), serverEscapeRegExp(value),
+      `both escape ${JSON.stringify(value)} for a regex alike`);
+  }
+  for (const bytes of [0, 1, 1023, 1024, 1025, 2048, 1024 * 1023, 1024 * 1024, 1024 * 1024 * 3.5,
+    1024 * 1024 * 1024, 2_500 * 1024]) {
+    assert.equal(viewerFormatBytes(bytes), util.formatBytes(bytes), `both print ${bytes} bytes alike`);
   }
 });

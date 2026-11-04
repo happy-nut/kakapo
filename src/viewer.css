@@ -853,8 +853,10 @@ body {
    to make room for something that was being truncated anyway. It caps instead: short names are never cut,
    and only a genuinely long one yields, at which point both are ellipsised rather than just this one. */
 .sidebar-brand .brand-project {
-  flex: 0 0 auto;
-  max-width: 45%;
+  flex: 0 1 auto;
+  /* Was 45%, to leave room for the branch chip that used to sit beside it. The chip is in the toolbar now
+     (render.ts branchChip) and this name has the band to itself, bar the view switch. */
+  max-width: 100%;
   font-size: 14px;
   font-weight: 600;
   white-space: nowrap;
@@ -922,11 +924,17 @@ body {
 }
 
 /* Current branch chip under the project name in the sidebar header. */
-.brand-branch { flex: 0 1 auto; display: inline-flex; align-items: center; gap: 5px; margin-top: 0; min-width: 0; font-size: 12px; }
+/* In a toolbar now, where there is room: it yields before the file name beside it (which is what the
+   reader came for) and takes what is left, which on an ordinary window is hundreds of pixels rather than
+   the 70 it had in the sidebar band. */
+.brand-branch { flex: 0 1 auto; display: inline-flex; align-items: center; gap: 5px; margin-top: 0; min-width: 0; max-width: 100%; font-size: 12px; }
+.diff-toolbar-file .brand-branch,
+.source-file-meta .brand-branch { margin-left: 8px; }
 .brand-branch-icon { flex: none; opacity: 0.8; }
 .brand-branch-name { display: flex; min-width: 0; white-space: nowrap; font-variant-numeric: tabular-nums; }
 /* The shared prefix goes first and goes quietly; the segment that names the work keeps its width.
-   Mirrors .path-head/.path-tail in the file tree, for the same reason and with the same cap. */
+   Mirrors .path-head/.path-tail in the file tree and for the same reason. Not the same cap: a branch's
+   tail is the part worth reading and may be most of the string, so it is free to take the whole chip. */
 .brand-branch-name .branch-head { overflow: hidden; text-overflow: ellipsis; min-width: 0; opacity: 0.72; }
 .brand-branch-name .branch-tail { flex: 0 1 auto; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .tab, .plain-button {
@@ -1859,7 +1867,15 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
    and gone with `text-overflow: clip`, so nothing on screen said a character had been removed. The cap
    still applies above: past half the column the extension does give way, and now it ellipsises when it
    does, which is the difference between a truncation and a filename that looks complete and is not. */
-.tree .path-tail { flex: 0 0 auto; min-width: 0; max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The extension chain keeps its width; the base name is what shrinks. That is the whole point of emitting
+   the two separately (leafNameHtml, render-tree.ts), and a flat 50% defeated it on exactly the names it
+   was written for: `views.test.mjs` is 64% extension, so in a narrow Changes row the TAIL hit the cap and
+   ellipsised to "views.test…." — the one rendering that answers neither question.
+   A flat `12ch` is not the fix either, and measuring said so: it ignores how much room there is, and
+   clipped `map.architecture.json` in a 300px sidebar where 50% had kept it whole (1 of 290 names here).
+   Both, then: at least a dozen characters for the type however narrow the row, and half the row when half
+   the row is more than that. */
+.tree .path-tail { flex: 0 0 auto; min-width: 0; max-width: max(12ch, 50%); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tree-dir { display: grid; gap: 1px; }
 .tree-dir summary {
   display: grid;
@@ -2457,6 +2473,10 @@ button.compare-pill[aria-expanded="true"] { border-color: color-mix(in srgb, cur
 .compare-branch-item:focus { outline: 2px solid var(--active); outline-offset: -2px; }
 .compare-branch-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .compare-branch-note { flex: none; color: var(--muted); font-size: 11px; }
+/* The row that climbs back out of a side. Muted because it is a step, not a branch: it sits in the same
+   list, with the same class (so the arrow keys reach it without a second mechanism), and the only thing
+   telling a reader it is not pickable is how it reads. */
+.compare-branch-back { color: var(--muted); }
 .compare-branch-empty { padding: 10px; color: var(--muted); }
 .compare-manual { color: var(--muted); }
 /* The one thing the pill cannot say: WHY the review moved to the remote. Only the `incoming` state fills it,
@@ -3328,7 +3348,16 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 /* The Problems list (⌘6). A severity mark rather than a coloured message: the message is what is read, and
    colouring a whole sentence red makes a list of forty warnings unreadable. Same two colours the gutter
    markers use, so the list and the file agree. */
+/* Three children — mark, message, severity badge — in a container whose default template is the Quick Open
+   file row's two columns (name | badge). The mark took the 1fr column and grew to 450px, the message
+   started at x=467, and the badge wrapped to a second line: measured 957x45 for what is one line of text.
+   A row with its own children needs its own template. */
 .problem-result { gap: 9px; }
+/* Compound, for the reason written above .quick-open-item.search-result: `.quick-open-item` declares the
+   file row's two columns 700 lines BELOW this, and at equal specificity source order wins — so a bare
+   `.problem-result` here declares a template that never applies. Measured in the running app: the rule was
+   in the stylesheet and the computed value was still the two-column one. */
+.quick-open-item.problem-result { grid-template-columns: auto minmax(0, 1fr) auto; }
 .problem-mark {
   flex: none;
   width: 7px;
@@ -3580,6 +3609,15 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
   width: 220px; height: 30px; border: 1px solid var(--border); padding: 0 10px;
   font: 14px ui-sans-serif, -apple-system, system-ui, sans-serif; outline: none;
 }
+/* The pull-request prompt (⌥L) reuses that box, which is sized for a line number: a link is a great deal
+   longer and the answer needs a line of its own under the field. AFTER the rules it overrides, not before
+   — `.pr-prompt-input` and `.goto-line-input` are both one class, so the later one wins and the earlier
+   one is a declaration that never applies. */
+.pr-prompt { display: flex; flex-direction: column; align-items: stretch; gap: 6px; width: min(520px, calc(100vw - 48px)); }
+.pr-prompt .pr-prompt-input { width: auto; text-align: left; }
+.pr-prompt-note { font-size: 12px; line-height: 1.45; }
+.pr-prompt-note:empty { display: none; }
+.pr-prompt-bad { color: var(--chrome-stat-del); }
 .mc-hint { color: var(--muted); font-size: 11px; }
 .mc-modal { position: fixed; inset: 0; z-index: var(--z-anchored); display: grid; place-items: start center; padding-top: min(10vh, 80px); background: color-mix(in srgb, #000 32%, transparent); }
 .mc-modal.hidden { display: none; }

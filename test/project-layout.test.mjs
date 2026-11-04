@@ -269,3 +269,42 @@ test("a workspace member cannot climb out of the repository either", () => {
   assert.ok(!layout.modules.some((m) => m.root.includes("..")), `no module root climbs out: ${JSON.stringify(layout.modules)}`);
   assert.ok(!layout.modules.some((m) => m.name === "outside"), "and its manifest was never read");
 });
+
+// Every manifest here is read through util's decoder, which honours a byte-order mark and drops it. It
+// used to be read by a local `readTextFile` that called `readFileSync(path, "utf8")` — the same NAME as
+// the decoder two files over and different behaviour. A UTF-8 BOM is what Windows editors write by
+// default, and left in the string it is an invisible first character: JSON.parse throws on it, a TOML
+// section lookup misses the first line, and `<project` is no longer how modules.xml starts. The layout
+// then came back as a plain one-module repo with nothing anywhere saying why.
+test("a manifest written with a byte-order mark is still read", () => {
+  const bom = (text) => "﻿" + text;
+  const npm = readProjectLayout(repo({
+    "package.json": bom(JSON.stringify({ name: "root", workspaces: ["packages/*"] })),
+    "packages/ui/package.json": bom(JSON.stringify({ name: "@acme/ui" })),
+    "packages/ui/test/ui.test.ts": "",
+  }));
+  assert.equal(npm.source, "workspace", "the root manifest parsed");
+  assert.deepEqual(npm.modules.map((module) => module.name), ["@acme/ui"], "and so did the member's");
+
+  const cargo = readProjectLayout(repo({
+    "Cargo.toml": bom('[workspace]\nmembers = ["crates/core"]\n'),
+    "crates/core/Cargo.toml": bom('[package]\nname = "core"\n'),
+    "crates/core/tests/core.rs": "",
+  }));
+  assert.equal(cargo.source, "workspace", "a TOML section is still found on the first line");
+  assert.deepEqual(cargo.modules.map((module) => module.name), ["core"]);
+
+  const idea = readProjectLayout(repo({
+    ".idea/modules.xml": bom('<project><component><modules>'
+      + '<module fileurl="file://$PROJECT_DIR$/app/app.iml" filepath="$PROJECT_DIR$/app/app.iml" />'
+      + '</modules></component></project>'),
+    "app/app.iml": bom('<module><component><content url="file://$MODULE_DIR$">'
+      + '<sourceFolder url="file://$MODULE_DIR$/src" isTestSource="false" />'
+      + '<sourceFolder url="file://$MODULE_DIR$/test" isTestSource="true" />'
+      + '</content></component></module>'),
+    "app/src/": "",
+    "app/test/": "",
+  }));
+  assert.equal(idea.source, "intellij", "and the IDE's own answer still wins");
+  assert.deepEqual(idea.testRoots, ["app/test"]);
+});

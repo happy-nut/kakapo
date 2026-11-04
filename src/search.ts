@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
-import { accessSync, constants, existsSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { delimiter, join } from "node:path";
+import { executable } from "./util.js";
 import { rgPath as bundledRipgrepPath } from "@vscode/ripgrep";
 
 export type ProjectSearchMatch = {
@@ -101,11 +102,6 @@ export function parseRipgrepJsonLine(line: string): ProjectSearchMatch[] {
       matchText: decodeText(submatch.match),
     };
   });
-}
-
-function executable(path: string): boolean {
-  try { accessSync(path, process.platform === "win32" ? constants.F_OK : constants.X_OK); return true; }
-  catch { return false; }
 }
 
 // The VS Code ripgrep package ships a verified, platform-specific binary with kakapo, so search never

@@ -39,7 +39,7 @@ function paintAnalysisElapsed() {
     span.className = 'analysis-status-elapsed';
     el.appendChild(span);
   }
-  span.textContent = ' · ' + t('analysis.elapsed').replace('{n}', String(Math.round(elapsed / 1000)));
+  span.textContent = ' · ' + t('analysis.elapsed', { n: Math.round(elapsed / 1000) });
 }
 
 /**
@@ -52,7 +52,7 @@ function paintAnalysisStatusTitle() {
   var status = analysisStatusLast;
   if (!el || !status) return;
   var phase = el.dataset.phase || 'idle';
-  var detail = [t('analysis.' + phase), t('analysis.generation').replace('{n}', String(Math.max(0, Number(status.generation) || 0)))];
+  var detail = [t('analysis.' + phase), t('analysis.generation', { n: Math.max(0, Number(status.generation) || 0) })];
   if (status.family) detail.push(String(status.family));
   if (status.server) detail.push(String(status.server) + (status.serverSource ? ' (' + String(status.serverSource) + ')' : ''));
   if (status.fallbackReason) detail.push(String(status.fallbackReason));

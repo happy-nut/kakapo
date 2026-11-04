@@ -323,9 +323,7 @@ function gotoDiagnostic(delta) {
     var inHunks = diffWrapperByPath(path);
     items = inHunks ? items.filter(function (d) { return diffRowIndexForLine(inHunks, 'new', d.lineIndex + 1) >= 0; }) : [];
     if (!items.length && everything) {
-      showCaretHint(t('diag.noneChanged')
-        .replace('{n}', String(everything))
-        .replace('{key}', shortcutLabel('problemsView')));
+      showCaretHint(t('diag.noneChanged', { n: everything, key: shortcutLabel('problemsView') }));
       return true;
     }
   }

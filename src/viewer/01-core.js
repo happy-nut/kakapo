@@ -160,19 +160,15 @@ function findImportRange(lines) {
   }
   return first >= 0 && last >= first ? { start: first, end: last } : null;
 }
+// These three read the catalog through t() like everything else. They used to open I18N themselves and
+// carry their own English fallback — which is the same sentence written a third time, after the two
+// locales, and the copy nothing checks. "{count} folded lines" never learned the plural forms the
+// catalog grew, so the fold row said "1 folded lines" in a build where the catalog was already right.
 function codeFoldMessage(kind, count) {
-  var messages = (typeof I18N !== 'undefined' && I18N)
-    ? (I18N[(typeof locale !== 'undefined' && locale) || 'en'] || I18N.en || {})
-    : {};
-  var key = kind === 'imports' ? 'fold.imports' : 'fold.block';
-  var fallback = kind === 'imports' ? 'Imports · {count} lines' : '{count} folded lines';
-  return String(messages[key] || fallback).replace('{count}', String(count || 0));
+  return t(kind === 'imports' ? 'fold.imports' : 'fold.block', { count: count || 0 });
 }
 function codeFoldExpandTitle() {
-  var messages = (typeof I18N !== 'undefined' && I18N)
-    ? (I18N[(typeof locale !== 'undefined' && locale) || 'en'] || I18N.en || {})
-    : {};
-  return String(messages['fold.expand'] || 'Expand folded code');
+  return t('fold.expand');
 }
 function refreshCodeFoldLabels(root) {
   var scope = root && root.querySelectorAll ? root : document;
@@ -266,13 +262,7 @@ function diffContextHeader(row) {
   return { oldStart: Number(match[1]), newStart: Number(match[3]) };
 }
 function diffContextMessage(key, count) {
-  var messages = (typeof I18N !== 'undefined' && I18N)
-    ? (I18N[(typeof locale !== 'undefined' && locale) || 'en'] || I18N.en || {})
-    : {};
-  var fallback = key === 'diff.contextLoading' ? 'Loading context…'
-    : key === 'diff.contextUnavailable' ? 'Context could not be loaded.'
-      : '{count} unchanged lines · expand';
-  return String(messages[key] || fallback).replace('{count}', String(count || 0));
+  return t(key, { count: count || 0 });
 }
 function paintDiffContextFoldRow(row, count, hunkIndex) {
   if (!row) return;
@@ -606,14 +596,32 @@ var locale = (function () {
   if (v !== 'ko' && v !== 'en') { try { v = localStorage.getItem(LOCALE_KEY); } catch (e) {} }
   return (v === 'ko' || v === 'en') ? v : 'en';
 })();
-function t(key) { var m = (I18N[locale] || I18N.en || {}); return (m && key in m) ? m[key] : ((I18N.en && I18N.en[key]) || key); }
 /**
- * Pick the singular or plural form in a counting sentence: `{{n:usage|usages}}` with `{ n: 1 }` gives
- * "usage". `counts` is keyed by the placeholder the form belongs to, so one sentence can count two things.
+ * A catalog key and the values it counts, in one call: `t('problems.summary', { n: 3, errors: 1, files: 2 })`.
  *
- * English only in effect — Korean inflects no nouns, so its values simply carry no such token and this is
- * a no-op on them. The alternative the catalog had been using was "comment(s)", and "asleep for 1 weeks".
+ * It was two roads, and both of them leaked. `{name}` was substituted by hand at 93 call sites, and the
+ * plural forms by a SECOND call wrapping this one — `plural(t(key), { n: n }).replace('{n}', String(n))`,
+ * the count written twice. A sentence whose two counts disagree is then one typo away, and resultsLabel
+ * was living proof: it pluralized on the total while printing the shown figure, so a filtered list read
+ * "1 results". Everything that skipped the wrapper simply never pluralized at all — "(1 usages)",
+ * "1 problems (1 errors) in 1 files", "Clear 1 comments in this file".
+ *
+ * One object means the noun and the number cannot disagree, because they read the same property.
+ * `t(key)` with no values is unchanged, and a `{name}` with no value is left standing rather than
+ * printed as "undefined" — a visible "{symbol}" is a bug report, and i18n-parity already fails on it.
  */
+function t(key, values) {
+  var all = (typeof I18N !== 'undefined' && I18N) || {};
+  var table = all[locale] || all.en || {};
+  var text = String((key in table) ? table[key] : ((all.en && all.en[key]) || key));
+  if (!values) return text;
+  var chosen = text.replace(/\{\{(\w+):([^|{}]*)\|([^|{}]*)\}\}/g, function (_whole, name, one, many) {
+    return Number(values[name]) === 1 ? one : many;
+  });
+  return chosen.replace(/\{(\w+)\}/g, function (whole, name) {
+    return Object.prototype.hasOwnProperty.call(values, name) ? String(values[name]) : whole;
+  });
+}
 /**
  * "{n} results" / "결과 {n}개" — the whole sentence from the catalog, not a number glued to a noun.
  *
@@ -621,9 +629,8 @@ function t(key) { var m = (I18N[locale] || I18N.en || {}); return (m && key in m
  * space, the same defect the comment badge had. A locale that counts differently needs the number INSIDE
  * its own string, so the string carries `{n}` and this substitutes it.
  */
-function resultsLabel(shown, n) {
-  var count = n === undefined ? shown : n;
-  return plural(t('quickopen.results'), { n: count }).replace('{n}', String(shown));
+function resultsLabel(shown) {
+  return t('quickopen.results', { n: shown });
 }
 /**
  * Ask main to stand the application menu's accelerators down, counted rather than toggled.
@@ -640,11 +647,6 @@ function holdMenuShortcuts(hold) {
   if (window.kakapoApp && typeof window.kakapoApp.setIgnoreMenuShortcuts === 'function') {
     window.kakapoApp.setIgnoreMenuShortcuts(menuShortcutHolds > 0);
   }
-}
-function plural(text, counts) {
-  return String(text).replace(/\{\{(\w+):([^|{}]*)\|([^|{}]*)\}\}/g, function (_m, key, one, many) {
-    return Number(counts && counts[key]) === 1 ? one : many;
-  });
 }
 var langSelectRef = null, themeSelectRef = null, syntaxThemeSelectRef = null;
 // Every control whose own paint writes a localized label, registered WHERE IT IS CREATED rather than listed
@@ -674,7 +676,7 @@ function setupCustomSelect(id, getOptions, getCurrent, onPick) {
     var r = el.getBoundingClientRect(), cur = getCurrent();
     showCustomDropdown(r.left, r.bottom + 4, getOptions().map(function (o) {
       return { label: (o.value === cur ? '✓  ' : '  ') + o.label, onSelect: function () { onPick(o.value); render(); } };
-    }), r.top - 4);
+    }), r.top - 4, undefined, el);
   });
   render();
   return registerLocalizedPaint({ render: render });

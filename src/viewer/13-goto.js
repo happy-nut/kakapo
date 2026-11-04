@@ -192,6 +192,86 @@ function openGotoLine() {
   return true;
 }
 
+/**
+ * ⌥L: paste a pull request link and read it here.
+ *
+ * Built on the same bones as the line prompt above, for the same reasons: capture-phase keys so Enter and
+ * Escape are answered before the window keymap, a pointerdown dismissal because the click that closes it is
+ * usually a click meant for the code behind it, and the previous prompt closed properly rather than
+ * detached — its listener would otherwise still be on `document`, registered first, eating this one's Enter.
+ *
+ * The answer takes a moment (it is a `gh` call), so the box says it is working and stays up until the main
+ * process replies. Closing it on Enter would leave a reader watching an unchanged diff with nothing on
+ * screen to say that anything had been asked.
+ */
+var closePullRequestPrompt = null;
+function openPullRequestPrompt() {
+  if (!window.kakapoGit || typeof window.kakapoGit.openPullRequest !== 'function') return false;
+  if (closePullRequestPrompt) closePullRequestPrompt();
+  var prior = document.getElementById('pr-prompt');
+  if (prior) prior.remove();
+  var box = document.createElement('div');
+  box.id = 'pr-prompt';
+  box.className = 'goto-line pr-prompt';
+  var input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'goto-line-input pr-prompt-input';
+  input.placeholder = t('pr.placeholder');
+  var note = document.createElement('div');
+  note.className = 'pr-prompt-note';
+  box.appendChild(input);
+  box.appendChild(note);
+  document.body.appendChild(box);
+
+  function close() {
+    box.remove();
+    document.removeEventListener('keydown', onKey, true);
+    document.removeEventListener('pointerdown', onOutside, true);
+    if (closePullRequestPrompt === close) closePullRequestPrompt = null;
+  }
+  function say(message, bad) {
+    note.textContent = message;
+    note.classList.toggle('pr-prompt-bad', !!bad);
+  }
+  function submit() {
+    var text = (input.value || '').trim();
+    if (!text) return;
+    say(t('pr.working'), false);
+    input.disabled = true;
+    Promise.resolve(window.kakapoGit.openPullRequest(text)).then(function (res) {
+      if (res && res.ok) {
+        close();
+        showToast(t('pr.opened', { number: res.number, base: res.base, head: res.head })
+          + (res.title ? ' · ' + res.title : ''));
+        return;
+      }
+      input.disabled = false;
+      input.focus();
+      input.select();
+      var error = (res && res.error) || '';
+      if (error === 'pr-unreadable') say(t('pr.unreadable'), true);
+      else if (error === 'gh-missing') say(t('pr.ghMissing'), true);
+      else if (error === 'gh-failed') say(t('pr.ghFailed', { detail: (res && res.detail) || '' }), true);
+      else if (error === 'pr-head-missing') say(t('pr.headMissing', { ref: (res && res.ref) || '' }), true);
+      else if (error === 'pr-base-missing') say(t('pr.baseMissing', { ref: (res && res.ref) || '' }), true);
+      else say(String(error || ''), true);
+    }, function () { input.disabled = false; say(t('pr.unreadable'), true); });
+  }
+  function onKey(e) {
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
+    else if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); submit(); }
+  }
+  function onOutside(e) {
+    if (e.target && box.contains(e.target)) return;
+    close();
+  }
+  document.addEventListener('keydown', onKey, true);
+  document.addEventListener('pointerdown', onOutside, true);
+  closePullRequestPrompt = close;
+  setTimeout(function () { try { input.focus(); } catch (e) {} }, 0);
+  return true;
+}
+
 // Sidebar Opt+Enter: project-grounded file actions for the focused row. Absolute paths are resolved by
 // Electron's main process so the renderer never needs the project root or direct filesystem access.
 function openTreeRowMenu(row) {
@@ -239,10 +319,10 @@ function openTreeRowMenu(row) {
   // remove, so the menu never carries a dead row.
   var owned = commentSeqsForPath(path);
   if (owned.length) {
-    items.push({ label: t('menu.clearComments').replace('{n}', String(owned.length)), onSelect: function () {
+    items.push({ label: t('menu.clearComments', { n: owned.length }), onSelect: function () {
       removeComments(owned);
       refreshComments();
-      showToast(t('comment.clearedMany').replace('{n}', String(owned.length)));
+      showToast(t('comment.clearedMany', { n: owned.length }));
     } });
   }
   showCustomDropdown(Math.round(r.left + 14), Math.round(r.bottom + 2), items, Math.round(r.top));

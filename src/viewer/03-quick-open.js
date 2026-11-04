@@ -814,10 +814,8 @@ function updateContentSearchStatus(query) {
   quickFilterEl.classList.remove('is-loading');
   // The "+" means "and more", so it belongs to the NUMBER — resultsLabel builds the whole sentence from
   // the catalog (Korean puts the count after the noun), so the marker goes on the count it modifies.
-  quickFilterEl.textContent = resultsLabel(
-    String(contentSearchItems.length) + (contentSearchTruncated ? '+' : ''),
-    contentSearchItems.length,
-  ) + ' · ' + contentSearchEngine;
+  quickFilterEl.textContent = resultsLabel(String(contentSearchItems.length) + (contentSearchTruncated ? '+' : ''))
+    + ' · ' + contentSearchEngine;
 }
 
 async function runContentSearch(query, seq, filters, requestKey) {

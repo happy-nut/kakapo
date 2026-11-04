@@ -78,16 +78,99 @@ test("no title string spells its own chord — applyKeyHints appends it", async 
   assert.deepEqual(doubled, [], `these tooltips print their chord twice:\n  ${doubled.join("\n  ")}`);
 });
 
-// A string that counts things writes both forms — "{{n:usage|usages}}" — and `plural()` (01-core.js)
-// picks one. Nothing picks it automatically: a string that grows the token without a call site that
-// applies plural() renders the raw "{{n:usage|usages}}" on screen, which is worse than the "comment(s)"
-// this replaced. One grep is cheaper than finding that in a screenshot.
-test("every string with a plural token is read through plural()", async () => {
+// Counts are the one thing a message may not interpolate by hand.
+//
+// `t(key, values)` (01-core.js, and makeTranslator for the main process) substitutes `{name}` AND resolves
+// `{{n:one|many}}` from the SAME object, so the noun and the number read one property and cannot disagree.
+// A call site that chains `.replace('{n}', …)` onto t() has stepped off that road: it supplies the number
+// and nothing supplies the form. That is how "(1 usages)", "1 problems (1 errors) in 1 files" and "Clear 1
+// comments in this file" all shipped at once while the catalog's own plural token sat unused two keys away.
+//
+// Names, symbols and paths are still free to be substituted by hand — a `{symbol}` has no second form to
+// get wrong. This bans the names that carry a quantity.
+const COUNT_PLACEHOLDERS = ["n", "count", "errors", "files", "failed", "writes", "i", "w", "done", "total"];
+
+test("no call site substitutes a count by hand", async () => {
   const { readFileSync, readdirSync } = await import("node:fs");
   const { join } = await import("node:path");
-  const dir = new URL("../src/viewer/", import.meta.url).pathname;
-  const viewer = readdirSync(dir).filter((f) => f.endsWith(".js"))
-    .map((f) => readFileSync(join(dir, f), "utf8")).join("\n");
+  const dir = new URL("../src/", import.meta.url).pathname;
+  const files = [...readdirSync(dir).filter((f) => f.endsWith(".ts")).map((f) => join(dir, f)),
+    ...readdirSync(join(dir, "viewer")).filter((f) => f.endsWith(".js")).map((f) => join(dir, "viewer", f))]
+    .filter((f) => !f.endsWith("i18n.ts")); // the catalog itself writes the placeholders
+  const names = COUNT_PLACEHOLDERS.join("|");
+  // `.replace("{n}"` anywhere in the file: these are only ever chained onto a catalog string.
+  const byHand = new RegExp(`\\.replace\\(\\s*["']\\{(?:${names})\\}["']`);
+  const offenders = [];
+  for (const file of files) {
+    const source = readFileSync(file, "utf8");
+    source.split("\n").forEach((line, index) => {
+      if (line.trimStart().startsWith("*") || line.trimStart().startsWith("//")) return; // prose about the rule
+      if (byHand.test(line)) offenders.push(`${file.slice(dir.length)}:${index + 1}  ${line.trim()}`);
+    });
+  }
+  assert.deepEqual(offenders, [], `pass the count to t() instead:\n  ${offenders.join("\n  ")}`);
+});
+
+// Which counting sentences legitimately have no second form. Each one is here because the count does not
+// govern a noun in the sentence — a percentage, a unit, a ratio, an identifier, or an ellipsis where the
+// noun is left out. Anything else that counts must write both forms, and a NEW counting string fails this
+// test until somebody decides which it is. That decision is the whole point: the twelve defects this
+// replaced were not arguments anybody lost, they were strings nobody was asked about.
+const COUNT_NEEDS_NO_PLURAL = {
+  "update.downloading": "a percentage",
+  "analysis.elapsed": "a unit abbreviation — 1s, 4s",
+  "analysis.generation": "an identifier, not a quantity",
+  "coach.nudgeCount": "a ratio — 1/3",
+  "findusages.occurrence": "an ordinal — 3 of 12",
+  "vision.more": "+1 more: the noun is the row above",
+  "compare.andMore": "+1 more: the noun is the row above",
+  "findusages.testCount": "1 in tests: the noun is the summary this appends to",
+  "findusages.inFile": "1 in this file, 0 written: the noun is the symbol named first",
+  "problems.unavailable": "1 not checked: the noun is the file count beside it",
+  "diag.noneChanged": "lists all 1 in this file: the noun is in the clause before",
+  "merged.copiedAndArchived": "1 archived: the noun is the comment the toast follows",
+  "http.collection": "a collection of 1: the noun is the collection",
+  "diff.skippedViewed": "a sibling key, diff.skippedViewedOne, carries the singular sentence",
+  "problems.scanning": "1 of 272: a progress ratio",
+};
+
+test("every counting sentence either writes both forms or says why it needs one", () => {
+  const english = MESSAGES.en;
+  const counts = new RegExp(`\\{(?:${COUNT_PLACEHOLDERS.join("|")})\\}`);
+  const unguarded = [];
+  for (const [key, value] of Object.entries(english)) {
+    if (!counts.test(value)) continue;
+    if (/\{\{\w+:[^|{}]*\|[^{}]*\}\}/.test(value)) continue;
+    if (key in COUNT_NEEDS_NO_PLURAL) continue;
+    unguarded.push(`${key} = ${JSON.stringify(value)}`);
+  }
+  assert.deepEqual(unguarded, [],
+    `write both forms — "{n} {{n:file|files}}" — or add the key to COUNT_NEEDS_NO_PLURAL with its reason:\n  ${unguarded.join("\n  ")}`);
+
+  // The exemption list is not a parking space: an entry for a key that no longer counts, or that has since
+  // grown its forms, is a stale note that would quietly excuse the next defect in that key.
+  const stale = Object.keys(COUNT_NEEDS_NO_PLURAL).filter((key) => {
+    const value = english[key];
+    return value === undefined || !counts.test(value) || /\{\{\w+:/.test(value);
+  });
+  assert.deepEqual(stale, [], "these exemptions no longer describe their string");
+  for (const [key, why] of Object.entries(COUNT_NEEDS_NO_PLURAL)) {
+    assert.ok(why && why.length > 8, `${key}'s exemption says why`);
+  }
+});
+
+// A string that writes both forms has to be read WITH its count, or the reader sees the raw
+// "{{n:usage|usages}}" — worse than the "comment(s)" the token replaced. The previous spelling of this
+// guard searched for `plural(t('key')` in src/viewer only, which is why makeTranslator — the application
+// menu, the native dialogs, the welcome screen — could print a token untouched the day a menu string grew
+// one. Stated as the mistake instead: nobody reads one of these keys with no values at all.
+test("no string with a plural token is read without its count", async () => {
+  const { readFileSync, readdirSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const dir = new URL("../src/", import.meta.url).pathname;
+  const sources = [...readdirSync(dir).filter((f) => f.endsWith(".ts") && f !== "i18n.ts").map((f) => join(dir, f)),
+    ...readdirSync(join(dir, "viewer")).filter((f) => f.endsWith(".js")).map((f) => join(dir, "viewer", f))]
+    .map((f) => [f.slice(dir.length), readFileSync(f, "utf8")]);
 
   const withToken = new Set();
   for (const messages of Object.values(MESSAGES)) {
@@ -97,11 +180,26 @@ test("every string with a plural token is read through plural()", async () => {
   }
   assert.ok(withToken.size > 0, "the token is in use at all — otherwise this guard is vacuous");
 
-  const unread = [...withToken].filter((key) => {
-    // The call has to wrap this key's own t(): `plural(t('the.key'), …)`.
-    return !new RegExp(`plural\\(\\s*t\\(\\s*'${key.replace(/\./g, "\\.")}'`).test(viewer);
-  });
-  assert.deepEqual(unread, [], "these strings would render their raw {{one|many}} token");
+  const bare = [];
+  for (const key of withToken) {
+    const quoted = key.replace(/\./g, "\\.");
+    // `t('the.key')` — the call closes with no values. A ternary or a variable key cannot be read here and
+    // does not need to be: the only way such a call can supply a number is through the values object,
+    // because substituting one by hand is banned above.
+    const noValues = new RegExp(`\\bt\\(\\s*['"]${quoted}['"]\\s*\\)`);
+    for (const [name, source] of sources) if (noValues.test(source)) bare.push(`${name}: t('${key}')`);
+  }
+  assert.deepEqual(bare, [], "these reads would render the raw {{one|many}} token");
+
+  // The static chrome is rewritten by applyI18n, which calls `t(key)` with no values because it has none
+  // to give — it is walking elements, not counting anything. So a key with a plural token can never be a
+  // data-i18n attribute: it would paint "{{n:file|files}}" into the page on every locale switch, and the
+  // variable key means the check above cannot see it.
+  const markup = ["../src/render.ts", "../src/render-tree.ts"]
+    .map((rel) => readFileSync(new URL(rel, import.meta.url), "utf8")).join("\n");
+  const attributes = ["data-i18n", "data-i18n-title", "data-i18n-aria", "data-i18n-ph"];
+  const painted = [...withToken].filter((key) => attributes.some((attr) => markup.includes(`${attr}="${key}"`)));
+  assert.deepEqual(painted, [], "a counting string cannot be painted by applyI18n, which has no count to pass");
 });
 
 test("a plural token means the same thing in every locale that has the key", () => {

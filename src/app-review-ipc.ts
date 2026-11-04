@@ -18,7 +18,7 @@ import {
   readGitLog, readGitLineLog, readGitBlame,
   readGitReflog, readGitStashes, resolveGitRevision, type GitLogFilter,
 } from "./git-log.js";
-import { defaultBaseRef, git, listBranches } from "./git.js";
+import { defaultBaseRef, git, listBranches, listRemotes } from "./git.js";
 import { readUnifiedDiff } from "./diff.js";
 import { readPatchSets } from "./patch-sets.js";
 import { materializeDeferredSourceFile } from "./diff.js";
@@ -47,6 +47,7 @@ export type ReviewIpcState = {
   reviewTarget?: string;
   compareScope?: { sha: string; shortSha: string; subject: string; date: string }[];
   compareRef?: string; // branch the "All changes" mode measures against (compare-menu pick, else the default)
+  compareTip?: boolean; // compare against compareRef's TIP instead of its merge-base with HEAD (⌥T)
   // Diff-first startup: the first paint indexed only the changed files. This materializes the full project
   // index into sourceFiles on demand (idempotent, deduped) so the pull handlers below see every file. It runs
   // the enumeration in the build worker, so it returns a promise the handlers await.
@@ -407,14 +408,18 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
         ? "other"
         : state.options.staged || state.options.base === "HEAD" || (!state.options.base && !state.reviewBase)
           ? "uncommitted"
-          : "all";
+          // Asked, not inferred: tip mode leaves base/baseLabel looking exactly like "all" whenever the ref
+          // is an ancestor of HEAD, so the flag the mode's own writer set is the only thing that knows.
+          : state.compareTip
+            ? "tip"
+            : "all";
       // Whether `ref` is the reader's own pick or just what the repository resolves to today. The menu's
       // no-op guard needs the difference: a click on the branch already shown is a rebuild worth screening
       // ONLY once that branch has been recorded. Screened before that, the pick never reaches
       // set-compare-mode, so nothing is persisted, and the next time the automatic answer changes — an
       // upstream appears, the default branch is renamed — the review moves off the branch the reader
       // chose, with no record that they ever chose it.
-      return { mode, ref, defaultRef, pinned: Boolean(state.compareRef), branches: listBranches(root) };
+      return { mode, ref, defaultRef, pinned: Boolean(state.compareRef), branches: listBranches(root), remotes: listRemotes(root) };
     } catch { return null; }
   });
 

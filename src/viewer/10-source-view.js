@@ -1304,8 +1304,7 @@ function syncSourceTabOverflow(activePath) {
   sourceTabOverflowPaths = sourceTabOverflowPaths.filter(Boolean);
   if (!sourceTabOverflowPaths.length) return;
   overflow.textContent = sourceTabOverflowPaths.length + '+';
-  var hiddenTabs = plural(t('source.hiddenTabs'), { count: sourceTabOverflowPaths.length })
-    .replace('{count}', String(sourceTabOverflowPaths.length));
+  var hiddenTabs = t('source.hiddenTabs', { count: sourceTabOverflowPaths.length });
   overflow.setAttribute('aria-label', hiddenTabs);
   overflow.setAttribute('title', hiddenTabs);
   overflow.classList.remove('hidden');
@@ -1330,7 +1329,7 @@ function showSourceTabOverflowMenu(button) {
   var rect = button.getBoundingClientRect();
   showCustomDropdown(Math.max(8, rect.right - 280), rect.bottom + 4, sourceTabOverflowPaths.map(function (path) {
     return { label: sourceTabMenuLabel(path), onSelect: function () { openSourceFile(path); } };
-  }), rect.top - 4, 'source-tab-overflow-menu');
+  }), rect.top - 4, 'source-tab-overflow-menu', button);
 }
 
 // The tree's "active" row means one thing: this file is open in the source viewer. It is set from several

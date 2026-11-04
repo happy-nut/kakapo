@@ -21,6 +21,8 @@ export type ReviewWorkspaceSnapshot = {
   reviewBase?: string;
   reviewTarget?: string;
   reviewUpstream?: string;
+  // The watch baseline this build corresponds to; see DiffReviewBuild.watchSignature.
+  watchSignature: string;
   // Where this build's per-file diffs are, NOT the diffs themselves. On a large review they are the biggest
   // thing a build produces — 106 MB of text for a 1,352-file compare — and main used to hold every byte of it
   // for every open workspace, cloned across the worker boundary to get there. They are written beside the
@@ -64,6 +66,7 @@ export function writeReviewWorkspace(
     reviewBase: build.reviewBase,
     reviewTarget: build.reviewTarget,
     reviewUpstream: build.reviewUpstream,
+    watchSignature: build.watchSignature,
     bodies,
     sourceFiles: build.lazySourceFiles ?? [],
     fullIndexDeferred: Boolean(build.fullIndexDeferred),

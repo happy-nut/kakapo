@@ -169,7 +169,7 @@ test("⌘F1 reads out the problem on the caret's line", async () => {
 const problemRows = (host) => host.v.$all("#quick-open-results .problem-result")
   .map((row) => [row.dataset.severity, row.querySelector(".problem-message").textContent]);
 
-test("⌘6 asks every file in the review and lists what came back, errors first", async () => {
+test("⌘6 asks every file the page holds and lists what came back, errors first", async () => {
   const host = await openSource({
     diagnostics: (path) => ({
       ok: true,
@@ -186,7 +186,9 @@ test("⌘6 asks every file in the review and lists what came back, errors first"
     "the error sorts above the warning, whichever file it is in");
   assert.ok(host.v.window.__diagnosticsRequests.includes(FILE) && host.v.window.__diagnosticsRequests.includes(OTHER),
     "both files were asked — the point of this view is that it is not the open file");
-  assert.match(host.v.$("#quick-open-filter").textContent, /2 problems \(1 errors\) in 2 files/);
+  // "(1 errors)" until the catalog's plural token reached this string: every count in a kakapo sentence
+  // now picks its own form, so a one-error scan reads "1 error" and a one-file scan reads "1 file".
+  assert.match(host.v.$("#quick-open-filter").textContent, /2 problems \(1 error\) in 2 files/);
 
   await press(host, { code: "KeyE", key: "e", altKey: true });
   assert.deepEqual(problemRows(host), [["error", "cannot find name"]], "⌥E leaves the errors");
@@ -245,10 +247,49 @@ test("a file no server covers is counted, not reported as clean", async () => {
   await press(host, { code: "Digit6", key: "6", metaKey: true });
   await host.v.settle(120);
   const results = host.v.$("#quick-open-results").textContent;
-  assert.match(results, /No problems in this review/);
-  assert.match(results, /1 files have no language server/, "…and why that is not the whole truth");
+  assert.match(results, /No problems in this project/);
+  assert.match(results, /1 file has no language server, so it was not checked/,
+    "…and why that is not the whole truth, in the number of files it is actually about");
   assert.match(host.v.$("#quick-open-filter").textContent, /1 not checked/);
   host.v.close();
+});
+
+// The scan is project-wide — a reviewed file is usually broken by a file it calls, and that file is
+// usually not in the review — which is why the Problems list on this repository came back with 25 rows
+// where only 3 belonged to the change, the top five all in files nobody had touched. Scope is right;
+// ORDER is what a review tool owes the reader. Severity still wins: an error elsewhere outranks a warning
+// here, because an error elsewhere is more likely to be what the change broke.
+test("the review's own files sort above the rest at equal severity", async () => {
+  const UNTOUCHED = "src/elsewhere.ts";
+  const { html: mixed } = await makeReviewHtml([
+    { path: FILE, before: "export class Store {}\n", after: SOURCE + "\n" },
+    // Same before and after: committed, so the page indexes it, and absent from the diff, so it is not
+    // one of the review's files.
+    { path: UNTOUCHED, before: "export const far = 1;\n", after: "export const far = 1;\n" },
+  ], { app: true });
+
+  const v = await loadViewer(mixed, {
+    analysisBridge: () => ({ ok: true, engine: "lsp", confidence: "semantic", locations: [], symbols: [] }),
+    // Both files warn, and the untouched one sorts first alphabetically, so only the review-first rule
+    // can put the reviewed file on top.
+    diagnosticsBridge: (path) => ({
+      ok: true,
+      available: true,
+      diagnostics: [{ lineIndex: 0, column: 0, severity: "warning", message: "warned in " + path, source: "ts" }],
+    }),
+    analysisStatus: { generation: 0, phase: "ready", updatedAt: new Date(0).toISOString() },
+  });
+  v.window.openSourceFile(FILE);
+  await v.settle(40);
+  v.document.dispatchEvent(new v.window.KeyboardEvent("keydown", { bubbles: true, code: "Digit6", key: "6", metaKey: true }));
+  await v.settle(160);
+
+  const listed = v.$all("#quick-open-results .problem-result .problem-message").map((row) => row.textContent);
+  assert.ok(listed.length >= 2, `both files were scanned (got ${JSON.stringify(listed)})`);
+  assert.equal(listed[0], "warned in " + FILE,
+    "the file under review is first, though the other one sorts before it by path");
+  assert.ok(listed.includes("warned in " + UNTOUCHED), "and the rest of the project is still listed");
+  v.close();
 });
 
 test("⌘6 twice closes the list, as the chord that opened it does everywhere here", async () => {

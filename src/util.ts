@@ -1,4 +1,4 @@
-import { closeSync, openSync, readFileSync, readSync, realpathSync } from "node:fs";
+import { accessSync, closeSync, constants, openSync, readFileSync, readSync, realpathSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { isAbsolute, relative, resolve } from "node:path";
 
@@ -286,6 +286,20 @@ export function githubOwnerFromUrl(url: string): string | undefined {
 
 export function hashText(value: string): string {
   return createHash("sha1").update(value).digest("hex");
+}
+
+/**
+ * Can this path be run? Written twice — once for finding a language server, once for finding ripgrep —
+ * and the two spellings differed on Windows, where X_OK is documented to behave as F_OK anyway. One of
+ * them was going to grow a real platform case the other did not, so there is one of them.
+ */
+export function executable(path: string): boolean {
+  try {
+    accessSync(path, process.platform === "win32" ? constants.F_OK : constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function escapeHtml(value: string): string {

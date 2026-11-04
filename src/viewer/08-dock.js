@@ -259,9 +259,7 @@ function openMergedView() {
     // screen, and closing the dock out from under it would lose the reviewer's place in a list they are
     // still working through — refreshComments has already rebuilt it without the card that just left.
     if (!document.querySelector('.mc-merged-card')) closeMergedDock();
-    showToast(t('merged.copiedAndArchived')
-      .replace('{count}', String(archived))
-      .replace('{key}', shortcutLabel('undoCommentRemoval')));
+    showToast(t('merged.copiedAndArchived', { count: archived, key: shortcutLabel('undoCommentRemoval') }));
   }
   // The app menu keeps the standard Edit role so real text fields still get native Cut/Paste/Undo (see
   // app-main.ts) — but that means Cmd+C is ALSO a native accelerator that fires webContents.copy()
@@ -480,7 +478,7 @@ function openMergedView() {
       host.appendChild(note);
       return;
     }
-    label.textContent = plural(t('merged.allAddressed'), { n: flagged.length }).replace('{n}', String(flagged.length));
+    label.textContent = t('merged.allAddressed', { n: flagged.length });
     var button = document.createElement('button');
     button.type = 'button';
     button.className = 'mc-merged-reopen-all';
@@ -708,7 +706,7 @@ setInterval(checkForUpdate, UPDATE_CHECK_MS);
       var status = document.getElementById('app-info-status');
       if (!status || !p || p.done) return;
       status.classList.remove('is-loading');
-      status.textContent = t('update.downloading').replace('{n}', String(p.percent));
+      status.textContent = t('update.downloading', { n: p.percent });
     });
   }
   var cats = Array.prototype.slice.call(modal.querySelectorAll('.settings-cat'));
@@ -726,7 +724,15 @@ setInterval(checkForUpdate, UPDATE_CHECK_MS);
     // while focus sat on <body> never reached it. The sheet says aria-modal="true", which tells assistive
     // technology that everything outside is inert — while Tab went out there anyway, past the whole file
     // tree and the diff, because #settings-modal is the eighth child of <body>.
-    var first = modal.querySelector('.settings-cat.active, .settings-cat, #settings-close');
+    // Tried in order, not as one selector list. `querySelector('a, b, c')` returns the first match in
+    // DOCUMENT order, not the first selector that matches — and `#settings-close` is written before the
+    // category buttons (render.ts), so the comma list meant the × was ALWAYS the answer. Opening the sheet
+    // from the keyboard therefore landed on Close, and because that button advertises its chord
+    // (data-keyhint-id), focusing it popped the keyhint tooltip: the sheet opened with a tooltip hanging
+    // off its close button, every time, as though the pointer were resting there.
+    var first = modal.querySelector('.settings-cat.active')
+      || modal.querySelector('.settings-cat')
+      || modal.querySelector('#settings-close');
     if (first && typeof first.focus === 'function') first.focus();
   }
   // Ending any live capture is part of closing. A rebind row listens through a capture-phase keydown that

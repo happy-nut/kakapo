@@ -84,3 +84,32 @@ test("opening settings puts focus inside it, which is what makes its tab trap re
     v.close();
   }
 });
+
+test("opening the sheet from the keyboard lands in it, not on its close button", async () => {
+  // Reported from use: "open settings with the shortcut and focus goes to the close button, so its tooltip
+  // is showing." It did, every time. The focus target was picked with
+  // `querySelector('.settings-cat.active, .settings-cat, #settings-close')`, which reads as a preference
+  // order and is not one: a selector LIST returns the first match in document order, and `#settings-close`
+  // is written before the category buttons. So the × always won — and because it advertises its chord
+  // (data-keyhint-id="closeDialog"), focusing it popped the keyhint tooltip, which is what made a quiet
+  // mis-focus look like a stuck tooltip.
+  const { html } = await makeReviewHtml([
+    { path: "src/app.ts", before: "export const n = 1;\n", after: "export const n = 2;\n" },
+  ]);
+  const v = await loadViewer(html);
+  const modal = v.$("#settings-modal");
+  assert.ok(modal.classList.contains("hidden"), "the sheet starts closed");
+
+  v.document.dispatchEvent(new v.window.KeyboardEvent("keydown", { key: ",", code: "Comma", metaKey: true, bubbles: true, cancelable: true }));
+  await v.settle(30);
+  assert.ok(!modal.classList.contains("hidden"), "⌘, opened it");
+
+  const focused = v.document.activeElement;
+  assert.ok(modal.contains(focused), "focus went into the sheet");
+  assert.notEqual(focused.id, "settings-close", "and not onto the close button");
+  assert.ok(focused.classList.contains("settings-cat"), "it lands on a category, where reading starts");
+  // The tooltip is the symptom the report named, so assert the symptom too: nothing should be showing.
+  const hint = v.$(".mc-keyhint");
+  assert.ok(!hint || !hint.classList.contains("show"), "no keyhint tooltip is hanging off the sheet");
+  v.close();
+});

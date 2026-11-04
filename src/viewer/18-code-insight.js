@@ -253,15 +253,41 @@ function openProblemsView() {
   return true;
 }
 
-/** Which files are worth asking about: the review's own, that the page actually has content for. */
-function problemFilePaths() {
-  var paths = [];
-  sourceFiles.forEach(function (file) {
-    if (!file || !file.path || !file.embedded || file.image) return;
-    if (!diagnosticsEligible(file.path)) return;
-    paths.push(file.path);
+/** The paths the review itself is about — the changed-file rows in the sidebar. */
+function reviewedPaths() {
+  var own = new Set();
+  links.forEach(function (link) {
+    var path = link && link.dataset && link.dataset.file;
+    if (path) own.add(path);
   });
-  return paths;
+  return own;
+}
+
+/**
+ * Which files get asked, the review's own first.
+ *
+ * Two things were wrong here and each was the other's cover. The docstring said "the review's own" and the
+ * loop walked the whole project — 272 files on this repository, 35 seconds, 25 problems of which 3 were in
+ * the four files being read — while the empty state below still said "No problems in this review". A
+ * project-wide scan was reporting a review-wide fact, and whichever half you looked at first excused the
+ * other.
+ *
+ * Project-wide is the scope worth having: a reviewed file is usually broken by a file it calls, and that
+ * file is usually not in the review. So the scope stayed and the sentence was corrected. What belongs to a
+ * review tool is the ORDER — ask the reader's own files first, so the rows that land while the scan is
+ * still running are the ones they are looking at, and sort them above the rest at equal severity.
+ *
+ * The eligibility test is diagnosticsEligible's alone. This used to re-check the embedded/image pair
+ * beside it, which is two copies of one gate — exactly the drift a single gate exists to prevent.
+ */
+function problemFilePaths() {
+  var own = reviewedPaths();
+  var mine = [], rest = [];
+  sourceFiles.forEach(function (file) {
+    if (!file || !file.path || !diagnosticsEligible(file.path)) return;
+    (own.has(file.path) ? mine : rest).push(file.path);
+  });
+  return mine.concat(rest);
 }
 
 /**
@@ -326,13 +352,17 @@ var PROBLEM_ORDER = { error: 0, warning: 1, weak: 2 };
 function visibleProblemRows(query) {
   var needle = String(query || '').trim().toLowerCase();
   var queries = queryVariants(needle);
+  var own = reviewedPaths();
   return problemRows.filter(function (row) {
     if (problemsErrorsOnly && row.severity !== 'error') return false;
     if (!needle) return true;
     var hay = (row.path + ' ' + row.message).toLowerCase();
     return queries.some(function (variant) { return hay.includes(variant); });
   }).sort(function (a, b) {
+    // Severity first, then the review's own files. A list of twenty-five where the three that belong to
+    // the change sit at positions 9, 14 and 22 is a list the reviewer has to read all of.
     return (PROBLEM_ORDER[a.severity] - PROBLEM_ORDER[b.severity])
+      || ((own.has(b.path) ? 1 : 0) - (own.has(a.path) ? 1 : 0))
       || a.path.localeCompare(b.path)
       || a.lineIndex - b.lineIndex;
   });
@@ -357,16 +387,13 @@ function renderProblemsResults(query) {
   var errors = problemRows.filter(function (row) { return row.severity === 'error'; }).length;
   if (quickFilterEl) {
     quickFilterEl.className = 'quick-open-filter' + (problemsBusy ? ' is-loading' : '');
-    var summary = t('problems.summary')
-      .replace('{n}', String(problemRows.length))
-      .replace('{errors}', String(errors))
-      .replace('{files}', String(problemsTotal));
+    var summary = t('problems.summary', { n: problemRows.length, errors: errors, files: problemsTotal });
     if (problemsUnavailable) {
-      summary += ' · ' + t('problems.unavailable').replace('{n}', String(problemsUnavailable));
+      summary += ' · ' + t('problems.unavailable', { n: problemsUnavailable });
     }
     quickFilterEl.innerHTML = problemsBusy
       ? kakapoLoaderHtml('kakapo-loader-micro') + '<span>'
-        + escapeHtml(t('problems.scanning').replace('{done}', String(problemsScanned)).replace('{total}', String(problemsTotal)))
+        + escapeHtml(t('problems.scanning', { done: problemsScanned, total: problemsTotal }))
         + '</span>'
       : escapeHtml(summary);
     // "N not checked" is a count with a warning attached, and the warning only existed on the empty
@@ -375,7 +402,7 @@ function renderProblemsResults(query) {
     // summary itself so it is there either way.
     quickFilterEl.removeAttribute('title');
     if (!problemsBusy && problemsUnavailable) {
-      quickFilterEl.setAttribute('title', t('problems.unavailableWhy').replace('{n}', String(problemsUnavailable)));
+      quickFilterEl.setAttribute('title', t('problems.unavailableWhy', { n: problemsUnavailable }));
     }
   }
   if (!rows.length) {
@@ -385,7 +412,7 @@ function renderProblemsResults(query) {
     quickResults.innerHTML = '<div class="quick-open-empty">' + escapeHtml(empty)
       // "No problems" over a review where half the files had no server is the reassuring lie Flow 6 names.
       + (!problemsBusy && problemsUnavailable
-        ? '<span class="quick-open-why">' + escapeHtml(t('problems.unavailableWhy').replace('{n}', String(problemsUnavailable))) + '</span>'
+        ? '<span class="quick-open-why">' + escapeHtml(t('problems.unavailableWhy', { n: problemsUnavailable })) + '</span>'
         : '')
       + '</div>';
     renderQuickPreview(null);

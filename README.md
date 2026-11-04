@@ -79,9 +79,13 @@ The toolbar pill says what the diff is comparing, and opens the two states you s
 | --- | --- |
 | `⌥A` | Everything on this branch, measured against its merge-base with the branch you pick |
 | `⌥U` | Only what is not committed yet |
-| `⌥C` | Pick that branch — search the list, or take the repository default |
+| `⌥T` | How this working tree differs from that branch's tip |
+| `⌥C` | Pick that branch — local branches and each remote's, asked a side at a time |
+| `⌥L` | Open a pull request from its link |
 
 "All changes" uses the **merge-base**, not the branch tip: `git diff main` against a `main` that has moved on shows other people's commits as your deletions.
+
+`⌥T` is the question that needs the tip: *how does my tree differ from `origin/main`*, including the commits on it that I have not pulled. Reduced to a merge-base that diff comes back empty — their commits vanish into the shared ancestor — so the two modes are not the same question with a setting between them. `⌥A` for what this branch has done, `⌥T` for how it stands against another.
 
 Opened with no flags, kakapo picks for you: the upstream merge-base when the branch has unpushed commits, otherwise `HEAD`. You can also say it up front:
 
@@ -104,9 +108,26 @@ If the base has landed commits since your branch left it, the Changes tree says 
 | **diverged** | The base changed this file somewhere else. It still merges, but you are not reading the whole story. |
 
 Both sides are compared at the commit where they parted company, so the lines line up. It reads the local
-object database only — no fetch, no account, and nothing is written: not the working tree, not the index, not
-a ref. It also works on changes that are not committed yet, which is the usual case for work an agent just
-wrote, and a base that has not moved costs a single `git merge-base` call.
+object database only — no fetch, and nothing is written: not the working tree, not the index, not a ref. It
+also works on changes that are not committed yet, which is the usual case for work an agent just wrote, and
+a base that has not moved costs a single `git merge-base` call.
+
+### Opening a pull request (`⌥L`)
+
+Paste the link — or `owner/repo#12`, or just `12` for this repository — and the review becomes that pull
+request: its base branch on the left, its head on the right.
+
+This is the one thing in kakapo that reaches a network or uses an account, and it is worth saying why.
+A link carries a number, and a number is not a branch name anywhere on disk: `refs/pull/*` is not fetched by
+default and the base branch of a pull request is not recorded locally at all. So this asks the GitHub CLI
+(`gh pr view`), once, when you paste a link, and nothing it answers is written to the repository. Without
+`gh` installed the prompt says so and changes nothing.
+
+Resolving those two branch names to revisions is local again, and still does not fetch: the base is taken
+from `origin/<branch>` where that exists (the pull request is measured against what is on the server, and a
+local branch left behind would quietly answer a different question), the head from your own branch where you
+have one. **If a branch is not in your repository it is named and nothing happens** — fetching into someone
+else's repository behind their back is a worse thing to do than making them type `git fetch`.
 
 ## Shortcuts
 
@@ -157,10 +178,10 @@ wrote, and a base that has not moved costs a single `git merge-base` call.
 | `F1` | Quick documentation for the symbol under the caret |
 | `⌘⇧P` | The type of the expression under the caret |
 | `⌘F1` | The full message of the problem on this line |
-| `⌘6` | Problems — everything the language servers found in this review |
+| `⌘6` | Problems — everything the language servers found in this project, the review's own files first |
 | `⌘⇧B` | Go to the declaration of this thing's **type** |
 | `⌘F12` | This file's structure — filter, then jump |
-| `⌥↓` / `⌥↑` | Next / previous symbol in this file |
+| `⌥↓` / `⌥↑` | Next / previous declaration in this file |
 | `⌘P` | Search files by name (`store.ts:42` lands on the line) |
 | `⌘⇧E` | Recent locations — where the caret has been |
 | `⇧⇧` | Search everywhere (files, text, symbols, history) |
@@ -301,9 +322,17 @@ type (names only, as IntelliJ matches, and a query typed with a Korean layout st
 that made it). `Enter` lands on the symbol's name. The language server answers it; where there is no server
 for the language, the same declaration index that backs Find Usages does, labelled as the heuristic it is.
 
-**Stepping by symbol** (`⌥↓` / `⌥↑`) — the next or previous symbol boundary, which is IntelliJ's
+**Stepping by declaration** (`⌥↓` / `⌥↑`) — the next or previous declaration, which is IntelliJ's
 next/previous method. Not on `⌃↓`/`⌃↑`: kakapo's shortcut table spells Command and Control the same way
 (one table, both platforms), and `⌘↓` is already Go to Definition.
+
+A declaration, not every symbol a language server mentions. The servers that ship here answer
+`documentSymbol` with a flat list that includes each function's own local variables and each object
+literal's keys, so walking all of it is not stepping: `src/shortcuts.ts` has 557 of those and 11
+declarations, and 538 of the 557 are fields of the entries in one array. The stops are every member and
+type, plus everything declared at the top of the file — the last part because a kind is not a reliable
+statement about what a symbol is (a TypeScript `export type` arrives as `variable`, a module-level table as
+`constant`), and those are a file's landmarks.
 
 **Go to type declaration** (`⌘⇧B`) — where the *type* of the thing under the caret is declared, rather
 than the thing itself.
@@ -350,10 +379,13 @@ the only one that answers *what*: `F1` renders it in full (it is Markdown, and i
 renderer the source preview uses), and `⌘⇧P` takes its signature line alone. `⌘F1` reads out the problem
 on the caret's line, which until now was a mouse-only tooltip.
 
-`⌘6` is the Problems view: every problem in the review, not just in the file on screen, asked a
-few files at a time and filling in as the answers land. Errors sort above warnings, `⌥E` hides everything
-that is not an error, and a file no language server covers is **counted and named** rather than quietly
-contributing zero — "no problems" for a review half of which could not be checked is the one wrong answer
+`⌘6` is the Problems view: every problem in the project, not just in the file on screen, asked a
+few files at a time and filling in as the answers land. The scope is the project rather than the review
+because a reviewed file is usually broken by a file it calls, and that file is usually not in the review —
+so the review's own files are asked FIRST and sort above the rest at equal severity, and what lands while
+the scan is still running is what you are reading. Errors sort above warnings, `⌥E` hides everything that
+is not an error, and a file no language server covers is **counted and named** rather than quietly
+contributing zero — "no problems" for a scan half of which could not be checked is the one wrong answer
 this list could give.
 
 **Inspections** — the question an error answers is "does this compile", and the half of generated code worth

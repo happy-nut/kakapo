@@ -1096,12 +1096,21 @@ test("the sidebar switch navigates views and reflects the active one", async () 
   assert.ok(v.$('.sidebar-switch-item[data-tab="files"]').classList.contains("active"), "Files is active");
   v.close();
 });
-test("sidebar shows the current git branch", async () => {
+test("the toolbars show the current git branch, and the sidebar header keeps the project name", async () => {
+  // The chip moved out of the sidebar's header band and into the toolbars, because the band is the
+  // sidebar's width and the two names did not fit in it: measured at 1728px, the project name was given
+  // 126px of the 234px it needed and the branch 70px for 62 characters, while `.diff-toolbar-file` beside
+  // it was 921px wide holding a file name. One chip per toolbar, only one of which is ever up.
   const v = await loadViewer(html);
-  const chip = v.$(".brand-branch");
-  assert.ok(chip && !chip.classList.contains("hidden"), "the branch chip is visible");
-  assert.ok((v.$("#brand-branch-name")?.textContent || "").trim().length > 0, "it names a branch");
-  assert.equal(v.$(".sidebar > .sidebar-brand")?.parentElement, v.$(".sidebar"), "project and branch live outside the scrolling tree");
+  const chips = v.$all(".brand-branch");
+  assert.equal(chips.length, 2, "one in the diff toolbar, one in the source toolbar");
+  for (const chip of chips) {
+    assert.ok(!chip.classList.contains("hidden"), "the branch chip is visible");
+    assert.ok((chip.querySelector(".brand-branch-name")?.textContent || "").trim().length > 0, "it names a branch");
+    assert.ok(chip.closest(".toolbar"), "and it is in a toolbar, where there is room for a long name");
+  }
+  assert.equal(v.$(".sidebar-brand .brand-branch"), null, "and not back in the band it outgrew");
+  assert.equal(v.$(".sidebar > .sidebar-brand")?.parentElement, v.$(".sidebar"), "the project name lives outside the scrolling tree");
   assert.equal(v.$(".sidebar-scroll .sidebar-brand"), null, "scrolling files cannot move the fixed project header");
   assert.equal(v.$(".brand-mark"), null, "the redundant KAKAPO label is omitted");
   v.close();

@@ -621,12 +621,11 @@ function applyDiffUpdate(u) {
   var compareWhy = document.getElementById('compare-why');
   if (compareWhy) compareWhy.innerHTML = u.compareBanner || '';
   // Branch can change between watch ticks (checkout/commit) — keep the sidebar chip current.
-  var branchName = document.getElementById('brand-branch-name');
-  if (branchName) {
+  document.querySelectorAll('.brand-branch-name').forEach(function (branchName) {
     applyBranchChip(branchName, u.branch || '');
-    var branchChip = branchName.closest && branchName.closest('.brand-branch');
-    if (branchChip) branchChip.classList.toggle('hidden', !u.branch);
-  }
+    var chip = branchName.closest && branchName.closest('.brand-branch');
+    if (chip) chip.classList.toggle('hidden', !u.branch);
+  });
   if (reviewMeta) { reviewMeta.setAttribute('data-signature', u.signature); if (u.generatedAt) reviewMeta.setAttribute('data-generated-at', u.generatedAt); }
 
   // 2) Re-derive module-level state directly from the payload objects.

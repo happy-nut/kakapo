@@ -150,8 +150,36 @@ function renderFileStructureResults(query) {
   renderQuickPreview(quickItems[quickActive]);
 }
 
+// A member or a type: the kinds IntelliJ's next/previous method treats as a boundary. Values are not here
+// on purpose — a constant is a thing to read, not a place to stand.
+var DECLARATION_KINDS = ['method', 'function', 'constructor', 'class', 'interface', 'struct', 'enum', 'namespace', 'module'];
+
 /**
- * ⌥↓ / ⌥↑: the next or previous symbol boundary in the open file — IntelliJ's next/previous method.
+ * The stops ⌥↓ / ⌥↑ walk: every member and type, plus everything declared at the top of the file.
+ *
+ * Stepping used to walk the WHOLE documentSymbol answer, which is not a list of declarations. The servers
+ * send a flat SymbolInformation[] that includes each function's own local variables and each object
+ * literal's fields, so the measured cost of that was absurd: in src/shortcuts.ts, 557 stops, of which 538
+ * were fields of the entries in one array — 93 presses to cross a single row of the shortcut table. The
+ * same file has 11 declarations.
+ *
+ * Kind alone is not the rule, because a kind is not a reliable statement about what a symbol IS. A
+ * TypeScript `export type` arrives as `variable` (measured: watch-decision.ts's WatchTickDecision), and a
+ * module-level table — SHORTCUTS, MENU_OWNED_CHORDS — arrives as `constant`. Those are the landmarks of a
+ * file and dropping them would be its own kind of wrong, so depth 0 is admitted whatever its kind: being
+ * declared at the top of the file is the thing they have in common, and it is what the caret wants.
+ *
+ * Known ceiling: an inline callback that a server chooses to name (tsserver answers `keys.map() callback`)
+ * is kind `function` and so becomes a stop. Two of them in shortcuts.ts, against the 538 this removes.
+ */
+function declarationStops(symbols) {
+  return (symbols || []).filter(function (symbol) {
+    return symbol && (symbol.depth === 0 || DECLARATION_KINDS.indexOf(symbol.kind) >= 0);
+  });
+}
+
+/**
+ * ⌥↓ / ⌥↑: the next or previous declaration in the open file — IntelliJ's next/previous method.
  *
  * Reads the cached structure, so the first press after opening a file may do nothing while the answer is
  * in flight; it then works for every press after. Silent rather than a toast on the movement itself: this
@@ -177,7 +205,7 @@ function goToNextSymbol(delta) {
     showCaretHint(t('structure.pending'));
     return true;
   }
-  var symbols = cached.value.symbols.slice().sort(function (a, b) { return a.lineIndex - b.lineIndex; });
+  var symbols = declarationStops(cached.value.symbols).sort(function (a, b) { return a.lineIndex - b.lineIndex; });
   // Where the caret is, and whether it is anywhere at all. `null` is not line −1: with no caret the key
   // has no position to step FROM, so it steps to the nearest end instead of claiming to be at one.
   var line = null;

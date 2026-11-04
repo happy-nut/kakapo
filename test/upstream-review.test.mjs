@@ -266,7 +266,11 @@ test("the rule about an unusable base is one rule, read by both sides", () => {
     const handler = appMain.slice(at, appMain.indexOf("ipcMain.handle(", at + 1));
     assert.match(handler, /usableCompareBase\(/,
       "set-compare-mode resolves its base through the same rule, not with its own merge-base call");
-    assert.ok(!/merge-base/.test(handler),
+    // The CALL, not the word. tsc keeps comments, and the handler's own prose explains why "all changes"
+    // reduces to a merge-base while the tip mode beside it does not — which a bare /merge-base/ read as the
+    // very thing it forbids. A guard that fires on the sentence describing the rule is a guard the next
+    // person turns off. `git(root, ["merge-base", …])` is what this is about, and it is quoted.
+    assert.ok(!/["']merge-base["']/.test(handler),
       "and does not keep a merge-base call of its own beside it");
   } finally {
     rmSync(fixture, { recursive: true, force: true });

@@ -19,7 +19,7 @@ import { join } from "node:path";
 import { LspClient } from "../dist/lsp.js";
 
 /** A server that answers only what this test is about, and records the configuration it was handed. */
-function fakeServer(root, settingsFile, lensCount) {
+function fakeServer(root, settingsFile, lensCount, firstCount) {
   const path = join(root, "server.mjs");
   writeFileSync(path, `
 import { writeFileSync } from "node:fs";
@@ -56,7 +56,7 @@ process.stdin.on("data", (chunk) => {
       })) });
     } else if (message.method === "codeLens/resolve") {
       send({ jsonrpc: "2.0", id: message.id, result: {
-        ...message.params, command: { title: \`\${message.params.data.index} references\` },
+        ...message.params, command: { title: \`\${message.params.data.index + ${firstCount}} references\` },
       } });
     } else {
       send({ jsonrpc: "2.0", id: message.id, result: null });
@@ -74,8 +74,8 @@ process.stdin.on("data", (chunk) => {
  * `dispose()` below it, the fake server survived the test file, and `node --test` waited on it forever —
  * so the suite could only ever report success. A guard that cannot fail out loud is not a guard.
  */
-async function withClient(lensCount, body) {
-  const host = clientAgainst(lensCount);
+async function withClient(lensCount, body, firstCount = 1) {
+  const host = clientAgainst(lensCount, firstCount);
   try {
     await body(host);
   } finally {
@@ -83,14 +83,14 @@ async function withClient(lensCount, body) {
   }
 }
 
-function clientAgainst(lensCount) {
+function clientAgainst(lensCount, firstCount) {
   const root = mkdtempSync(join(tmpdir(), "kakapo-code-vision-"));
   writeFileSync(join(root, "one.ts"), "export const one = 1;\n");
   const settingsFile = join(root, "settings.json");
   const client = new LspClient(root, {
     // The family is what picks the settings, so it has to be the real one.
     family: "typescript", name: "fake-ts", command: process.execPath,
-    args: [fakeServer(root, settingsFile, lensCount)], source: "project",
+    args: [fakeServer(root, settingsFile, lensCount, firstCount)], source: "project",
   });
   return { root, client, settings: () => JSON.parse(readFileSync(settingsFile, "utf8")) };
 }
@@ -121,7 +121,7 @@ test("a lens with no title is resolved, not dropped", async () => {
   assert.equal(supported, true);
   assert.equal(lenses.length, 5, "every lens the server sent is drawn — none arrived with a title");
   assert.deepEqual(lenses.map((lens) => lens.title), [
-    "0 references", "1 references", "2 references", "3 references", "4 references",
+    "1 references", "2 references", "3 references", "4 references", "5 references",
   ], "the titles came from codeLens/resolve");
   assert.deepEqual(lenses.map((lens) => lens.lineIndex), [0, 1, 2, 3, 4], "each on its own declaration's line");
   });
@@ -134,4 +134,34 @@ test("one file's Code Vision is bounded", async () => {
   const { lenses } = await client.codeLenses("one.ts");
   assert.equal(lenses.length, 300, "capped rather than unbounded — a resolve is a references lookup each");
   });
+});
+
+// A server answers "0 references" about a file it has no project for — typescript-language-server gives
+// anything outside tsconfig.json#include a single-file inferred project, where every cross-file reference
+// is invisible — and the page printed that figure verbatim above the declaration. On this repository's own
+// viewer slices that was 66 of 121 rows reading "0 references" over functions with live call sites, which
+// is the one thing a decoration is not allowed to do: assert, in the compiler's voice, something it does
+// not know. See assertsNothing in lsp.ts. Drawn nowhere is the answer IntelliJ gives too.
+test("a lens that asserts nothing is not drawn", async () => {
+  await withClient(3, async ({ client }) => {
+    const { supported, lenses } = await client.codeLenses("one.ts");
+    assert.equal(supported, true, "the provider is still there — this is not a capability question");
+    assert.deepEqual(lenses.map((lens) => lens.title), ["1 references", "2 references"],
+      "the zero is gone and the counts that say something are kept");
+    assert.deepEqual(lenses.map((lens) => lens.lineIndex), [1, 2],
+      "each surviving lens still sits on its own declaration's line");
+  }, 0);
+});
+
+// The suppression is about a count of nothing, not about the digit 0 or about numbers in general: a lens
+// that reads "Run | Debug" has no number and one that reads "10 references" has a zero inside it.
+test("only a count of nothing is suppressed", async () => {
+  const { assertsNothing } = await import("../dist/lsp.js");
+  for (const title of ["0 references", "0 implementations", "0 references | 0 implementations", "0 overrides"]) {
+    assert.equal(assertsNothing(title), true, `${JSON.stringify(title)} says nothing is there`);
+  }
+  for (const title of ["1 reference", "10 references", "100 references", "20 implementations",
+    "Run | Debug", "Generate equals()", "override", "1 reference | 0 implementations"]) {
+    assert.equal(assertsNothing(title), false, `${JSON.stringify(title)} still says something`);
+  }
 });

@@ -17,12 +17,13 @@ import { workspaceDataDirectory, workspaceReviewFile } from "./workspace-data.js
 import { kakapoIconCssVariable, kakapoIconHtml } from "./brand.js";
 import { reviewBodyCount, reviewDiffSignature } from "./review-bodies.js";
 import { ReviewBuilder, type BuildSnapshot } from "./review-builder.js";
+import { usableCompareBase } from "./patch-sets.js";
+import { localRevisionFor, lookupPullRequest, parsePullRequestRef, remoteSlug } from "./github-pr.js";
 import { decideWatchTick, shouldPushUpdate } from "./watch-decision.js";
 import { parseReviewArgs, readOption } from "./cli-args.js";
 import { ByteBudgetCache, errorMessage, escapeAttr, escapeHtml } from "./util.js";
 import { AppPreferences } from "./app-preferences.js";
 import { compareDefaultRef, registerReviewIpc } from "./app-review-ipc.js";
-import { usableCompareBase } from "./patch-sets.js";
 import { registerSettingsIpc } from "./app-settings-ipc.js";
 import { externalUrl, registerProjectPathIpc } from "./app-path-ipc.js";
 import { registerCommentsIpc, syncCommentsFile, attachThreadFiles } from "./comments-file.js";
@@ -105,6 +106,7 @@ type WinState = Omit<CommentsIpcState, "win" | "options"> & {
   bootStarted: boolean;
   perf: ReviewPerformanceTrace; // local startup/analysis evidence under this workspace's app-data mirror
   lastDiffSig: string; // watch fast-path: hash of the last git diff, to skip rebuilds when unchanged
+  compareTip: boolean; // compare against compareRef's TIP rather than its merge-base with HEAD (⌥T)
   reviewBase?: string; // exact base used by the latest build (may be an automatic upstream merge-base)
   reviewTarget?: string; // exact right/new side revision for an A→B compare (undefined = working tree)
   // Commits of the range opened from the Cmd+9 history (oldest→newest). While set, the compare bar's two
@@ -287,9 +289,21 @@ registerCommentsIpc(ipcMain, stateFromEvent);
 // Per-repo, not global: which branch is worth comparing against is a property of the repository you opened,
 // and carrying one repo's answer into the next would silently review the wrong thing.
 const COMPARE_REF_KEY = "kakapo-compare-ref";
+// Which QUESTION the compare control is asking, stored because it cannot be derived.
+//
+// The mode the menu ticks is otherwise read back out of base/baseLabel (app-review-ipc), and that works
+// while there are two: "all" leaves a merge-base SHA under a branch-name label, "uncommitted" leaves
+// `HEAD`. Tip mode leaves the ref under its own name, which is a merge-base SHA under a branch name again
+// whenever the ref happens to be an ancestor — the same pair of values for a different question. Asking
+// the state to tell the two apart by string shape would be a guess, and a wrong tick on this control sends
+// a reader off to read the wrong diff. Persisted next to the ref for the same reason the ref is: without
+// it a restart answers a question nobody asked.
+const COMPARE_TIP_KEY = "kakapo-compare-tip";
 function restoreCompareRef(state: WinState): void {
-  const saved = preferences.readWorkspace(state.options.root)[COMPARE_REF_KEY];
+  const workspace = preferences.readWorkspace(state.options.root);
+  const saved = workspace[COMPARE_REF_KEY];
   state.compareRef = typeof saved === "string" && saved ? saved : undefined;
+  state.compareTip = Boolean(state.compareRef) && workspace[COMPARE_TIP_KEY] === true;
 }
 const UI_SCALE_KEY = "kakapo-ui-scale";
 function uiScale(): number {
@@ -375,7 +389,6 @@ ipcMain.handle("kakapo:set-review-base", async (event, payload: { ref?: unknown 
     }
     state.options.baseLabel = undefined; // a patch-set pick names a commit; the pill shows the SHA it is
     state.options.staged = false; // --staged takes precedence over --base in readUnifiedDiff; clear it
-    state.lastDiffSig = ""; // re-baseline the watch fast-path against the new base
     await rebuildAndPushUpdate(state, true);
     return { ok: true, activeBase: state.options.base ?? "auto" };
   } catch (error) {
@@ -398,7 +411,6 @@ ipcMain.handle("kakapo:set-review-target", async (event, payload: { ref?: unknow
       state.options.target = validateReviewBase(state.options.root, raw);
       state.options.staged = false; // an A→B compare has no index side
     }
-    state.lastDiffSig = "";
     await rebuildAndPushUpdate(state, true);
     return { ok: true, activeTarget: state.options.target ?? "worktree" };
   } catch (error) {
@@ -446,7 +458,6 @@ ipcMain.handle("kakapo:set-review-compare", async (event, payload: { base?: unkn
     state.options.target = rawTarget === "worktree" ? undefined : validateReviewBase(state.options.root, rawTarget);
     if (rawBase === "auto" || rawTarget === "worktree") state.compareScope = undefined; // exiting compare clears the scope
     state.options.staged = false;
-    state.lastDiffSig = "";
     await rebuildAndPushUpdate(state, true);
     return { ok: true, activeBase: state.options.base ?? "auto", activeTarget: state.options.target ?? "worktree" };
   } catch (error) {
@@ -462,33 +473,81 @@ ipcMain.handle("kakapo:set-review-compare", async (event, payload: { base?: unkn
 // "All changes" uses the MERGE-BASE with the chosen branch, not the branch tip: `git diff main` against a
 // main that has moved on shows their commits as your deletions, and the review would blame you for work you
 // never touched. The merge-base is the point the two actually agree on.
+// A pull request, opened from its link.
+//
+// It lands as an A→B compare: base is what the pull request is measured against on the server, target is
+// its head. Both are resolved to refs THIS repository already has — nothing is fetched (README: "object
+// database only"), so a head that was never pulled is reported by name rather than quietly fetched into
+// someone's repository behind their back. The only outward call is the `gh pr view` in github-pr.ts, made
+// because the link carries a number and a number is not a branch name anywhere on disk.
+ipcMain.handle("kakapo:open-pull-request", async (event, payload: { text?: unknown } | undefined) => {
+  const state = stateFromEvent(event);
+  if (!state || state.win.isDestroyed()) return { ok: false, error: "no-window" };
+  try {
+    const text = typeof payload?.text === "string" ? payload.text : "";
+    const root = state.options.root;
+    const ref = parsePullRequestRef(text, remoteSlug(root));
+    if (!ref) return { ok: false, error: "pr-unreadable" };
+    const found = lookupPullRequest(root, ref);
+    if (!found.ok) return { ok: false, error: found.error, detail: found.detail };
+
+    const base = localRevisionFor(root, found.details.base, "remote");
+    const head = localRevisionFor(root, found.details.head, "local");
+    // Reported one at a time and by name: "something is missing" sends a reader to look at both.
+    if (!head) return { ok: false, error: "pr-head-missing", ref: found.details.head };
+    if (!base) return { ok: false, error: "pr-base-missing", ref: found.details.base };
+
+    state.compareScope = undefined;
+    state.compareRef = undefined;
+    state.compareTip = false;
+    preferences.setRendererSetting(root, COMPARE_TIP_KEY, false);
+    state.options.staged = false;
+    state.options.base = base;
+    state.options.baseLabel = base;
+    state.options.target = head;
+    await rebuildAndPushUpdate(state, true);
+    return { ok: true, number: ref.number, title: found.details.title, base, head };
+  } catch (error) {
+    return { ok: false, error: errorMessage(error) };
+  }
+});
+
 ipcMain.handle("kakapo:set-compare-mode", async (event, payload: { mode?: unknown; ref?: unknown }) => {
   const state = stateFromEvent(event);
   if (!state || state.win.isDestroyed()) return { ok: false };
-  const mode = payload?.mode === "uncommitted" ? "uncommitted" : "all";
+  const mode = payload?.mode === "uncommitted" ? "uncommitted"
+    : payload?.mode === "tip" ? "tip"
+    : "all";
   const rawRef = typeof payload?.ref === "string" ? payload.ref.trim() : "";
   try {
     if (rawRef) {
       const picked = validateReviewBase(state.options.root, rawRef);
-      // A branch that CONTAINS HEAD cannot be measured against — there is nothing ahead of it — and the
-      // list offers the branch you are on, so it is one click away. Remembered anyway it traps the review:
-      // the base resolves to nothing, the patch-set bar marks its "all" option inactive because the
-      // branch point it labels no longer matches, that click is handed to the compare menu, and the menu
-      // screens it as "already in that mode". Two exits, both silent, on a setting that is persisted per
-      // repository and survives a restart. A pick that cannot work is not a pick: it is refused, by name,
-      // and the review stays where it was.
-      if (!usableCompareBase(state.options.root, picked)) {
-        return { ok: false, error: "compare-ref-not-ahead", ref: picked };
-      }
       state.compareRef = picked;
       preferences.setRendererSetting(state.options.root, COMPARE_REF_KEY, state.compareRef);
     }
     state.compareScope = undefined; // leaving any Cmd+9 range the pill cannot describe
     state.options.target = undefined;
     state.options.staged = false;
+    state.compareTip = mode === "tip";
+    preferences.setRendererSetting(state.options.root, COMPARE_TIP_KEY, state.compareTip);
     if (mode === "uncommitted") {
       state.options.base = "HEAD";
       state.options.baseLabel = undefined;
+    } else if (mode === "tip") {
+      // The ref's own tip, with no merge-base reduction — the one mode where a commit the ref has and HEAD
+      // does not is part of the answer rather than noise to be reduced away. "How does my working tree
+      // differ from origin/main" cannot be asked in the other two: against a merge-base their commits
+      // vanish into the shared ancestor, so the diff comes back empty and the honest answer is unavailable
+      // in those terms. Reported from use, by someone trying to read their local against a remote branch
+      // they had not pulled.
+      //
+      // Deliberately NOT what ⌥A does. "All changes" uses the merge-base because `git diff main` against a
+      // `main` that has moved on shows other people's commits as your deletions, which is the wrong answer
+      // to "what have I done on this branch" — the READMEs say so, and it stays true. Two questions, two
+      // modes; the reduction is right for one of them and fatal to the other.
+      const ref = state.compareRef || compareDefaultRef(state.options.root);
+      state.options.base = ref || undefined;
+      state.options.baseLabel = ref || undefined;
     } else {
       const ref = state.compareRef || compareDefaultRef(state.options.root);
       // No upstream and no conventional default branch — or a ref that cannot serve as a base at all
@@ -496,10 +555,14 @@ ipcMain.handle("kakapo:set-compare-mode", async (event, payload: { mode?: unknow
       // lets the automatic resolution have it back, which is the only honest answer to "all changes" in
       // that repository. The patch-set bar applies the same rule to label its own option, and applying
       // it in only one of the two is what made the label and the click name different branches.
+      //
+      // The merge-base, not the ref's tip, and that is documented rather than incidental (README: "`git
+      // diff main` against a `main` that has moved on shows other people's commits as your deletions").
+      // "How do I differ from that ref" is a real question and the answer to it is a different mode
+      // below — it is not this one with the reduction taken out.
       state.options.base = (ref && usableCompareBase(state.options.root, ref)) || undefined;
       state.options.baseLabel = state.options.base ? ref : undefined;
     }
-    state.lastDiffSig = "";
     await rebuildAndPushUpdate(state, true);
     return { ok: true, mode, ref: state.compareRef || compareDefaultRef(state.options.root) };
   } catch (error) {
@@ -887,7 +950,7 @@ function buildApplicationMenu(): void {
       { type: "separator" },
       ...DIFF_CONTEXT_CHOICES.map((lines) => ({
         id: `diff-context-${lines}`,
-        label: lines >= 100_000 ? t("menu.context.wholeFile") : t("menu.context.lines").replace("{n}", String(lines)),
+        label: lines >= 100_000 ? t("menu.context.wholeFile") : t("menu.context.lines", { n: lines }),
         type: "radio" as const,
         checked: options.context === lines,
         click: () => void rebuildFocusedReview((current) => { current.context = lines; }),
@@ -1075,6 +1138,7 @@ function createWindow(root: string, explicitRoot = true): WinState {
     buildSeq: 0,
     perf,
     lastDiffSig: "",
+    compareTip: false,
     reviewBase: undefined,
     reviewUpstream: undefined,
     disposeWindowSurfaceRecovery: () => {},
@@ -1298,10 +1362,10 @@ async function refreshIfChanged(state: WinState): Promise<void> {
     // Fast path: the review-workspace service hashes only the Git diff before a full rebuild. Most watch
     // ticks see no change, leaving this Electron orchestrator free to serve navigation/search IPC.
     const diffSig = reviewDiffSignature(state.options, state.reviewBase, state.reviewUpstream);
-    // The first watch tick seeds the baseline for the review boot/openReview just built; without it an
-    // unchanged repository would rebuild ~1s after first paint, exactly as the reviewer starts interacting.
+    // The baseline this compares against was adopted by the build that rendered what is on screen
+    // (applySnapshot), so an untouched repository hashes equal here and skips — the rebuild-after-first-paint
+    // this tick used to be seeded to avoid. What it no longer does is absorb a change it has not drawn.
     const decision = decideWatchTick(state.lastDiffSig, diffSig);
-    if (decision.action === "seed") { state.lastDiffSig = decision.diffSig; return; }
     if (decision.action === "skip") return;
     state.lastDiffSig = decision.diffSig;
     // Refresh the diff in place instead of reloading the window so review context remains stable; the update
@@ -1319,6 +1383,16 @@ async function refreshIfChanged(state: WinState): Promise<void> {
 // off-main) build and the (sync, main-thread) state mutation are separable, and a superseded build's result
 // can be dropped without touching state. Mirrors the state updates the old sync writeReviewFile did.
 function applySnapshot(state: WinState, snapshot: BuildSnapshot): void {
+  // Adopt the watch baseline the BUILD read, not the one the watcher would read a second later.
+  //
+  // This used to be `state.lastDiffSig = ""` at each of the six places that trigger a rebuild, which made
+  // the next tick take the `seed` branch: record whatever the tree says NOW and return without rebuilding.
+  // Anything written between the build's own read and that tick was therefore folded into the baseline and
+  // never drawn — every later tick compared equal and skipped, so the review sat on a stale diff until some
+  // further change happened to move the hash. A reviewer reading a diff that is one write out of date, with
+  // nothing on screen saying so, is the worst thing this app can do; the saving it bought was one rebuild on
+  // a quiet repository, which the baseline below still buys, because an untouched tree hashes the same.
+  state.lastDiffSig = snapshot.watchSignature;
   state.reviewBase = snapshot.reviewBase;
   state.reviewTarget = snapshot.reviewTarget;
   // Set beside the field it mirrors, on the one path that assigns it: the analyzer reads the working tree,
@@ -1452,7 +1526,6 @@ async function openReview(state: WinState, root: string): Promise<void> {
   state.analysis = makeAnalysis(state.options.root, () => state);
   preferences.recordRecentProject(state.options.root); // remember it for the welcome screen's Recent Projects
   restoreCompareRef(state);
-  state.lastDiffSig = ""; // new repo -> force the next watch tick to rebuild
   clearWatchTimers(state); // stop the previous repo's pollers before switching this window to the new repo
   attachThreadFiles(state, state.options.root); // new repo -> its own thread, its own shared notes
   // Diff-first, same as the cold boot: reusing this window for another repo paints its diff without waiting

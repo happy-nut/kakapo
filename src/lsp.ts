@@ -1,10 +1,10 @@
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createHash } from "node:crypto";
-import { accessSync, constants, existsSync, lstatSync, readlinkSync, realpathSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readlinkSync, realpathSync, statSync } from "node:fs";
 import { delimiter, extname, join, relative, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { errorMessage, languageForPath, readTextFile } from "./util.js";
+import { errorMessage, executable, languageForPath, readTextFile } from "./util.js";
 
 /**
  * One entry of a file's structure: what `textDocument/documentSymbol` returns, flattened.
@@ -305,15 +305,6 @@ type BundledServerContext = {
   arch: string;
   env: NodeJS.ProcessEnv;
 };
-
-function executable(path: string): boolean {
-  try {
-    accessSync(path, constants.X_OK);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 function familyForPath(path: string): string | undefined {
   const ext = extname(path).toLowerCase();
@@ -726,6 +717,27 @@ function bundledKotlinDir(): string {
   return join(bundledRoot(process.env), `${process.platform}-${process.arch}`, "kotlin");
 }
 
+/**
+ * A lens title that says nothing is there. These are dropped rather than drawn.
+ *
+ * `decoration()` in analysis.ts promises one thing — never draw a guess as if the compiler had said it —
+ * and "0 references" over a function with two call sites is that guess. It happens whenever the server has
+ * no project for the file: typescript-language-server gives a file outside `tsconfig.json#include` its own
+ * inferred single-file project, so every cross-file reference is invisible to it and it answers zero,
+ * truthfully about that project and falsely about the repository. kakapo reads arbitrary repositories, so
+ * a file outside the TS program is the common case, not the exotic one — measured here, 66 of 121 lenses
+ * in src/viewer/11-render-http.js read "0 references" while the index found three call sites for the first
+ * symbol alone and the Find Usages panel beside it said one.
+ *
+ * This costs a true zero on a genuinely unused declaration, because nothing in the answer distinguishes
+ * the two. IntelliJ makes the same trade and draws no row, which is the right way round: a reader who sees
+ * nothing goes and looks, a reader who sees "0 references" deletes the function.
+ */
+export function assertsNothing(title: string): boolean {
+  const numbers = title.match(/\d[\d.,]*/g);
+  return numbers !== null && numbers.every((number) => Number(number.replace(/[.,]/g, "")) === 0);
+}
+
 export class LspClient {
   private child?: ChildProcessWithoutNullStreams;
   private nextId = 0;
@@ -987,6 +999,7 @@ export class LspClient {
       batch.forEach((row, index) => {
         const line = Number(row?.range?.start?.line);
         if (!Number.isFinite(line) || !titles[index]) return;
+        if (assertsNothing(titles[index])) return; // see assertsNothing: a zero here is not a fact
         lenses.push({ lineIndex: Math.max(0, Math.trunc(line)), title: titles[index] });
       });
     }

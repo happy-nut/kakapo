@@ -170,7 +170,7 @@ test("a chord the menu bar eats is refused, so a dead binding cannot be saved", 
 // changes" — unreachable, because isShortcut matches index 0 first.
 test("a row cannot be rebound onto its own other combination", async () => {
   const v = await loadViewer(html);
-  assert.deepEqual(chipsOf(rowFor(v, "compareMode")), ["⌥A", "⌥U"], "the row starts with two");
+  assert.deepEqual(chipsOf(rowFor(v, "compareMode")), ["⌥A", "⌥U", "⌥T"], "the row starts with three");
 
   rebind(v, "compareMode", 1, { key: "a", code: "KeyA", altKey: true }); // ⌥A onto the ⌥U slot
   const note = rowFor(v, "compareMode").querySelector(".keys-note");
@@ -178,12 +178,12 @@ test("a row cannot be rebound onto its own other combination", async () => {
   assert.match(note.textContent, /⌥A/, "naming the combination");
   // Array.from: an array read off the jsdom window carries that realm's prototype and deepEqual
   // compares prototypes — the values match and the assertion fails anyway. See test/README.
-  assert.deepEqual(Array.from(v.window.shortcutKeys("compareMode")), ["⌥A", "⌥U"], "both combinations survive");
+  assert.deepEqual(Array.from(v.window.shortcutKeys("compareMode")), ["⌥A", "⌥U", "⌥T"], "every combination survives");
 
   v.document.dispatchEvent(new v.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
   // ...and a genuinely free chord in the same slot still works, so the guard is not a blanket refusal.
   rebind(v, "compareMode", 1, { key: "j", code: "KeyJ", metaKey: true, altKey: true });
-  assert.deepEqual(Array.from(v.window.shortcutKeys("compareMode")), ["⌥A", "⌘⌥J"], "a free chord is accepted");
+  assert.deepEqual(Array.from(v.window.shortcutKeys("compareMode")), ["⌥A", "⌘⌥J", "⌥T"], "a free chord is accepted");
   v.close();
 });
 

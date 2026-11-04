@@ -190,7 +190,7 @@ test("a response handler's global reaches the next request, and its tests are sh
     }
     : null));
   const panel = await run(host, REQUESTS.login);
-  assert.match(panel.textContent, /1 tests passed/, "a handler that asserted says so");
+  assert.match(panel.textContent, /1 test passed/, "a handler that asserted says so, in the singular");
 
   await run(host, REQUESTS.profile);
   assert.equal(host.sent[1].headers.Authorization, "Bearer abc123",
@@ -210,7 +210,7 @@ test("a failing assertion is reported as a failed test, not as a failed request"
     }
     : null));
   const panel = await run(host, REQUESTS.login);
-  assert.match(panel.textContent, /1 of 1 tests failed/);
+  assert.match(panel.textContent, /1 of 1 test failed/);
   assert.match(panel.textContent, /no token/, "the assertion's own message is what explains it");
   assert.match(panel.textContent, /200/, "the response itself is still shown");
   host.v.close();

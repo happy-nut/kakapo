@@ -72,7 +72,7 @@ function openSemanticPeek(name, locations, response, kind) {
   // The noun was built in English by a conditional here, in an app that ships in two languages. It is a
   // user-facing string, so it lives in i18n.ts with the rest of them.
   var key = kind === 'definition' ? 'peek.definitions' : kind === 'implementation' ? 'peek.implementations' : 'peek.usages';
-  if (title) title.textContent = t(key).replace('{n}', String(semanticPeekItems.length)) + ' · ' + name;
+  if (title) title.textContent = t(key, { n: semanticPeekItems.length }) + ' · ' + name;
   if (meta) {
     var bits = [response && response.confidence || response && response.engine || 'semantic'];
     if (response && response.server) bits.push(response.server + (response.serverSource ? ' (' + response.serverSource + ')' : ''));

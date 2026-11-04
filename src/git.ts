@@ -286,6 +286,14 @@ export function resolveWorkspaceRoot(cwd: string = process.cwd()): string {
 // remote-tracking ones. `main` and `origin/main` both stay — they are different commits the moment either
 // side moves, and collapsing them would silently pick one, which is the whole question being asked here.
 // Sorted by most recent commit: the branch you last touched is the likeliest comparison, alphabetical buries it.
+// The remote names this repository has. The compare picker needs them to tell `origin/main` (a remote ref)
+// from `feature/dropdown` (a local branch with a slash in its name), and the slash alone cannot: `feature/`,
+// `fix/` and `release/` prefixes are how most branches are named. listBranches knows which list each ref
+// came from and then flattens that away, so the answer has to come from git rather than from the string.
+export function listRemotes(root: string): string[] {
+  return git(root, ["remote"]).split("\n").map((line) => line.trim()).filter(Boolean);
+}
+
 export function listBranches(root: string): string[] {
   const refs = (scope: string): string[] =>
     git(root, ["for-each-ref", "--sort=-committerdate", "--count=300", "--format=%(refname:short)", scope])

@@ -1107,7 +1107,7 @@ function renderCommentBadges() {
     badge.className = 'mc-file-badge';
     // One interpolated sentence, not a number glued to a fragment: the English read "3 comment(s)" and
     // the Korean "3 개 코멘트", which is the count on the wrong side of the noun with a stray space.
-    var badgeTitle = plural(t('badge.comments'), { n: n }).replace('{n}', String(n));
+    var badgeTitle = t('badge.comments', { n: n });
     badge.innerHTML = '<span class="mc-fb" title="' + escapeHtml(badgeTitle) + '">' + n + '</span>';
     return badge;
   }
@@ -1340,15 +1340,35 @@ function saveComposer(ta) {
 
 // Reusable custom dropdown (keyboard + mouse). options: [{ label, onSelect }]. First item is pre-selected;
 // Arrow keys move, Enter chooses, Esc / click-outside dismiss. Replaces native <select>/menus everywhere.
-function showCustomDropdown(x, y, options, flipTop, className) {
+//
+// `trigger` is the control this hangs off, when there is one — a button whose pressed state means "the menu
+// is open". It belongs HERE rather than at the call site because five surfaces open this one popup and the
+// state has to come back down on every exit path there is: a pick, Escape, a click outside, and the next
+// dropdown replacing this one. A call site that set aria-expanded itself would have to know about all four.
+//
+// Before this the popup was an anonymous <div> of <button>s: keyboard-operable (SC 2.1.1 fine) and silent
+// about itself (SC 4.1.2 not). Measured on the Settings language control — trigger aria-expanded null, no
+// aria-haspopup, #mc-dropdown role none, items role none — so a screen reader was told a button had been
+// pressed and nothing about the eight choices that had just appeared under it.
+function showCustomDropdown(x, y, options, flipTop, className, trigger) {
   var existing = document.getElementById('mc-dropdown');
   if (existing) existing.remove();
   var dd = document.createElement('div');
   dd.id = 'mc-dropdown';
   dd.className = 'mc-dropdown' + (className ? ' ' + className : '');
+  dd.setAttribute('role', 'menu');
+  if (trigger) {
+    trigger.setAttribute('aria-haspopup', 'true');
+    trigger.setAttribute('aria-expanded', 'true');
+  }
   var active = 0;
   function setActive(i) { active = i; for (var j = 0; j < dd.children.length; j++) dd.children[j].classList.toggle('active', j === i); }
-  function close() { dd.remove(); document.removeEventListener('keydown', onKey, true); document.removeEventListener('mousedown', onOutside, true); }
+  function close() {
+    dd.remove();
+    if (trigger) trigger.setAttribute('aria-expanded', 'false');
+    document.removeEventListener('keydown', onKey, true);
+    document.removeEventListener('mousedown', onOutside, true);
+  }
   function onKey(e) {
     if (e.key === 'ArrowDown') { e.preventDefault(); e.stopPropagation(); setActive(Math.min(active + 1, options.length - 1)); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); e.stopPropagation(); setActive(Math.max(active - 1, 0)); }
@@ -1359,6 +1379,7 @@ function showCustomDropdown(x, y, options, flipTop, className) {
   options.forEach(function (opt, i) {
     var item = document.createElement('button');
     item.type = 'button';
+    item.setAttribute('role', 'menuitem');
     item.className = 'mc-dropdown-item' + (i === 0 ? ' active' : '');
     item.textContent = opt.label;
     item.addEventListener('click', function () { close(); opt.onSelect(); });

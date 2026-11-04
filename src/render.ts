@@ -290,6 +290,26 @@ function compareRightSide(state: CompareState): string {
 //
 // (It replaces the file/hunk counts that used to live here and were removed for duplicating the Changes tab —
 // which is why the slot was sitting empty, collapsed by `.review-status:empty`, ready for this.)
+// The current branch, for the toolbar of whichever view is up.
+//
+// It used to sit in the sidebar's own header band beside the project name, and the two did not fit: that
+// band is the sidebar's width, and measured on a 1728px window with ordinary names — a repository called
+// `kakapo-review-dashboard-service` on `feature/compare-against-remote-branch-tip-and-two-stage-picker` —
+// the project name got 126px of the 234px it needed and the branch got 70px for 62 characters, about eight
+// of them. Next to it `.diff-toolbar-file` was 921px wide holding "a.txt +1 −1". So the band keeps the
+// project name, which is short and stable, and the branch moves to where the room is.
+//
+// Rendered by one function into both toolbars rather than copied into each: only one view is ever up, so
+// only one is ever visible, and a second spelling of this markup is a second thing to keep in step. It
+// carries no id for the same reason — `brand-branch-name` was read with getElementById by two updaters,
+// which would have found whichever copy came first in the document and written the branch into the hidden
+// one. They read the class now, and write to every match.
+function branchChip(branch?: string): string {
+  return `<span class="brand-branch${branch ? "" : " hidden"}" data-i18n-title="rail.branch" title="Current branch">`
+    + `${BRANCH_ICON}<span class="brand-branch-name" title="${escapeAttr(branch || "")}">${escapeHtml(branch || "")}</span></span>`;
+}
+const BRANCH_ICON = '<svg class="brand-branch-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6.5" cy="6" r="2.2"/><circle cx="6.5" cy="18" r="2.2"/><circle cx="17.5" cy="8.5" r="2.2"/><path d="M6.5 8.2v7.6"/><path d="M17.5 10.7c0 3.2-2.2 4.4-5.5 4.9"/></svg>';
+
 export function renderReviewStatus(input: { compare?: CompareState; app?: boolean }): string {
   const state = input.compare;
   if (!state) return "";
@@ -430,7 +450,7 @@ export function renderDiffHtml(input: {
     // Boot overlay (removed by the renderer once bootstrap has painted) covers the blank gap after loadFile.
     `<div id="boot-overlay">${brandLoader}</div>`,
     '<aside class="sidebar" data-i18n-aria="a11y.reviewNav" aria-label="Review navigation">',
-    `<div class="sidebar-brand" title="${escapeAttr(input.projectPath)}"><span class="brand-project">${escapeHtml(input.projectName)}</span><span class="brand-branch${input.branch ? "" : " hidden"}" data-i18n-title="rail.branch" title="Current branch"><svg class="brand-branch-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6.5" cy="6" r="2.2"/><circle cx="6.5" cy="18" r="2.2"/><circle cx="17.5" cy="8.5" r="2.2"/><path d="M6.5 8.2v7.6"/><path d="M17.5 10.7c0 3.2-2.2 4.4-5.5 4.9"/></svg><span class="brand-branch-name" id="brand-branch-name" title="${escapeAttr(input.branch || "")}">${escapeHtml(input.branch || "")}</span></span>${sidebarSwitch(input.lazy ? "changes" : "files")}</div>`,
+    `<div class="sidebar-brand" title="${escapeAttr(input.projectPath)}"><span class="brand-project">${escapeHtml(input.projectName)}</span>${sidebarSwitch(input.lazy ? "changes" : "files")}</div>`,
     '<div class="sidebar-scroll">',
     `<div class="tab-panel${input.lazy ? "" : " hidden"}" id="changes-panel">${fileNav}</div>`,
     // Transport-backed reviews do not even embed an inert tree island: parsing its multi-megabyte text was
@@ -462,6 +482,7 @@ export function renderDiffHtml(input: {
       + '<div class="diff-commit-context hidden" id="diff-commit-context"></div>'
       + '<span class="diff-file-icon" aria-hidden="true"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M3.5 1.75h5l4 4v8.5h-9z"/><path d="M8.5 1.75v4h4"/></svg></span>'
       + '<div class="breadcrumb" id="diff-breadcrumb"></div>'
+      + branchChip(input.branch)
       + '</div>',
     '<div class="diff-toolbar-meta">',
     `<div class="review-status">${renderReviewStatus({ compare: input.compare, app: input.app })}</div>`,
@@ -482,6 +503,15 @@ export function renderDiffHtml(input: {
         + '<button type="button" class="compare-menu-row" role="menuitemradio" aria-checked="false" data-mode="uncommitted">'
         + '<span class="compare-menu-label" data-i18n="compare.menu.uncommitted">Uncommitted changes</span>'
         + '<kbd class="compare-menu-key">\u2325U</kbd>'
+        + '<span class="compare-menu-check" aria-hidden="true"></span>'
+        + '</button>'
+        // The third question the control answers: how this working tree differs from the branch's TIP, with
+        // no merge-base reduction. Beside the other two because it is the same kind of choice, and below
+        // them because it is the rarer one — you reach for it when the branch you are comparing with has
+        // moved on without you.
+        + '<button type="button" class="compare-menu-row" role="menuitemradio" aria-checked="false" data-mode="tip">'
+        + '<span class="compare-menu-label" data-i18n="compare.menu.tip">vs branch tip</span>'
+        + '<kbd class="compare-menu-key">\u2325T</kbd>'
         + '<span class="compare-menu-check" aria-hidden="true"></span>'
         + '</button>'
         + '<div class="compare-menu-sep" role="separator"></div>'
@@ -554,6 +584,7 @@ export function renderDiffHtml(input: {
       + '<span id="source-type-icon" class="source-type-icon" aria-hidden="true"></span>'
       + '<span id="source-title" data-i18n="source.title">Source</span>'
       + '<span id="source-meta" data-i18n="source.selectFile">Select a file from the Files tab.</span>'
+      + branchChip(input.branch)
       + '</div>',
     '<select id="http-env-select" class="http-env-select hidden" data-i18n-title="http.env.title" data-i18n-aria="http.env.aria" title="HTTP Client environment" aria-label="HTTP environment"></select>',
     // No aria-pressed. This button's NAME changes to the mode you would switch to, which is the right

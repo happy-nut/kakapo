@@ -22,7 +22,8 @@
 // The result is small and serialisable on purpose: it crosses into the renderer as one JSON island
 // (viewer-contract.ts) and the viewer classifies a path against it by prefix. No runtime dependency —
 // the manifest readers below are deliberately shallow, and each says where its ceiling is.
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readdirSync, statSync } from "node:fs";
+import { readTextFile } from "./util.js";
 import { basename, dirname, join } from "node:path";
 
 /** One module: a name to show, and the repo-relative directory it owns (`""` is the repo root). */
@@ -75,9 +76,18 @@ function normalizeRelative(path: string): string {
   return relative === "." ? "" : relative;
 }
 
-function readTextFile(path: string): string {
+/**
+ * A manifest's text, or "" when it is not there — every reader here is probing for files that may not exist.
+ *
+ * The decode is util's, not `readFileSync(path, "utf8")`, which is what this used to be. Same name as the
+ * BOM-honouring reader two files over and different behaviour: a manifest saved UTF-8-with-BOM (what
+ * Windows editors write by default) kept the mark as an invisible first character, so `JSON.parse` threw on
+ * .idea/modules.xml and tsconfig.json, every TOML section lookup missed its first line, and the project
+ * layout came back empty with nothing to say about why. Reading one file's text is one function here.
+ */
+function readManifest(path: string): string {
   try {
-    return readFileSync(path, "utf8");
+    return readTextFile(path);
   } catch {
     return "";
   }
@@ -160,7 +170,7 @@ function attribute(tag: string, name: string): string {
 function readIntellijLayout(root: string): ProjectLayout | null {
   const modulesXml = join(root, ".idea", "modules.xml");
   const imlPaths: { name: string; file: string; group?: string }[] = [];
-  const xml = readTextFile(modulesXml);
+  const xml = readManifest(modulesXml);
   for (const tag of xml.match(/<module\b[^>]*>/g) ?? []) {
     const filepath = attribute(tag, "filepath") || attribute(tag, "fileurl");
     if (!filepath) continue;
@@ -188,7 +198,7 @@ function readIntellijLayout(root: string): ProjectLayout | null {
   for (const entry of imlPaths) {
     const moduleDirectory = normalizeRelative(dirname(entry.file) === "." ? "" : dirname(entry.file));
     modules.push({ name: entry.name, root: moduleDirectory, group: entry.group });
-    const iml = readTextFile(join(root, entry.file));
+    const iml = readManifest(join(root, entry.file));
     if (!iml) continue;
     for (const tag of iml.match(/<sourceFolder\b[^>]*>/g) ?? []) {
       const folder = resolveIdeaUrl(attribute(tag, "url"), moduleDirectory);
@@ -211,7 +221,7 @@ function unique(values: string[]): string[] {
 
 /** `name` from a member's own manifest, so a module is called what its tool calls it. */
 function manifestName(root: string, member: string): string {
-  const packageJson = readTextFile(join(root, member, "package.json"));
+  const packageJson = readManifest(join(root, member, "package.json"));
   if (packageJson) {
     try {
       const name = JSON.parse(packageJson)?.name;
@@ -220,7 +230,7 @@ function manifestName(root: string, member: string): string {
       // A manifest that does not parse is not a reason to have no module; fall through to the directory.
     }
   }
-  const cargo = readTextFile(join(root, member, "Cargo.toml"));
+  const cargo = readManifest(join(root, member, "Cargo.toml"));
   const cargoName = /^\s*name\s*=\s*"([^"]+)"/m.exec(cargo);
   if (cargoName) return cargoName[1];
   return basename(member) || member;
@@ -264,12 +274,12 @@ function yamlListUnder(yaml: string, key: string): string[] {
 function workspaceMembers(root: string): string[] {
   // pnpm first: when it is there it is the authority, and a pnpm repo's root package.json usually has no
   // `workspaces` field at all.
-  const pnpm = readTextFile(join(root, "pnpm-workspace.yaml")) || readTextFile(join(root, "pnpm-workspace.yml"));
+  const pnpm = readManifest(join(root, "pnpm-workspace.yaml")) || readManifest(join(root, "pnpm-workspace.yml"));
   if (pnpm) {
     const members = yamlListUnder(pnpm, "packages").flatMap((pattern) => expandMemberPattern(root, pattern));
     if (members.length) return members;
   }
-  const packageJson = readTextFile(join(root, "package.json"));
+  const packageJson = readManifest(join(root, "package.json"));
   if (packageJson) {
     try {
       const parsed = JSON.parse(packageJson);
@@ -283,7 +293,7 @@ function workspaceMembers(root: string): string[] {
       // ignore: an unparseable root manifest just means this is not the source
     }
   }
-  const cargo = readTextFile(join(root, "Cargo.toml"));
+  const cargo = readManifest(join(root, "Cargo.toml"));
   // The `[workspace]` table, to its next table header — not "everything up to the first `[`", which was
   // the old reading and which `exclude = [...]` or `default-members = [...]` before `members` ended
   // early. A formatter that sorts keys alphabetically puts both of them there, so a sorted Cargo.toml
@@ -295,7 +305,7 @@ function workspaceMembers(root: string): string[] {
       .flatMap((pattern) => expandMemberPattern(root, pattern));
     if (members.length) return members;
   }
-  const goWork = readTextFile(join(root, "go.work"));
+  const goWork = readManifest(join(root, "go.work"));
   if (goWork) {
     // Both spellings: `use ./a` per line, and the `use (` block that lists bare paths. Walked by line
     // rather than matched globally because `\s` eats newlines and a path with one on the end is not a path.
@@ -311,7 +321,7 @@ function workspaceMembers(root: string): string[] {
     }
     if (members.length) return members;
   }
-  const gradle = readTextFile(join(root, "settings.gradle")) || readTextFile(join(root, "settings.gradle.kts"));
+  const gradle = readManifest(join(root, "settings.gradle")) || readManifest(join(root, "settings.gradle.kts"));
   if (gradle) {
     // `include ':app', ':core:data'` and `include(":app")` — a Gradle project path's `:` is a directory
     // separator, which is why the module name and the module root differ here.
@@ -321,7 +331,7 @@ function workspaceMembers(root: string): string[] {
       .filter((value) => value && isDirectory(join(root, value)));
     if (members.length) return members;
   }
-  const pom = readTextFile(join(root, "pom.xml"));
+  const pom = readManifest(join(root, "pom.xml"));
   if (pom) {
     const block = /<modules>([\s\S]*?)<\/modules>/.exec(pom);
     const members = (block ? block[1].match(/<module>([^<]+)<\/module>/g) ?? [] : [])

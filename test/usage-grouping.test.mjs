@@ -206,8 +206,9 @@ test("a group node folds, and what it folds away is out of reach of the arrows t
   const after = host.v.$all("#quick-open-results .usage-group").filter((row) => row.dataset.usageGroup === "type")[0];
   assert.equal(after.querySelector(".usage-twisty").textContent, "▸", "the twisty says which way it is");
   assert.equal(after.getAttribute("aria-expanded"), "false");
-  assert.equal(after.querySelector(".usage-group-count").textContent, `(${folded} usages)`,
-    "a folded node still says how much is under it — that is what the count is for");
+  assert.equal(after.querySelector(".usage-group-count").textContent,
+    `(${folded} ${folded === 1 ? "usage" : "usages"})`,
+    "a folded node still says how much is under it, in the form that count takes");
   assert.equal(rowTypes(host).length, before - folded);
   // The rows are gone from the list the arrows walk, not merely hidden: the index space is rebuilt from
   // what the tree hands back, so it is 0..n-1 over the rows that are actually on screen and Enter can

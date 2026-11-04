@@ -147,7 +147,7 @@ function patchSetWindow(opts, which) {
 /** "Show the 1 patch set folded away here" — the form that is right for the count. */
 function patchSetShowAllLabel(opt) {
   var n = opt.hidden || 0;
-  return plural(t('patchset.showAll'), { n: n }).replace('{n}', String(n));
+  return t('patchset.showAll', { n: n });
 }
 function patchSetNumButton(which, opt) {
   // A fold is not a control: it says how many were left out and answers a hover, nothing more. Clicking it

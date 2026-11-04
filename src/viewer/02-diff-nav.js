@@ -36,7 +36,16 @@ function firstChangeRowForCaret(hunkRow) {
       const hr = hunkRows[i];
       if (hr.classList.contains('hunk') || hr.classList.contains('hunk-peer')) break;
       if (isChangeCodeRow(otherRows[i])) return otherRows[i]; // a modification or an addition: track the new file
-      if (isChangeCodeRow(hr)) return hr;                     // a deletion at this row: the caret belongs on it
+      if (isChangeCodeRow(hr)) {
+        // A deletion at this row. Entering a file is IntelliJ's FIRST_CHANGE scroll, which reads the
+        // current side like every other move, so the caret stays in the working tree and lands where the
+        // removed text collapsed to. Searched in THIS loop's index space (querySelectorAll('tr')), never
+        // with diffRowsOf — the two tables are indexed differently and an index from one is a different
+        // row in the other.
+        for (let f = i; f < otherRows.length; f++) if (isDiffCodeRow(otherRows[f])) return otherRows[f];
+        for (let b = i - 1; b >= 0; b--) if (isDiffCodeRow(otherRows[b])) return otherRows[b];
+        return hr; // the new side has no code at all — a file deleted outright
+      }
     }
   }
   return firstCodeRowOfHunk(hunkRow);
@@ -95,7 +104,7 @@ function renderCommitContext(container) {
     // t() takes a key and nothing else — the second argument was silently dropped, so this has been
     // rendering the literal "+{n} more" since it was written. Substituted the way every other string
     // with a placeholder in this codebase is.
-    more.textContent = t('compare.andMore').replace('{n}', String(lead.others));
+    more.textContent = t('compare.andMore', { n: lead.others });
     container.appendChild(more);
   }
 }
@@ -568,11 +577,49 @@ function changeBlockAnchors(wrapper) {
 // The row to put the caret on for the change block at `index`: the new side when the change is there, the
 // old side when the block is a pure deletion and the new side holds nothing but a filler. Same rule as
 // firstChangeRowForCaret applies within a hunk — the caret belongs on the lines that actually changed.
+// Where a change puts the caret, given the pane the reader is in. IntelliJ's policy, read off
+// SimpleDiffViewer and SimpleDiffChangesHolder rather than guessed:
+//
+//   - Both sides' change lists hold EVERY change — `addAll` puts the same list in both and the side only
+//     decides the sort order — so a deletion is a stop whichever pane you are reading in.
+//   - Navigation is driven by the current side throughout: `getNonSkippedDiffChanges(getCurrentSide())`,
+//     `getCurrentEditor()`, `change.getStartLine(getCurrentSide())`.
+//   - `scrollToChange` moves the caret in BOTH editors and never calls `setCurrentSide`. That call belongs
+//     to `scrollToLine` and to the explicit "focus opposite pane" action, which is a thing the reader asks
+//     for by name.
+//
+// So stepping never takes the reader out of the pane they are reading. A change with no line on that side
+// — a run of deleted lines asked of the working tree — puts the caret where the removed text collapsed to,
+// which is the first real line after it.
+//
+// This file previously preferred the working-tree side and fell back to the base one, which moved the
+// caret across the gutter without being asked. The stop itself is unchanged: changeBlockAnchors still reads
+// both sides, and that is what makes a deletion inside an otherwise-edited hunk reachable at all.
+// The INDEX, not the row, because the caller compares it with the caret's own row index and the two must
+// be in one space. Returning a row and letting each caller find it again is how the backward walk broke:
+// with the caret standing at the line a deletion collapsed onto — several rows past the anchor — "is there
+// an earlier change" compared the anchor against the caret and found the very block the caret was already
+// standing for, so Shift+F7 stepped to where it already was and the walk stopped there.
+function changeRowIndexOnSide(wrapper, index, side) {
+  var rows = diffRowsOf(diffSideTable(wrapper, side));
+  if (isChangeCodeRow(rows[index])) return index;
+  for (var i = index; i < rows.length; i += 1) if (isDiffCodeRow(rows[i])) return i;
+  // Nothing after it: a deletion at the end of a file collapses onto the line before instead.
+  for (var j = index - 1; j >= 0; j -= 1) if (isDiffCodeRow(rows[j])) return j;
+  return -1;
+}
+function changeRowOnSide(wrapper, index, side) {
+  var at = changeRowIndexOnSide(wrapper, index, side);
+  return at < 0 ? null : diffRowsOf(diffSideTable(wrapper, side))[at];
+}
 function changeBlockRow(wrapper, index) {
-  var row = diffRowAt(wrapper, 'new', index);
-  if (isChangeCodeRow(row)) return row;
-  var old = diffRowAt(wrapper, 'old', index);
-  return isChangeCodeRow(old) ? old : row;
+  var side = diffCursor && diffCursor.side === 'old' ? 'old' : 'new';
+  var row = changeRowOnSide(wrapper, index, side);
+  if (row) return row;
+  // That pane has no code at all — a file added or removed outright. The other one is the only answer
+  // there is, and standing nowhere would be worse than standing across the gutter.
+  var other = changeRowOnSide(wrapper, index, side === 'new' ? 'old' : 'new');
+  return other || diffRowAt(wrapper, side, index);
 }
 
 // Forward F7 at a file's last change announces "last change — press F7 again" once before crossing to the
@@ -588,12 +635,21 @@ function next(delta) {
     if (w && !isFileViewed(diffCursor.path)) {
       const anchors = changeBlockAnchors(w);
       const cur = diffCursor.rowIndex;
+      // Each anchor compared at the row it would actually PARK the caret on, in this pane. An anchor and
+      // the caret are only in the same space once both have been through changeRowIndexOnSide.
+      const side = diffCursor.side === 'old' ? 'old' : 'new';
+      const parks = anchors.map(function (anchor) { return changeRowIndexOnSide(w, anchor, side); });
       let target = null;
-      if (delta > 0) { for (let a = 0; a < anchors.length; a++) { if (anchors[a] > cur) { target = anchors[a]; break; } } }
-      else { for (let b = anchors.length - 1; b >= 0; b--) { if (anchors[b] < cur) { target = anchors[b]; break; } } }
+      if (delta > 0) { for (let a = 0; a < anchors.length; a++) { if (parks[a] > cur) { target = anchors[a]; break; } } }
+      else { for (let b = anchors.length - 1; b >= 0; b--) { if (parks[b] >= 0 && parks[b] < cur) { target = anchors[b]; break; } } }
       if (target != null) {
         const row = changeBlockRow(w, target);
-        if (row) { navSuppress = true; try { focusDiffRow(row); } finally { navSuppress = false; } scheduleDiffScroll(row); return; }
+        if (row) {
+          navSuppress = true;
+          try { focusDiffRow(row); } finally { navSuppress = false; }
+          scheduleDiffScroll(row);
+          return;
+        }
       }
     }
   }
@@ -636,8 +692,7 @@ function next(delta) {
     setActive(target, true, false, delta < 0 ? 'last' : 'first');
     // After the move, so the hint is anchored to where the caret LANDED rather than where it left.
     if (crossed > 0) {
-      showCaretHint(t(crossed === 1 ? 'diff.skippedViewedOne' : 'diff.skippedViewed')
-        .replace('{n}', String(crossed)));
+      showCaretHint(t(crossed === 1 ? 'diff.skippedViewedOne' : 'diff.skippedViewed', { n: crossed }));
     }
     return;
   }

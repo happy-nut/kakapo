@@ -109,7 +109,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "menu.fileHistory": "Show history for this file",
     // Removes every comment anchored in one file, in one action. Counted, because "clear comments" with no
     // number is a question the menu should have already answered.
-    "menu.clearComments": "Clear {n} comments in this file",
+    "menu.clearComments": "Clear {n} {{n:comment|comments}} in this file",
     // Shown while the panel waits for tmux to redraw a session that outlived the app. A spinner alone says
     // "something is happening"; this says WHAT, which is the difference between waiting and wondering.
     "notify.agentReplied": "The agent answered a review comment",
@@ -165,8 +165,8 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "monaco.implementationNotFound": "Implementation not found for “{symbol}”.",
     "monaco.typeNotFound": "No type declaration found for “{symbol}”.",
     "monaco.superNotFound": "No supertype found for “{symbol}”.",
-    "fold.imports": "Imports · {count} lines",
-    "fold.block": "{count} folded lines",
+    "fold.imports": "Imports · {count} {{count:line|lines}}",
+    "fold.block": "{count} folded {{count:line|lines}}",
     "fold.expand": "Expand folded code",
 
     // Diff view
@@ -182,6 +182,8 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "changes.empty": "No changed files",
     "diff.lastHunk": "Last change in this file — press {key} again to go to the next file.",
     "diff.firstHunk": "First change in this file — press {key} again to go to the previous file.",
+    "diff.crossedToBase": "Deleted here — base side",
+    "diff.crossedToWorking": "Working tree side",
     "diff.navEnd": "No more changes this way.",
     // Said after the caret lands, naming what the walk crossed. A reviewer ticks files off as they
     // read, so this walk routinely passes several — in silence it read as the key skipping.
@@ -230,7 +232,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "source.skipped.notEmbedded": "not included in this review",
     "comment.undoInField": "⌘Z is the text field's own undo here — move focus out of it to restore the comment.",
     "comment.restoredMany": "Comments restored",
-    "comment.clearedMany": "Cleared {n} comments",
+    "comment.clearedMany": "Cleared {n} {{n:comment|comments}}",
     // Every pane is running something, so there is nowhere to cd without interrupting an agent.
     "diff.previous": "Previous change",
     "diff.next": "Next change",
@@ -261,11 +263,14 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "compare.menu.all": "All changes",
     "compare.menu.against": "vs {ref}",
     "compare.menu.uncommitted": "Uncommitted changes",
+    "compare.menu.tip": "Against the branch tip",
     "compare.menu.target": "Compare against",
     "compare.menu.searchBranch": "Search branches",
     "compare.menu.default": "default",
+    "compare.menu.scopeLocal": "Local branches",
+    "compare.menu.scopeCount": "{n} {{n:branch|branches}}",
+    "compare.menu.scopeBack": "All of {scope}",
     "compare.menu.noBranch": "No branch matches",
-    "compare.menu.notAhead": "“{ref}” has nothing ahead of it to review — the base is unchanged.",
     "patchset.bar": "Compare base",
     "patchset.base": "Base",
     "patchset.pick": "Choose a patch set to compare against",
@@ -279,7 +284,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "patchset.allChanges": "All changes",
     "patchset.comparing": "{base} → {target}",
     "patchset.showAll": "Show the {n} patch {{n:set|sets}} folded away here",
-    "diff.contextFold": "{count} unchanged lines · expand",
+    "diff.contextFold": "{count} unchanged {{count:line|lines}} · expand",
     "diff.contextLoading": "Loading context…",
     "diff.contextUnavailable": "Context could not be loaded.",
 
@@ -301,9 +306,9 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "peek.list": "Semantic locations",
     // The noun in the peek's title. It was built by a conditional in 16-semantic-peek.js that produced
     // "definitions" / "implementations" / "usages" in English whatever the locale was.
-    "peek.definitions": "{n} definitions",
-    "peek.implementations": "{n} implementations",
-    "peek.usages": "{n} usages",
+    "peek.definitions": "{n} {{n:definition|definitions}}",
+    "peek.implementations": "{n} {{n:implementation|implementations}}",
+    "peek.usages": "{n} {{n:usage|usages}}",
     "source.viewRaw": "Raw",
     "source.viewRendered": "Rendered",
     "source.lineWrap": "Line wrap",
@@ -348,7 +353,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "findusages.placeholder": "Filter usages",
     "findusages.summary": "{n} {{n:usage|usages}} in {files} {{files:file|files}}",
     "findusages.none": "No usages of {name}.",
-    "findusages.allFiltered": "All {n} usages are hidden by the filters above.",
+    "findusages.allFiltered": "All {n} {{n:usage is|usages are}} hidden by the filters above.",
     "findusages.noncode": "Non-code usages",
     "findusages.inFile": "{name} · {n} in this file, {writes} written",
     "findusages.noneInFile": "No other usage of {name} in this file.",
@@ -401,7 +406,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     // The two toolbars, and the Group By items as IntelliJ labels them.
     "usagegroup.title": "Group by",
     // The count IntelliJ puts after a node's name — `usage.name` in UsageViewBundle is the plural.
-    "usagegroup.count": "({n} usages)",
+    "usagegroup.count": "({n} {{n:usage|usages}})",
     "usagegroup.expandAll": "Expand all",
     "usagegroup.collapseAll": "Collapse all",
     "usagefilter.title": "Show",
@@ -429,13 +434,13 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "quickdoc.fromIndex": "index",
     "problems.title": "Problems",
     "problems.placeholder": "Filter problems",
-    "problems.summary": "{n} problems ({errors} errors) in {files} files",
+    "problems.summary": "{n} {{n:problem|problems}} ({errors} {{errors:error|errors}}) in {files} {{files:file|files}}",
     "problems.scanning": "Checking {done} of {total} files…",
-    "problems.none": "No problems in this review.",
+    "problems.none": "No problems in this project.",
     "problems.noErrors": "No errors — the rest is warnings. \u2325E shows them again.",
     "problems.noneHere": "No problem on this line.",
     "problems.unavailable": "{n} not checked",
-    "problems.unavailableWhy": "{n} files have no language server, so they were not checked at all — this is not the same as being clean.",
+    "problems.unavailableWhy": "{n} {{n:file has|files have}} no language server, so {{n:it was|they were}} not checked at all — this is not the same as being clean.",
     "problems.severity.error": "error",
     "problems.severity.warning": "warning",
     "problems.severity.weak": "weak",
@@ -531,8 +536,17 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "kbd.openNewWindow": "Open in new window",
     "kbd.openSettings": "Settings",
     "kbd.openHistory": "Open / close Git history",
-    "kbd.compareMode": "All changes / uncommitted changes",
+    "kbd.compareMode": "All changes / uncommitted / against the branch tip",
     "kbd.compareRef": "Choose the branch to compare against",
+    "kbd.openPullRequest": "Open a pull request from its link",
+    "pr.placeholder": "Paste a pull request link",
+    "pr.working": "Asking gh…",
+    "pr.opened": "#{number} · {base} → {head}",
+    "pr.unreadable": "That is not a pull request link.",
+    "pr.ghMissing": "Reading a pull request needs the GitHub CLI (gh), which is not installed.",
+    "pr.ghFailed": "gh could not read that pull request: {detail}",
+    "pr.headMissing": "“{ref}” is not in this repository. Fetch it and try again — kakapo does not fetch for you.",
+    "pr.baseMissing": "“{ref}” is not in this repository. Fetch it and try again — kakapo does not fetch for you.",
     "kbd.closeDialog": "Close dialog / cancel",
     "kbd.sidebarNavigate": "Navigate / open sidebar row",
     "kbd.findNextPrev": "Next / previous match",
@@ -548,23 +562,23 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "http.noBoundary": "multipart/form-data needs a boundary — add boundary=… to the Content-Type header.",
     "http.preScriptFailed": "Pre-request script failed: {error}",
     "http.handlerFailed": "Response handler failed: {error}",
-    "http.testsPassed": "{total} tests passed",
-    "http.testsFailed": "{failed} of {total} tests failed",
+    "http.testsPassed": "{total} {{total:test|tests}} passed",
+    "http.testsFailed": "{failed} of {total} {{total:test|tests}} failed",
     "http.savedTo": "Saved to {path}",
     "http.saveFailed": "Could not save the response: {error}",
-    "http.redirects": "{count} redirects",
-    "http.cookies": "{count} cookies",
+    "http.redirects": "{count} {{count:redirect|redirects}}",
+    "http.cookies": "{count} {{count:cookie|cookies}}",
     "http.binaryBody": "{type}, {size} — not shown as text",
-    "http.runningAll": "Running {count} requests…",
-    "http.ranAll": "Ran {count} requests",
-    "http.ranAllWithFailures": "Ran {count} requests, {failed} failed",
+    "http.runningAll": "Running {count} {{count:request|requests}}…",
+    "http.ranAll": "Ran {count} {{count:request|requests}}",
+    "http.ranAllWithFailures": "Ran {count} {{count:request|requests}}, {failed} failed",
     "http.copiedCurl": "Copied the request as a cURL command",
     "http.runNoFile": "No .http file at {name}.",
     "http.runNoRequest": "No request named {name} — look in this file or one it imports.",
     "http.runLoop": "{file} is already running; a file cannot run itself.",
     "http.collection": "a collection of {count}",
     "ws.closed": "Closed",
-    "ws.messages": "{count} messages",
+    "ws.messages": "{count} {{count:message|messages}}",
     "ws.nothing": "(nothing was exchanged)",
     "kbd.pageUpDown": "Page up / down",
     "kbd.runHttp": "Run the request (.http), or draft a fix for the problem on this line",
@@ -615,7 +629,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "kbd.goToDef": "Go to definition — in the diff, open this file at the caret",
     "kbd.typeDeclaration": "Go to the declaration of this thing's TYPE",
     "kbd.fileStructure": "This file's structure — filter, then jump",
-    "kbd.nextPrevSymbol": "Next / previous symbol in this file",
+    "kbd.nextPrevSymbol": "Next / previous declaration in this file",
     "kbd.recentLocations": "Where the caret has been",
     "kbd.searchFiles": "Search files by name (add :42 for a line)",
     "kbd.findAction": "Find an action by name",
@@ -738,7 +752,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "menu.whitespace.all": "Ignore whitespace entirely",
     "menu.whitespace.cycle": "Cycle whitespace handling",
     "menu.folding": "Folding",
-    "menu.context.lines": "Keep {n} unchanged lines around a change",
+    "menu.context.lines": "Keep {n} unchanged {{n:line|lines}} around a change",
     "menu.context.wholeFile": "Show the whole file",
     "menu.window": "Window",
     "menu.closeTab": "Close Tab",
@@ -937,6 +951,8 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "changes.empty": "변경된 파일 없음",
     "diff.lastHunk": "이 파일의 마지막 변경입니다 — {key}를 한 번 더 누르면 다음 파일로 이동합니다.",
     "diff.firstHunk": "이 파일의 첫 변경입니다 — {key}를 한 번 더 누르면 이전 파일로 이동합니다.",
+    "diff.crossedToBase": "여기서 삭제됨 — 기준 쪽",
+    "diff.crossedToWorking": "작업 트리 쪽",
     "diff.navEnd": "이 방향으로는 더 이상 변경사항이 없습니다.",
     "diff.skippedViewed": "이미 확인한 파일 {n}개를 건너뛰었습니다.",
     "diff.skippedViewedOne": "이미 확인한 파일 하나를 건너뛰었습니다.",
@@ -1006,11 +1022,14 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "compare.menu.all": "모든 변경사항",
     "compare.menu.against": "{ref} 대비",
     "compare.menu.uncommitted": "커밋되지 않은 변경사항",
+    "compare.menu.tip": "브랜치 tip 기준",
     "compare.menu.target": "비교 대상",
     "compare.menu.searchBranch": "브랜치 검색",
     "compare.menu.default": "기본값",
+    "compare.menu.scopeLocal": "로컬 브랜치",
+    "compare.menu.scopeCount": "{n}개",
+    "compare.menu.scopeBack": "{scope} 전체",
     "compare.menu.noBranch": "일치하는 브랜치 없음",
-    "compare.menu.notAhead": "“{ref}” 앞에는 리뷰할 변경이 없습니다 — 기준은 그대로입니다.",
     "patchset.bar": "기준 비교",
     "patchset.base": "기준",
     "patchset.pick": "비교 기준으로 삼을 패치 세트 선택",
@@ -1162,7 +1181,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "problems.placeholder": "문제 걸러내기",
     "problems.summary": "파일 {files}개에서 {n}건 (에러 {errors}건)",
     "problems.scanning": "{total}개 중 {done}개 확인 중…",
-    "problems.none": "이 리뷰에는 문제가 없습니다.",
+    "problems.none": "이 프로젝트에는 문제가 없습니다.",
     "problems.noErrors": "에러는 없고 나머지는 경고입니다. \u2325E로 다시 봅니다.",
     "problems.noneHere": "이 줄에는 문제가 없습니다.",
     "problems.unavailable": "{n}개는 확인 못 함",
@@ -1259,8 +1278,17 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "kbd.openNewWindow": "새 창에서 열기",
     "kbd.openSettings": "설정",
     "kbd.openHistory": "Git 히스토리 열기 / 닫기",
-    "kbd.compareMode": "모든 변경사항 / 커밋되지 않은 변경사항",
+    "kbd.compareMode": "모든 변경사항 / 커밋되지 않은 변경사항 / 브랜치 tip 기준",
     "kbd.compareRef": "비교할 브랜치 고르기",
+    "kbd.openPullRequest": "링크로 풀 리퀘스트 열기",
+    "pr.placeholder": "풀 리퀘스트 링크를 붙여 넣으세요",
+    "pr.working": "gh에 묻는 중…",
+    "pr.opened": "#{number} · {base} → {head}",
+    "pr.unreadable": "풀 리퀘스트 링크가 아닙니다.",
+    "pr.ghMissing": "풀 리퀘스트를 읽으려면 GitHub CLI(gh)가 필요한데 설치돼 있지 않습니다.",
+    "pr.ghFailed": "gh가 그 풀 리퀘스트를 읽지 못했습니다: {detail}",
+    "pr.headMissing": "“{ref}”가 이 저장소에 없습니다. 받아 온 뒤 다시 시도하세요 — kakapo는 대신 fetch하지 않습니다.",
+    "pr.baseMissing": "“{ref}”가 이 저장소에 없습니다. 받아 온 뒤 다시 시도하세요 — kakapo는 대신 fetch하지 않습니다.",
     "kbd.closeDialog": "대화상자 닫기 / 취소",
     "kbd.sidebarNavigate": "사이드바 행 이동 / 열기",
     "kbd.findNextPrev": "다음 / 이전 검색 결과",
@@ -1343,7 +1371,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "kbd.goToDef": "정의로 이동 — diff에서는 캐럿이 있는 파일을 엶",
     "kbd.typeDeclaration": "이 대상의 타입이 선언된 곳으로",
     "kbd.fileStructure": "이 파일의 구조 — 걸러내고 이동",
-    "kbd.nextPrevSymbol": "이 파일의 다음 / 이전 심볼",
+    "kbd.nextPrevSymbol": "이 파일의 다음 / 이전 선언",
     "kbd.recentLocations": "커서가 지나온 자리",
     "kbd.searchFiles": "이름으로 파일 검색 (:42 로 줄 지정)",
     "kbd.findAction": "이름으로 액션 찾기",
@@ -1522,11 +1550,29 @@ export function normalizeLocale(value: unknown): Locale {
 // Main-process translator: resolves a key for `locale`, falling back to English then the key itself. {tokens}
 // are substituted from `vars` when provided — used by the native menu, native dialogs, the workspace rail and
 // the welcome screen, whose strings are built in the main process rather than carried by the viewer's data-i18n.
+/**
+ * Finish a catalog sentence: substitute `{name}` and resolve `{{n:one|many}}`, both from the same values.
+ *
+ * The main process renders the application menu, the native dialogs and the welcome screen itself, and its
+ * translator used to do only the first half. So the moment a counting string in this file grew the plural
+ * token the catalog has used since it was added — `menu.context.lines` did — the menu printed the token
+ * raw: "Keep 1 unchanged {{n:line|lines}} around a change". The viewer's guard greps src/viewer only, so
+ * nothing here would have caught it.
+ *
+ * `{{n:…}}` is English-only in effect: Korean inflects no nouns, so its values carry no such token and
+ * this is a no-op on them. The viewer's t() (01-core.js) is this function's twin — it cannot import, the
+ * catalog reaches the page as JSON — and i18n-parity drives both over the same table to keep them equal.
+ */
+export function fillMessage(text: string, vars?: Record<string, string | number>): string {
+  if (!vars) return text;
+  const chosen = text.replace(/\{\{(\w+):([^|{}]*)\|([^|{}]*)\}\}/g,
+    (_whole, name: string, one: string, many: string) => (Number(vars[name]) === 1 ? one : many));
+  // A `{name}` with no value is left standing: a visible "{symbol}" is a bug report, "undefined" is not.
+  return chosen.replace(/\{(\w+)\}/g, (whole, name: string) =>
+    (Object.prototype.hasOwnProperty.call(vars, name) ? String(vars[name]) : whole));
+}
+
 export function makeTranslator(locale: Locale): (key: string, vars?: Record<string, string | number>) => string {
   const table = MESSAGES[locale] || MESSAGES.en;
-  return (key, vars) => {
-    let text = table && key in table ? table[key] : (MESSAGES.en[key] ?? key);
-    if (vars) for (const [name, value] of Object.entries(vars)) text = text.split("{" + name + "}").join(String(value));
-    return text;
-  };
+  return (key, vars) => fillMessage(table && key in table ? table[key] : (MESSAGES.en[key] ?? key), vars);
 }

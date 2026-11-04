@@ -174,6 +174,65 @@ test("⌥↓ / ⌥↑ step between symbols, and stop at the ends", async () => {
   host.v.close();
 });
 
+test("⌥↓ steps over a function's own locals and an object literal's fields", async () => {
+  // documentSymbol is not a list of declarations, and the servers that ship here send the flat
+  // SymbolInformation[] shape, which puts a function's local constants and an object literal's keys at the
+  // same level as the function itself. Walking all of it measured 557 stops in src/shortcuts.ts — 538 of
+  // them fields of the entries in one array — against 11 declarations in that file. So the noise rows below
+  // are the fixture's point: a stop on any of them is the bug.
+  const host = await openSource({
+    symbols: [
+      { name: "Store", kind: "class", detail: "class Store", lineIndex: 2, column: 13, endLineIndex: 9, depth: 0 },
+      { name: "load", kind: "method", detail: "load(): number", lineIndex: 3, column: 2, endLineIndex: 5, depth: 1 },
+      // Inside load(). A value, nested: nothing a reader steps TO.
+      { name: "total", kind: "constant", detail: "const total: number", lineIndex: 4, column: 10, endLineIndex: 4, depth: 2 },
+      { name: "save", kind: "method", detail: "save(): number", lineIndex: 6, column: 2, endLineIndex: 8, depth: 1 },
+      // A key of an object literal being returned — the 538 kind.
+      { name: "retries", kind: "property", detail: "retries: number", lineIndex: 7, column: 4, endLineIndex: 7, depth: 2 },
+      { name: "helper", kind: "function", detail: "helper(): Store", lineIndex: 11, column: 16, endLineIndex: 13, depth: 0 },
+    ],
+  });
+  await press(host, { key: "ArrowDown", code: "ArrowDown", altKey: true }); // warm the structure
+  await host.v.settle(40);
+
+  const walked = [];
+  host.v.window.setSourceCursor(FILE, 0, 0, true, -1);
+  for (let i = 0; i < 4; i += 1) {
+    await press(host, { key: "ArrowDown", code: "ArrowDown", altKey: true });
+    walked.push(caretAt(host));
+  }
+  // Store (line 3), load (4), save (7), helper (12) — and then the end, which declines and leaves the caret.
+  assert.deepEqual(walked, [`${FILE}:3`, `${FILE}:4`, `${FILE}:7`, `${FILE}:12`],
+    "the walk stopped on a local constant or an object field");
+  host.v.close();
+});
+
+test("a top-level declaration is a stop whatever kind the server calls it", async () => {
+  // The other half, and the reason kind alone is not the rule. A TypeScript `export type` comes back as
+  // `variable` and a module-level table as `constant` — measured against the real tsserver on
+  // src/watch-decision.ts (WatchTickDecision) and src/shortcuts.ts (SHORTCUTS, MENU_OWNED_CHORDS). They are
+  // a file's landmarks; filtering on kind would have dropped exactly them.
+  const host = await openSource({
+    symbols: [
+      { name: "StoreShape", kind: "variable", detail: "type StoreShape", lineIndex: 2, column: 13, endLineIndex: 2, depth: 0 },
+      { name: "DEFAULTS", kind: "constant", detail: "const DEFAULTS", lineIndex: 6, column: 6, endLineIndex: 6, depth: 0 },
+      { name: "nested", kind: "constant", detail: "const nested", lineIndex: 7, column: 4, endLineIndex: 7, depth: 1 },
+    ],
+  });
+  await press(host, { key: "ArrowDown", code: "ArrowDown", altKey: true });
+  await host.v.settle(40);
+
+  const walked = [];
+  host.v.window.setSourceCursor(FILE, 0, 0, true, -1);
+  for (let i = 0; i < 2; i += 1) {
+    await press(host, { key: "ArrowDown", code: "ArrowDown", altKey: true });
+    walked.push(caretAt(host));
+  }
+  assert.deepEqual(walked, [`${FILE}:3`, `${FILE}:7`],
+    "a type alias or a module-level table was skipped, or a nested value was stepped to");
+  host.v.close();
+});
+
 test("⌘⇧E lists where the caret has been, newest first, marking where it is now", async () => {
   const host = await openSource();
   host.v.window.setSourceCursor(FILE, 3, 2, true, -1);

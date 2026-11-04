@@ -10,6 +10,12 @@
 
 var compareMenuState = null; // last { mode, ref, defaultRef, pinned, branches[] } from main
 var compareMenuBranchFilter = '';
+// Which set of refs the branch panel is listing: null while it is asking WHICH set, otherwise 'local' or a
+// remote's name. `listBranches` hands over local refs and then every remote-tracking one in a single list,
+// up to 600 of them, and `main` and `origin/main` sit in it as two unrelated rows — which is correct (they
+// are different commits the moment either side moves) and unreadable. Asking where first turns one long
+// list into two short ones, and makes the distinction the list could not express into the question.
+var compareMenuBranchScope = null;
 
 /**
  * Put the two refs into the pill's own tooltip.
@@ -85,19 +91,88 @@ function renderCompareMenu() {
   renderCompareBranchList();
 }
 
+// 'local', or the name of the remote the ref belongs to.
+//
+// Against the repository's actual remote list, never against the slash. The first version of this read
+// everything before the first slash as a remote, which made `feature/dropdown` — a local branch, and the
+// way most branches are named — a remote called "feature". The main process enumerates refs/heads and
+// refs/remotes separately and then flattens the two into one list, so the distinction has to be carried
+// over (compareMenuState.remotes) rather than recovered from the string, which cannot hold it.
+function branchScopeOf(name) {
+  var remotes = (compareMenuState && compareMenuState.remotes) || [];
+  for (var i = 0; i < remotes.length; i += 1) {
+    if (name.indexOf(remotes[i] + '/') === 0) return remotes[i];
+  }
+  return 'local';
+}
+
+// The scopes present in THIS repository, local first, then remotes in the order the list mentions them.
+// Derived rather than assumed: a repository can have no remote, or three, and "origin" is a convention.
+function compareBranchScopes() {
+  var seen = {};
+  var out = [];
+  (compareMenuState && compareMenuState.branches || []).forEach(function (name) {
+    var scope = branchScopeOf(name);
+    if (seen[scope]) { seen[scope].count += 1; return; }
+    seen[scope] = { name: scope, count: 1 };
+    out.push(seen[scope]);
+  });
+  return out.sort(function (a, b) {
+    if (a.name === 'local') return -1;
+    if (b.name === 'local') return 1;
+    return 0;
+  });
+}
+
+function compareScopeLabel(scope) {
+  return scope === 'local' ? t('compare.menu.scopeLocal') : scope;
+}
+
+// The rows that ask WHICH set. One scope is not a question — a repository with no remote goes straight to
+// its branches rather than making the reader confirm the only answer there is.
+function renderCompareScopeRows(list, scopes) {
+  list.innerHTML = scopes.map(function (scope) {
+    return '<button type="button" class="compare-branch-item compare-branch-scope" role="option"'
+      + ' aria-selected="false" data-scope="' + escapeHtml(scope.name) + '">'
+      + '<span class="compare-branch-name">' + escapeHtml(compareScopeLabel(scope.name)) + '</span>'
+      + '<span class="compare-branch-note">' + escapeHtml(t('compare.menu.scopeCount', { n: scope.count })) + '</span>'
+      + '<span class="compare-menu-chevron" aria-hidden="true">\u203a</span>'
+      + '</button>';
+  }).join('');
+}
+
 function renderCompareBranchList() {
   var list = document.getElementById('compare-branch-list');
   if (!list || !compareMenuState) return;
   var needle = compareMenuBranchFilter.toLowerCase();
   var activeRef = compareMenuActiveRef();
+  var scopes = compareBranchScopes();
+  // A typed query searches every scope and goes straight to the matches. The step is there to shorten a
+  // list, and a reader who already knows the name does not need it shortened — made to pick a side first,
+  // they would be made to guess which side holds the branch they can already spell.
+  if (!needle && compareMenuBranchScope === null && scopes.length > 1) {
+    renderCompareScopeRows(list, scopes);
+    return;
+  }
   var branches = (compareMenuState.branches || []).filter(function (name) {
-    return !needle || name.toLowerCase().indexOf(needle) >= 0;
+    if (needle) return name.toLowerCase().indexOf(needle) >= 0;
+    if (compareMenuBranchScope === null) return true; // the single-scope repository above
+    return branchScopeOf(name) === compareMenuBranchScope;
   });
   if (!branches.length) {
     list.innerHTML = '<div class="compare-branch-empty">' + escapeHtml(t('compare.menu.noBranch')) + '</div>';
     return;
   }
-  list.innerHTML = branches.map(function (name) {
+  // Back out of a scope the same way you came in. A row rather than a corner affordance because the panel is
+  // driven by arrow keys, and `compareMenuRows()` collects `.compare-branch-item` — so this is reachable
+  // from the keyboard by being built the same as everything else here, not by a second mechanism.
+  var back = !needle && compareMenuBranchScope !== null && scopes.length > 1
+    ? '<button type="button" class="compare-branch-item compare-branch-back" role="option" aria-selected="false" data-back="1">'
+      + '<span class="compare-menu-chevron" aria-hidden="true">\u2039</span>'
+      + '<span class="compare-branch-name">' + escapeHtml(t('compare.menu.scopeBack', { scope: compareScopeLabel(compareMenuBranchScope) })) + '</span>'
+      + '</button>'
+    : '';
+  list.innerHTML = back + branches.map(function (name) {
     var current = !!activeRef && name === activeRef;
     // The repository's own default is worth marking: it is the answer you get back by picking nothing, and
     // without the mark a list of thirty branches gives no clue which one that is.
@@ -130,8 +205,20 @@ function showCompareBranchPanel(show) {
   if (opener) opener.setAttribute('aria-expanded', show ? 'true' : 'false');
   if (!show) { positionCompareMenu(); return; }
   compareMenuBranchFilter = '';
+  compareMenuBranchScope = null; // every open asks where again; a remembered side is a stale answer
   var search = document.getElementById('compare-branch-search');
   if (search) { search.value = ''; setTimeout(function () { search.focus(); }, 0); }
+  renderCompareBranchList();
+  positionCompareMenu();
+}
+
+// Move between the two stages. The search box keeps the keyboard: it is where typing goes while this panel
+// is up, and taking focus to a row would make the next keystroke navigate instead of filter.
+function enterCompareBranchScope(scope) {
+  compareMenuBranchScope = scope;
+  compareMenuBranchFilter = '';
+  var search = document.getElementById('compare-branch-search');
+  if (search) { search.value = ''; search.focus(); }
   renderCompareBranchList();
   positionCompareMenu();
 }
@@ -178,7 +265,9 @@ function refreshCompareMenu() {
 // for "uncommitted" — where it sets the base to HEAD and the ref is not consulted at all — so appending it
 // there announced a baseline this diff is not measured against.
 function announceCompareMode(settled, ref) {
-  var against = settled === 'all' ? (ref || '') : '';
+  // Both of the modes that are measured against a branch name it. "Uncommitted" is measured against HEAD,
+  // which is not a branch and not worth saying.
+  var against = (settled === 'all' || settled === 'tip') ? (ref || '') : '';
   showToast(t('compare.menu.' + settled)
     + (against ? ' · ' + t('compare.menu.against').replace('{ref}', against) : ''));
 }
@@ -238,12 +327,10 @@ function applyCompareMode(mode, ref, announce) {
       renderCompareMenu();
     } else if (!res || !res.ok) {
       restore();
-      // A refusal with a name gets a sentence. The one that happens is picking the branch you are on,
-      // which has nothing ahead of it to review — said plainly, because the alternative is a click that
-      // appears to do nothing, which is what this whole branch exists to stop being.
-      if (res && res.error === 'compare-ref-not-ahead') {
-        showToast(t('compare.menu.notAhead').replace('{ref}', patchSetShortRef(res.ref || ref || '')));
-      }
+      // Nothing to say by name any more. The one refusal that used to arrive here was
+      // "compare-ref-not-ahead", for a ref holding commits HEAD does not have — which is now an ordinary
+      // comparison and not a refusal at all (see set-compare-mode). What is left is a git failure, and the
+      // restore above is the whole answer to one: the review stays where it was.
     }
     // The menu shows the tick; the keyboard shows nothing, and what it changed is not a small thing. The
     // resolved answer rather than the asked-for one: `--base main` is served from origin/main whenever the
@@ -327,7 +414,10 @@ function handleCompareMenuKey(event) {
   }
   // Typing goes to the branch filter whenever that panel is up, even from a focused row.
   if (event.key === 'Enter' && document.activeElement && document.activeElement.id === 'compare-branch-search') {
-    var first = document.querySelector('.compare-branch-item');
+    // `[data-ref]`, not the first item: with the stage rows in the same list and the same class, the first
+    // `.compare-branch-item` can be a scope or the back row, and Enter would have called applyCompareMode
+    // with a null ref — which reads as "pick the default" and silently changes the review.
+    var first = document.querySelector('.compare-branch-item[data-ref]');
     if (first) { event.preventDefault(); applyCompareMode('all', first.getAttribute('data-ref')); }
     return true;
   }
@@ -349,6 +439,11 @@ function initCompareMenu() {
       if (compareMenuOpen()) closeCompareMenu(); else openCompareMenu();
       return;
     }
+    // The two stage rows come first: they re-render the panel rather than picking anything, so they must
+    // not fall through to the data-ref case, and a scope row carries no data-ref to fall through WITH.
+    var scopeRow = event.target.closest('.compare-branch-item[data-scope]');
+    if (scopeRow) { enterCompareBranchScope(scopeRow.getAttribute('data-scope')); return; }
+    if (event.target.closest('.compare-branch-item[data-back]')) { enterCompareBranchScope(null); return; }
     var branch = event.target.closest('.compare-branch-item[data-ref]');
     if (branch) { applyCompareMode('all', branch.getAttribute('data-ref')); return; }
     var opener = event.target.closest('.compare-menu-branch-open');

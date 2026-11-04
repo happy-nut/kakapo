@@ -60,19 +60,75 @@ test("a deletion-only block inside a hunk that also edits is a change block", as
   v.close();
 });
 
-test("F7 lands on deleted lines and then on the edit below them", async () => {
+test("stepping stays in the pane the reader is in, deletion or not", async () => {
+  // IntelliJ's policy, read off its source rather than guessed. SimpleDiffChangesHolder.getValidChanges
+  // puts the SAME change list in both sides (the side only sorts it), so a deletion is a stop whichever
+  // pane you are in; MyPrevNextDifferenceIterable then reads getCurrentSide() throughout, and
+  // scrollToChange moves both editors' carets without ever calling setCurrentSide — that belongs to the
+  // explicit "focus opposite pane" action. So the caret does not change pane on F7, ever.
+  //
+  // This file used to assert the opposite ("work:line 13"), because kakapo preferred the working-tree side
+  // and fell back to the base one. The fallback made the caret cross the gutter uninvited, which is what
+  // it was reported as.
   const v = await loadViewer(html);
   await v.openDiffFor("src/b-del-and-edit.ts");
   await v.settle(140);
-  assert.equal(caret(v), "base:line 10", "entering the file lands on the first change, which is the deletion");
+  // The deletion is still the first stop — what changed is only where the caret stands for it: the
+  // working-tree line the removed text collapsed onto.
+  assert.equal(caret(v), "work:line 13", "the file opens on its first change, in the working-tree pane");
 
   v.key("F7");
   await v.settle(140);
-  assert.equal(caret(v), "work:line 20 EDITED", "F7 steps forward to the edit in the same hunk");
+  assert.equal(caret(v), "work:line 20 EDITED", "forward to the edit, same pane");
 
   v.key("F7", { shiftKey: true });
   await v.settle(140);
-  assert.equal(caret(v), "base:line 10", "Shift+F7 comes back to the deletion");
+  assert.equal(caret(v), "work:line 13", "and back to the deletion, still the same pane");
+  v.close();
+});
+
+test("a step always moves, including back off a collapsed deletion", async () => {
+  // The caret no longer stands at the anchor's own row: a deletion parks it several rows later, on the
+  // working-tree line the removed text collapsed onto. Any comparison of "is there a change before me"
+  // that still measured the ANCHOR against the CARET then found the block the caret was already standing
+  // for, so Shift+F7 stepped to where it already was and the walk stopped dead there. Every anchor is
+  // compared at the row it would park on, and this is the assertion that says so: a press moves, or the
+  // caret has left the file.
+  const v = await loadViewer(html);
+  await v.openDiffFor("src/b-del-and-edit.ts");
+  await v.settle(140);
+  const start = caret(v);
+  assert.equal(start, "work:line 13", "parked on the line the deletion collapsed onto");
+
+  v.key("F7");
+  await v.settle(140);
+  const forward = caret(v);
+  assert.notEqual(forward, start, "forward moved");
+
+  v.key("F7", { shiftKey: true });
+  await v.settle(140);
+  assert.equal(caret(v), start, "and back again");
+
+  // The press that used to stall: backward from the collapsed position. It has no earlier change in this
+  // file, so it must announce the boundary rather than silently landing on itself.
+  v.key("F7", { shiftKey: true });
+  await v.settle(140);
+  assert.ok(caret(v) !== start || hint(v) !== "",
+    "the press either moved the caret or said why it did not");
+  v.close();
+});
+
+test("the deletion is still a stop — only the pane the caret stands in changed", async () => {
+  // The half that must not regress. Reading both sides for the ANCHORS is what makes a run of deleted
+  // lines inside an otherwise-edited hunk reachable at all: with twelve lines of context one @@ routinely
+  // holds several edits, and scanning the working-tree side alone meant F7 could walk a whole review
+  // without once stopping at deleted code.
+  const v = await loadViewer(html);
+  await v.openDiffFor("src/b-del-and-edit.ts");
+  await v.settle(140);
+  const wrapper = v.$('.d2h-file-wrapper:not(.df-inactive)');
+  assert.equal(Array.from(v.window.changeBlockAnchors(wrapper)).length, 2,
+    "the deleted run and the edit are two stops, as they were");
   v.close();
 });
 
@@ -80,12 +136,12 @@ test("Shift+F7 enters the previous file at its last change, not its first", asyn
   const v = await loadViewer(html);
   await v.openDiffFor("src/b-del-and-edit.ts");
   await v.settle(140);
-  assert.equal(caret(v), "base:line 10", "at the first change of the second file");
+  assert.equal(caret(v), "work:line 13", "at the first change of the second file");
 
   v.key("F7", { shiftKey: true }); // first press announces the file boundary
   await v.settle(140);
   assert.match(hint(v), /⇧F7/, "the boundary announcement fires backward too, naming the table's chord");
-  assert.equal(caret(v), "base:line 10", "and the announcing press does not move the caret");
+  assert.equal(caret(v), "work:line 13", "and the announcing press does not move the caret");
 
   v.key("F7", { shiftKey: true }); // second press crosses
   await v.settle(200);
@@ -117,7 +173,7 @@ test("walking the review forward and backward visits the same changes", async ()
   const backward = await walk(true);
   assert.deepEqual(
     forward,
-    ["work:line 5 EDITED", "work:line 9 EDITED", "base:line 10", "work:line 20 EDITED"],
+    ["work:line 5 EDITED", "work:line 9 EDITED", "work:line 13", "work:line 20 EDITED"],
     "forward visits every change block in both files",
   );
   assert.deepEqual(backward.slice().reverse(), forward, "backward visits exactly the same ones");

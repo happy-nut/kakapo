@@ -159,8 +159,8 @@ function coachShow(hint, kind) {
   if (!label) return false;
   var obs = kind === 'rusty'
     ? (function () { var w = Math.max(1, Math.round((Date.now() - entry.last) / (7 * 24 * 60 * 60 * 1000)));
-        return plural(t('coach.rusty'), { w: w }).replace('{w}', String(w)); })()
-      + ' · ' + t('coach.nudgeCount').replace('{n}', String(entry.nudges + 1))
+        return t('coach.rusty', { w: w }); })()
+      + ' · ' + t('coach.nudgeCount', { n: entry.nudges + 1 })
     : t('coach.observed');
   coachBox.querySelector('.coach-obs').textContent = obs;
   coachBox.querySelector('.coach-keys').innerHTML = coachKeysHtml(hint);

@@ -22,6 +22,10 @@ function installCompareBridge(v, state = {}) {
     ref: "origin/main",
     defaultRef: "origin/main",
     branches: ["main", "origin/main", "feature/dropdown", "origin/release-1"],
+    // `feature/dropdown` is a LOCAL branch with a slash in it. Without this list the panel reads the text
+    // before the slash as a remote and invents a third side called "feature" — which is what the first
+    // version of the scope split did, and what the assertion on the stage rows below caught.
+    remotes: ["origin"],
     ...state,
   };
   v.window.kakapoGit = {
@@ -43,10 +47,33 @@ test("the pill opens a menu that marks the mode the review is actually in", asyn
 
   assert.equal(v.$("#compare-menu").classList.contains("hidden"), false, "the menu opened");
   const rows = v.$all("#compare-menu .compare-menu-row[data-mode]");
-  assert.deepEqual(rows.map((r) => r.dataset.mode), ["all", "uncommitted"]);
+  // Three questions the control answers: what this branch has done since it left another (a merge-base),
+  // what is not committed yet (HEAD), and how this tree differs from a branch's tip (the ref itself).
+  assert.deepEqual(rows.map((r) => r.dataset.mode), ["all", "uncommitted", "tip"]);
   assert.equal(rows[1].getAttribute("aria-checked"), "true", "the row the review is on is the checked one");
-  assert.equal(rows[0].getAttribute("aria-checked"), "false");
+  assert.deepEqual(rows.filter((r) => r.getAttribute("aria-checked") === "true").map((r) => r.dataset.mode),
+    ["uncommitted"], "exactly one row is checked");
   assert.match(v.$("#compare-menu-against").textContent, /origin\/main/, "the 'all' row names what it compares against");
+  v.close();
+});
+
+test("the tip row is the checked one when that is the question the review is asking", async () => {
+  // Tip mode cannot be told from "all" by looking at base/baseLabel — the ref sits under its own name in
+  // both whenever it is an ancestor of HEAD — so main reports it from the flag its own writer set
+  // (state.compareTip). A wrong tick here is a reader sent off to read a different diff than they think.
+  const v = await loadViewer(html);
+  const calls = installCompareBridge(v, { mode: "tip", ref: "origin/main", defaultRef: "origin/main", pinned: true });
+
+  v.$("#compare-pill").dispatchEvent(new v.window.MouseEvent("click", { bubbles: true }));
+  await v.settle(30);
+  const rows = v.$all("#compare-menu .compare-menu-row[data-mode]");
+  assert.deepEqual(rows.filter((r) => r.getAttribute("aria-checked") === "true").map((r) => r.dataset.mode),
+    ["tip"], "the tip row, and only it");
+
+  // And picking it carries no ref of its own: the branch is whatever the picker already recorded.
+  v.$('#compare-menu .compare-menu-row[data-mode="all"]').dispatchEvent(new v.window.MouseEvent("click", { bubbles: true }));
+  await v.settle(30);
+  assert.deepEqual(calls, [["all", null]], "switching away from tip reaches main as its own mode");
   v.close();
 });
 
@@ -64,7 +91,20 @@ test("picking a row switches the mode and closes the menu", async () => {
   v.close();
 });
 
-test("the branch panel filters as you type and a pick carries the branch", async () => {
+// Reach a branch row by name. The panel opens on the scope question (local / origin), and typing is the
+// way past it — for a reader who can already spell the branch, and for a test whose subject is what a PICK
+// does rather than how the list is reached. The stages themselves are covered by the test below.
+async function openBranchNamed(v, query) {
+  v.$(".compare-menu-branch-open").dispatchEvent(new v.window.MouseEvent("click", { bubbles: true }));
+  await v.settle(30);
+  v.typeInto(v.$("#compare-branch-search"), query);
+  await v.settle(20);
+}
+
+test("the branch panel asks which side first, then lists that side", async () => {
+  // `listBranches` hands over local refs and then every remote-tracking one in ONE list — `main` and
+  // `origin/main` as two unrelated rows, correctly (they are different commits the moment either side
+  // moves) and unreadably, up to 600 of them. So the panel asks where before it lists anything.
   const v = await loadViewer(html);
   const calls = installCompareBridge(v);
 
@@ -73,15 +113,36 @@ test("the branch panel filters as you type and a pick carries the branch", async
   v.$(".compare-menu-branch-open").dispatchEvent(new v.window.MouseEvent("click", { bubbles: true }));
   await v.settle(20);
 
-  const names = () => v.$all("#compare-branch-list .compare-branch-item").map((b) => b.dataset.ref);
-  assert.deepEqual(names(), ["main", "origin/main", "feature/dropdown", "origin/release-1"]);
-  // The repository default is marked, so a long list still says which branch you get by choosing nothing.
-  const marked = v.$all("#compare-branch-list .compare-branch-item").filter((b) => b.querySelector(".compare-branch-note"));
-  assert.deepEqual(marked.map((b) => b.dataset.ref), ["origin/main"]);
+  const rows = () => v.$all("#compare-branch-list .compare-branch-item");
+  const scopes = () => rows().map((b) => b.dataset.scope).filter(Boolean);
+  const names = () => rows().map((b) => b.dataset.ref).filter(Boolean);
 
+  assert.deepEqual(scopes(), ["local", "origin"], "the first stage is the two sides, local first");
+  assert.deepEqual(names(), [], "and nothing is listed yet");
+  // The count is what makes the row worth reading rather than a label you have to open to size up.
+  assert.match(rows()[0].querySelector(".compare-branch-note").textContent, /2/,
+    "the local row says how many it holds");
+
+  rows()[1].dispatchEvent(new v.window.MouseEvent("click", { bubbles: true })); // origin
+  await v.settle(20);
+  assert.deepEqual(names(), ["origin/main", "origin/release-1"],
+    "the second stage is that side only — a local branch here would be the flat list again");
+  // The repository default is marked, so a long list still says which branch you get by choosing nothing.
+  assert.deepEqual(rows().filter((b) => b.querySelector(".compare-branch-note")).map((b) => b.dataset.ref),
+    ["origin/main"]);
+
+  v.$("#compare-branch-list .compare-branch-item[data-back]")
+    .dispatchEvent(new v.window.MouseEvent("click", { bubbles: true }));
+  await v.settle(20);
+  assert.deepEqual(scopes(), ["local", "origin"], "back returns to the question");
+
+  // Typing crosses both sides and skips the stage: a reader who can spell the branch should not have to
+  // guess which side holds it.
   v.typeInto(v.$("#compare-branch-search"), "feat");
   await v.settle(20);
-  assert.deepEqual(names(), ["feature/dropdown"], "the list narrows to the typed text");
+  assert.deepEqual(names(), ["feature/dropdown"], "the list narrows to the typed text, from any side");
+  assert.deepEqual(v.$all("#compare-branch-list .compare-branch-item[data-back]"), [],
+    "and a search result has no side to go back to");
 
   v.$('#compare-branch-list .compare-branch-item[data-ref="feature/dropdown"]')
     .dispatchEvent(new v.window.MouseEvent("click", { bubbles: true }));
@@ -247,8 +308,7 @@ test("picking the branch the review already defaults to records the choice", asy
 
   v.$("#compare-pill").dispatchEvent(new v.window.MouseEvent("click", { bubbles: true }));
   await v.settle(30);
-  v.$(".compare-menu-branch-open").dispatchEvent(new v.window.MouseEvent("click", { bubbles: true }));
-  await v.settle(30);
+  await openBranchNamed(v, "origin/main");
   const marked = v.$all(".compare-branch-item").find((b) => b.dataset.ref === "origin/main");
   assert.ok(marked, "the default branch is in the list");
   marked.dispatchEvent(new v.window.MouseEvent("click", { bubbles: true }));
@@ -267,8 +327,7 @@ test("picking the branch already recorded is still screened from the rebuild", a
 
   v.$("#compare-pill").dispatchEvent(new v.window.MouseEvent("click", { bubbles: true }));
   await v.settle(30);
-  v.$(".compare-menu-branch-open").dispatchEvent(new v.window.MouseEvent("click", { bubbles: true }));
-  await v.settle(30);
+  await openBranchNamed(v, "origin/main");
   const marked = v.$all(".compare-branch-item").find((b) => b.dataset.ref === "origin/main");
   marked.dispatchEvent(new v.window.MouseEvent("click", { bubbles: true }));
   await v.settle(30);
@@ -286,16 +345,14 @@ test("the optimistic pin does not screen a pick of a different branch", async ()
 
   v.$("#compare-pill").dispatchEvent(new v.window.MouseEvent("click", { bubbles: true }));
   await v.settle(30);
-  v.$(".compare-menu-branch-open").dispatchEvent(new v.window.MouseEvent("click", { bubbles: true }));
-  await v.settle(30);
+  await openBranchNamed(v, "origin/main");
   v.$all(".compare-branch-item").find((b) => b.dataset.ref === "origin/main")
     .dispatchEvent(new v.window.MouseEvent("click", { bubbles: true }));
   await v.settle(30);
 
   v.$("#compare-pill").dispatchEvent(new v.window.MouseEvent("click", { bubbles: true }));
   await v.settle(30);
-  v.$(".compare-menu-branch-open").dispatchEvent(new v.window.MouseEvent("click", { bubbles: true }));
-  await v.settle(30);
+  await openBranchNamed(v, "feature/dropdown");
   const other = v.$all(".compare-branch-item").find((b) => b.dataset.ref === "feature/dropdown");
   assert.ok(other, "a second branch is in the list");
   other.dispatchEvent(new v.window.MouseEvent("click", { bubbles: true }));

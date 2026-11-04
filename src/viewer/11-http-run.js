@@ -323,15 +323,15 @@ async function runHttpFile() {
   const path = httpOpenPath();
   const requests = httpRequestsByPath.get(path);
   if (!path || !requests || !requests.length) return;
-  showToast(t('http.runningAll').replace('{count}', String(requests.length)));
+  showToast(t('http.runningAll', { count: requests.length }));
   let failures = 0;
   for (let i = 0; i < requests.length; i++) {
     const result = await runHttpRequest(i, path);
     if (!result || !result.ok) failures += 1;
   }
   showToast(failures
-    ? t('http.ranAllWithFailures').replace('{count}', String(requests.length)).replace('{failed}', String(failures))
-    : t('http.ranAll').replace('{count}', String(requests.length)));
+    ? t('http.ranAllWithFailures', { count: requests.length, failed: failures })
+    : t('http.ranAll', { count: requests.length }));
 }
 
 /**
@@ -495,7 +495,7 @@ async function runHttpRunDirective(request, path, target, fail) {
   if (target) {
     target.className = 'http-response loading';
     target.innerHTML = kakapoLoaderHtml('kakapo-loader-inline') + '<span class="http-loading-copy">'
-      + escapeHtml(t('http.runningAll').replace('{count}', String(found.requests.length))) + '</span>';
+      + escapeHtml(t('http.runningAll', { count: found.requests.length })) + '</span>';
   }
   httpRunStack.push(found.path);
   const outcomes = [];
@@ -526,7 +526,7 @@ async function runHttpCollection(request, path, reqIndex, target, fail, log, ite
   if (target) {
     target.className = 'http-response loading';
     target.innerHTML = kakapoLoaderHtml('kakapo-loader-inline') + '<span class="http-loading-copy">'
-      + escapeHtml(t('http.runningAll').replace('{count}', String(iterations))) + '</span>';
+      + escapeHtml(t('http.runningAll', { count: iterations })) + '</span>';
   }
   for (let at = 0; at < iterations; at++) {
     const scope = httpScope(path, reqIndex);
@@ -558,6 +558,6 @@ async function runHttpCollection(request, path, reqIndex, target, fail, log, ite
       status: result && result.status,
     });
   }
-  if (target) renderHttpRunSummary(target, t('http.collection').replace('{count}', String(iterations)), outcomes);
+  if (target) renderHttpRunSummary(target, t('http.collection', { count: iterations }), outcomes);
   return outcomes[outcomes.length - 1];
 }

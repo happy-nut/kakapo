@@ -4,6 +4,7 @@ import type { AutomaticReviewBase } from "./git.js";
 import type { CompareState, DiffReviewBuild, WhitespaceMode } from "./types.js";
 import { isGitRepository, git, resolveAutomaticReviewBase } from "./git.js";
 import { collectHttpEnvironments, collectReviewFileStates, collectSourceFiles, parseUnifiedDiff, readUnifiedDiff } from "./diff.js";
+import { reviewDiffSignature } from "./review-bodies.js";
 import { readProjectLayout } from "./project-layout.js";
 import { detectBaseDivergence } from "./git-conflicts.js";
 import { renderDiff2Html, type SourceTextLookup } from "./highlight.js";
@@ -87,6 +88,10 @@ export function buildDiffReview(input: {
     : undefined;
   const reviewBase = input.base ?? automaticBase?.revision;
   const reviewTarget = input.target ?? automaticBase?.target;
+  // Read here, between the base resolving and the diff: the watch baseline has to name the tree THIS review
+  // is about to render. Taken any later and a write that lands while the build runs is absorbed into the
+  // baseline without ever being drawn — the watcher then compares equal and sleeps on it for good.
+  const watchSignature = reviewDiffSignature({ ...input, root, ignoreWhitespace: Boolean(input.ignoreWhitespace) }, reviewBase, automaticBase?.upstream);
   const compare = resolveCompareState(input, automaticBase);
   const diffText = readUnifiedDiff({
     base: reviewBase,
@@ -223,6 +228,7 @@ export function buildDiffReview(input: {
     reviewBase,
     reviewTarget,
     reviewUpstream: automaticBase?.upstream,
+    watchSignature,
     lazyBodies: lazyLoad ? [] : diffSplit.bodies,
     lazyBodyDiffs,
     lazySourceData: lazyLoad && !input.app ? JSON.stringify(sourceFiles) : undefined,

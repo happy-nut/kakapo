@@ -245,7 +245,7 @@ var CODE_VISION_LINE_MAX = 3;
 function codeVisionLineText(titles) {
   if (titles.length <= CODE_VISION_LINE_MAX) return titles.join(' · ');
   return titles.slice(0, CODE_VISION_LINE_MAX).join(' · ')
-    + ' · ' + t('vision.more').replace('{n}', String(titles.length - CODE_VISION_LINE_MAX));
+    + ' · ' + t('vision.more', { n: titles.length - CODE_VISION_LINE_MAX });
 }
 
 /** One pass over the rendered rows: the lens lines above, the hint labels inside. */

@@ -704,3 +704,48 @@ test("the history graph can never squeeze the commit out of its own row", () => 
   assert.match(ruleDeclaring(".hgraph-cell", "overflow"), /overflow:\s*hidden/,
     "and must clip rather than overflow once it has shrunk");
 });
+
+// Two row templates whose column count has to match the children the viewer paints into them.
+//
+// The Problems list (⌘6) paints three — severity mark, message, severity badge — into `.quick-open-item`,
+// whose own template is the Quick Open file row's two columns. The mark took the `1fr` column and grew to
+// 450px, the message started at x=467, and the badge wrapped onto a second line: measured 957x45 for one
+// line of text, in a list of twenty-five.
+test("the Problems row has a template for the three things it paints", () => {
+  // Compound selector, deliberately. `.quick-open-item` declares the two-column file-row template 700
+  // lines further down, and at equal specificity the later rule wins — so the first version of this fix
+  // sat in the stylesheet, passed a guard that only looked for the declaration, and changed nothing.
+  // Measured in the running app: rule present, computed value still `460.125px 470.875px`.
+  const row = ruleDeclaring(".quick-open-item.problem-result", "grid-template-columns");
+  assert.ok(row, "the Problems template is declared on a selector that outranks .quick-open-item");
+  assert.match(row, /grid-template-columns:\s*auto\s+minmax\(0,\s*1fr\)\s+auto/,
+    "mark | message | badge, with only the message taking the slack");
+  // And nowhere does a bare `.problem-result` try to declare it — that is the version that loses.
+  for (const body of ruleBodiesForExactSelector(".problem-result")) {
+    assert.doesNotMatch(body, /grid-template-columns/,
+      "a bare .problem-result cannot win against the later .quick-open-item rule");
+  }
+
+  const insight = readFileSync(new URL("../src/viewer/18-code-insight.js", import.meta.url), "utf8");
+  const template = /class="quick-open-item problem-result[\s\S]*?<\/button>/.exec(insight);
+  assert.ok(template, "the Problems row is still built here");
+  const children = (template[0].match(/\+ '<span class="(problem-mark|quick-open-main|quick-open-badge)"/g) || []).length;
+  assert.equal(children, 3, "three top-level children, which is what the template above declares");
+});
+
+// A filename is two facts and tail-ellipsis destroys the second: `navigation-failure.te…` is not the name
+// and not the type. leafNameHtml emits the base name and the extension chain separately so only the base
+// name shrinks — and the tail then carried `max-width: 50%`, which clipped the tail instead on any name
+// that is mostly extension. `views.test.mjs` is 64% extension, so it rendered "views.test…." 9px short of
+// fitting: the one outcome the split exists to prevent.
+test("the extension chain keeps its width and the base name is what shrinks", () => {
+  const tail = ruleDeclaring(".tree .path-tail", "max-width");
+  assert.ok(tail, "the tail still caps its width");
+  // Both terms, and measured: a flat share clipped `views.test.mjs` in a narrow row, and a flat character
+  // count clipped `map.architecture.json` in a wide one. Either alone is a cap that fails somewhere.
+  assert.match(tail, /max-width:\s*max\(\s*\d+ch\s*,\s*\d+%\s*\)/,
+    "at least a dozen characters for the type, and half the row when half the row is more");
+  const head = ruleDeclaring(".tree .path-head", "text-overflow");
+  assert.match(head || "", /min-width:\s*0/, "and the base name is the one allowed to shrink to nothing");
+  assert.match(head || "", /text-overflow:\s*ellipsis/, "with an ellipsis where it was cut");
+});

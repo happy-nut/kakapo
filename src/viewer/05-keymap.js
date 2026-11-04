@@ -24,6 +24,11 @@ function keyboardScope() {
   // same door, because "a prompt nobody is typing into does not own the keyboard" is true regardless.
   var gotoLine = document.getElementById('goto-line');
   if (gotoLine && gotoLine.contains(document.activeElement)) return 'modal'; // owns the keys until Enter/Esc
+  // The pull-request prompt (⌥L) is the same shape of box and takes the keys on the same terms: while it
+  // HOLDS them. Its input is disabled while gh is answering, which moves focus off it — so the test is the
+  // box, not the input, or a reader could type a window shortcut into the gap and have it fire underneath.
+  var prPrompt = document.getElementById('pr-prompt');
+  if (prPrompt && (prPrompt.contains(document.activeElement) || prPrompt.querySelector('input:disabled'))) return 'modal';
   var history = document.getElementById('history-view');
   if (history && !history.classList.contains('hidden')) return 'history';
   if (isDockFocused()) return 'panel'; // the merged dock (see 08-dock.js)
@@ -267,7 +272,8 @@ var SHORTCUT_ACTIONS = {
   excludeSearchNoise: function () { openQuickOpen('content'); toggleContentSearchNoise(); },
   // ⌥A and ⌥U name the two compare states outright instead of toggling between them: a toggle is only
   // usable if you already know which one you are on, and not knowing that is why you reached for the key.
-  compareMode: function (event, i) { pickCompareMode(i ? 'uncommitted' : 'all'); },
+  compareMode: function (event, i) { pickCompareMode(['all', 'uncommitted', 'tip'][i] || 'all'); },
+  openPullRequest: function () { return openPullRequestPrompt() ? undefined : false; },
   compareRef: function () { openCompareBranchPicker(); },
   goToDef: function () { if (isSourceViewerVisible()) goToDefinitionUnderCursor(); else openDiffFileAtCaret(); },
   quickDefinition: function () {
@@ -844,8 +850,11 @@ applyI18n(); // first paint already shows English (inline); this swaps to the sa
 // The server emits the branch as one run of text, which is the right fallback and the wrong shape once
 // it has to be cut. Split it into head/tail here, once, on the name the document arrived with.
 (function () {
-  var chip = document.getElementById('brand-branch-name');
-  if (chip) applyBranchChip(chip, chip.textContent || '');
+  // Every match: the chip is rendered into both toolbars (render.ts branchChip), and getElementById would
+  // have split the head/tail once, on whichever copy the document happened to put first.
+  document.querySelectorAll('.brand-branch-name').forEach(function (chip) {
+    applyBranchChip(chip, chip.textContent || '');
+  });
 }());
 populateHttpEnvSelect();
 // A named file beats the restored tabs: the reader just asked for it on the command line, and that is a

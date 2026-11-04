@@ -532,12 +532,10 @@ function renderFindUsagesResults(query) {
     quickFilterEl.className = 'quick-open-filter' + (usageViewBusy ? ' is-loading' : '');
     quickFilterEl.innerHTML = usageViewBusy
       ? kakapoLoaderHtml('kakapo-loader-micro') + '<span>' + escapeHtml(t('quickopen.searching')) + '</span>'
-      : escapeHtml(plural(t('findusages.summary'), { n: flat.length, files: Object.keys(files).length })
-        .replace('{n}', String(flat.length))
-        .replace('{files}', String(Object.keys(files).length))
+      : escapeHtml(t('findusages.summary', { n: flat.length, files: Object.keys(files).length })
         // How much of this answer is test code, before any grouping is turned on. "Forty usages" and
         // "forty usages, thirty-one of them in tests" are different facts about a symbol.
-        + (tests ? ' · ' + t('findusages.testCount').replace('{n}', String(tests)) : '')
+        + (tests ? ' · ' + t('findusages.testCount', { n: tests }) : '')
         + (usageViewEngine ? ' · ' + usageViewEngine : ''));
   }
   if (usageViewBusy) {
@@ -554,7 +552,7 @@ function renderFindUsagesResults(query) {
     var hidden = usageViewRows.length && !String(query || '').trim();
     quickResults.innerHTML = '<div class="quick-open-empty">'
       + escapeHtml(hidden
-        ? t('findusages.allFiltered').replace('{n}', String(usageViewRows.length))
+        ? t('findusages.allFiltered', { n: usageViewRows.length })
         : t('findusages.none').replace('{name}', usageViewName))
       + (usageViewNote ? '<span class="quick-open-why">' + escapeHtml(usageViewNote) + '</span>' : '')
       + '</div>';
@@ -577,7 +575,7 @@ function renderFindUsagesResults(query) {
         + '<span class="usage-twisty" aria-hidden="true">' + (entry.collapsed ? '▸' : '▾') + '</span>'
         + usageGroupIconHtml(entry)
         + '<span class="usage-group-name">' + escapeHtml(entry.label) + '</span>'
-        + '<span class="usage-group-count">' + escapeHtml(t('usagegroup.count').replace('{n}', String(entry.count))) + '</span>'
+        + '<span class="usage-group-count">' + escapeHtml(t('usagegroup.count', { n: entry.count })) + '</span>'
         + '</div>';
       return;
     }
@@ -917,10 +915,11 @@ function serverUsageMarks(path, symbol) {
     usageMarks = marks;
     usageMarkActive = -1;
     paintUsageHighlights();
-    showCaretHint(t('findusages.inFile')
-      .replace('{n}', String(usageMarks.length))
-      .replace('{name}', symbol.name)
-      .replace('{writes}', String(usageMarks.filter(function (mark) { return mark.write; }).length)));
+    showCaretHint(t('findusages.inFile', {
+      n: usageMarks.length,
+      name: symbol.name,
+      writes: usageMarks.filter(function (mark) { return mark.write; }).length,
+    }));
   }, function () {
     if (!pageAlive()) return;
     usageHighlightCacheMap().delete(key); // a failed ask is not an answer — see the fold cache
@@ -1004,10 +1003,11 @@ function highlightUsagesInFile() {
   // line — side-by-side prints context on both sides — so ⌘F7 said "24 in this file" and the very next
   // ⌘⌥↓ said "1 of 12", about the same symbol, one keystroke apart. The highlight still covers both.
   var counted = usageMarksInCaretPane();
-  showCaretHint(t('findusages.inFile')
-    .replace('{n}', String(counted.length))
-    .replace('{name}', symbol.name)
-    .replace('{writes}', String(counted.filter(function (mark) { return mark.write; }).length)));
+  showCaretHint(t('findusages.inFile', {
+    n: counted.length,
+    name: symbol.name,
+    writes: counted.filter(function (mark) { return mark.write; }).length,
+  }));
   return painted !== null;
 }
 
@@ -1057,9 +1057,6 @@ function stepUsageOccurrence(delta) {
   paintUsageHighlights();
   // `walk`, not every mark: in the diff the step is one pane's, so "3 of 12" over a pane holding six
   // would be counting the base version's occurrences into the working tree's position.
-  showCaretHint(t('findusages.occurrence')
-    .replace('{i}', String(target + 1))
-    .replace('{n}', String(walk.length))
-    .replace('{name}', usageMarkName));
+  showCaretHint(t('findusages.occurrence', { i: target + 1, n: walk.length, name: usageMarkName }));
   return true;
 }

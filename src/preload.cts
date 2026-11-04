@@ -127,6 +127,7 @@ contextBridge.exposeInMainWorld("kakapoGit", {
   // "all changes vs <branch>" and "uncommitted changes".
   compareMenu: (): Promise<unknown> => ipcRenderer.invoke("kakapo:compare-menu"),
   setCompareMode: (mode: string, ref?: string): Promise<unknown> => ipcRenderer.invoke("kakapo:set-compare-mode", { mode, ref }),
+  openPullRequest: (text: string): Promise<unknown> => ipcRenderer.invoke("kakapo:open-pull-request", { text }),
   // Launcher's Worktrees section: every checkout sharing this repository, the open PR behind each branch
   // (a separate call because it shells out to `gh` and the list must not wait on the network), and opening one.
 });

@@ -437,7 +437,7 @@ function showUsages(name, count) {
   if (box.classList.contains('hidden')) rememberOverlayFocus(box);
   usageName = String(name || '');
   // Built in English in code — "3 usages of Store" — under a heading the rest of the app translates.
-  if (title) title.textContent = t('peek.usages').replace('{n}', String(count)) + ' · ' + usageName;
+  if (title) title.textContent = t('peek.usages', { n: count }) + ' · ' + usageName;
   renderUsages();
   box.classList.remove('hidden');
   positionUsagesAtCaret();

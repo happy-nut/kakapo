@@ -277,6 +277,10 @@ export type DiffReviewBuild = {
   // Tracking ref that selected reviewBase automatically. Electron watches it so a later push clears the
   // already-reviewed commit range without requiring an app restart.
   reviewUpstream?: string;
+  // The watch baseline this build corresponds to: reviewDiffSignature read AFTER the base was resolved and
+  // BEFORE the diff, so it names exactly the working tree the rendered review shows. The watcher adopts it
+  // instead of baselining itself on its first tick — see decideWatchTick, and applySnapshot's note.
+  watchSignature: string;
   // Compact payload for in-place refresh (Electron watch / serve poll); see DiffReviewUpdate.
   update?: DiffReviewUpdate;
   // Phase 2 lazy-LOAD: per-file diff body HTML, served on demand (IPC / HTTP) instead of embedded,
