@@ -106,3 +106,54 @@ test("no slice reads a let/const declared by a later slice", () => {
   });
   assert.deepEqual(late, [], "a let/const read before its slice loads throws — reorder the slice or make it a var");
 });
+
+// One fact, one reader. Each of these used to be spelled out in many places at once, and every time that
+// happened a fix reached one copy: `openPath` (which file the source view is showing) was read eight ways
+// across sixteen slices — some answering '' and some `undefined` — the Quick Open active-row clamp existed
+// in ten copies, its empty state in thirteen, the selected-comment-box key contract in two (one per caret),
+// and the usage occurrence scan in two. The accessor or helper is now the only place that knows how, so a
+// reintroduced copy fails here instead of becoming a surface that silently drifts from its twin.
+test("a fact the whole viewer asks about has exactly one reader", () => {
+  // Lines matching `re`, as "file:line" locations, skipping comments so prose about a fact is not a reader.
+  const sitesOf = (re, skip = []) => order.flatMap((file) => sources.get(file).split("\n")
+    .map((text, i) => ({ at: `${file}:${i + 1}`, text: text.trim() }))
+    .filter(({ text }) => re.test(text) && !/^(\/\/|\*|\/\*)/.test(text) && !skip.some((s) => s.test(text)))
+    .map(({ at, text }) => `${at}  ${text.slice(0, 96)}`));
+
+  // Collected, not thrown one at a time: when a copy comes back it is usually because a whole block was
+  // pasted, so the first violation is rarely the only one worth seeing.
+  const problems = [];
+  const only = (what, owner, sites) => {
+    if (sites.length !== 1) problems.push(`${what} must be read only by ${owner}, found ${sites.length}:\n    ` + sites.join("\n    "));
+  };
+
+  // The source view's open file. `dataset.openPath = x` is the writer, and review-meta's openPath (the path
+  // the LAUNCH asked for) is a different fact that lives on a different element.
+  only("the source view's openPath", "sourceOpenPath()",
+    sitesOf(/dataset\.openPath/, [/dataset\.openPath\s*=[^=]/, /review-meta/]));
+
+  // Quick Open's frame: ten renderers share this overlay and none of them owns these four moves.
+  only("the Quick Open active-row clamp", "clampQuickActive()",
+    sitesOf(/quickActive = Math\.min\(quickActive, Math\.max/));
+  only("the Quick Open empty state", "showQuickEmpty()",
+    sitesOf(/quickResults\.innerHTML = '<div class="quick-open-empty"/));
+  only("the Quick Open loading state", "showQuickLoading()",
+    sitesOf(/quickResults\.innerHTML = loadingStateHtml\(/));
+  only("the Quick Open filter chip", "setQuickFilterChip()",
+    sitesOf(/quickFilterEl\.innerHTML =/));
+
+  // A selected comment box answers the same keys in the diff caret and the source caret.
+  only("the selected-comment-box key contract", "handleSelectedCommentRowKey()",
+    sitesOf(/deleteCommentsInRow\(selectedCommentRow\)/));
+
+  // Whether an occurrence of a symbol is code at all, and reads or writes — one decision, both surfaces.
+  only("the usage occurrence scan", "scanUsageLine()",
+    sitesOf(/match\.index \+ match\[0\]\.length - match\[1\]\.length/));
+
+  // How a typed query matches. Eight lists build their own haystack, which is right; the rule that decides
+  // a match is one, and each list used to spell it out.
+  only("the speed-search match rule", "matchesQueryVariants()",
+    sitesOf(/queries\.some\(/));
+
+  assert.deepEqual(problems, [], "a fact grew a second reader:\n  " + problems.join("\n  "));
+});

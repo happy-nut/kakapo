@@ -252,7 +252,7 @@ function renderDeferredSourceTree(files) {
   }, true);
   var saved = loadTreeOpen();
   saved.forEach(openVirtualSourceDirectory);
-  var openPath = (document.getElementById('source-viewer') || {}).dataset?.openPath || '';
+  var openPath = sourceOpenPath();
   if (openPath.indexOf('/') >= 0) openVirtualSourceDirectory(openPath.slice(0, openPath.lastIndexOf('/')));
   sourceLinks = Array.from(document.querySelectorAll('.source-link'));
   markProjectLayoutInTrees();
@@ -391,11 +391,10 @@ function clearTreeFocus() {
 function focusOpenFileInTree() {
   const rows = treeRows();
   if (rows.length === 0) return;
-  let openPath = document.getElementById('source-viewer')?.dataset.openPath || '';
+  let openPath = sourceOpenPath();
   if (!openPath) {
     const w = diffActiveWrapper();
-    const n = w && w.querySelector('.d2h-file-name');
-    if (n && n.textContent) openPath = n.textContent.trim();
+    if (w) openPath = diffWrapperPathKey(w);
   }
   let idx = 0;
   if (openPath) {
@@ -428,11 +427,10 @@ function revealOpenFileInTree() {
   // Resolve the open file AFTER switching views (the source viewer now owns dataset.openPath), then center on
   // the next frame (folders/sidebar may have just opened).
   requestAnimationFrame(function () {
-    var openPath = (document.getElementById('source-viewer') && document.getElementById('source-viewer').dataset.openPath) || '';
+    var openPath = sourceOpenPath();
     if (!openPath) {
       var w = diffActiveWrapper();
-      var n = w && w.querySelector('.d2h-file-name');
-      if (n && n.textContent) openPath = n.textContent.trim();
+      if (w) openPath = diffWrapperPathKey(w);
     }
     if (!openPath) return;
     revealTreeFor(openPath, false); // open ancestor folders; center below
@@ -489,7 +487,7 @@ function initSourceTreeFolds() {
   var dirs = Array.prototype.slice.call(document.querySelectorAll('.source-dir'));
   if (!dirs.length) return;
   var saved = loadTreeOpen();
-  var openPath = (document.getElementById('source-viewer') && document.getElementById('source-viewer').dataset.openPath) || '';
+  var openPath = sourceOpenPath();
   // Only USER toggles persist; the initial state below is applied under treeRevealing so the open
   // file's revealed path stays transient (folders stay "collapsed by default" on the next load).
   dirs.forEach(function (d) {

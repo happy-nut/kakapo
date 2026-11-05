@@ -519,3 +519,47 @@ test("the right pane says which side it is, and keeps saying it through a locale
     v.close();
   }
 });
+
+// A RENAME is the one case where the two panes are about two different paths, and the left one names a
+// file the base revision never had unless it is told otherwise. The datum rides on the change row beside
+// the +/- counts (render-tree.ts) because that row is already the viewer's per-file record.
+test("a renamed file's Base pane names the path that existed at the base", async () => {
+  const body = Array.from({ length: 12 }, (_, i) => `export const value${i + 1} = ${i + 1};`).join("\n") + "\n";
+  const { html: renameHtml } = await makeReviewHtml([
+    { path: "src/renamed-to.ts", renamedFrom: "src/renamed-from.ts", before: body, after: body + "export const added = true;\n" },
+    { path: "src/plain.ts", before: body, after: body + "export const other = 1;\n" },
+  ], { app: true, context: 2 });
+  const v = await loadViewer(renameHtml, { analysisBridge: () => null });
+
+  const row = v.$('.change-row[data-file="src/renamed-to.ts"]');
+  assert.ok(row, "the rename shows up as one row, under its new path");
+  assert.equal(row.className.includes("ch-renamed"), true, "and it is marked as a rename");
+  assert.equal(row.dataset.oldPath, "src/renamed-from.ts");
+
+  // The wrapper has to be findable by the file's path at all. diff2html names a rename
+  // `src/{renamed-from.ts → renamed-to.ts}` in its header, and every lookup that fell back to reading that
+  // header got a sentence instead of a path: clicking this row left the previous file on screen.
+  assert.equal(v.window.diffWrapperByPath("src/renamed-to.ts")?.dataset.path, "src/renamed-to.ts");
+  const renameWrapper = v.window.diffWrapperByPath("src/renamed-to.ts");
+  const hunkRow = renameWrapper.querySelector("tr.hunk, tr[data-file]");
+  if (hunkRow) assert.equal(hunkRow.dataset.file, "src/renamed-to.ts", "a hunk row is keyed by the file's path");
+
+  await v.openDiffFor("src/renamed-to.ts");
+  await v.settle(80);
+  assert.equal(
+    v.$(".d2h-file-wrapper.mc-active-diff")?.dataset.path,
+    "src/renamed-to.ts",
+    "clicking the renamed file in the sidebar opens it",
+  );
+  assert.equal(v.$("#diff-before-path").textContent, "src/renamed-from.ts", "Base names the old path");
+  assert.equal(v.$("#diff-after-path").textContent, "src/renamed-to.ts", "the working tree names the new one");
+  assert.equal(v.$("#diff-before-path").title, "src/renamed-from.ts");
+
+  // The other side of the distinction: a file that merely changed is still named once, on both panes.
+  await v.openDiffFor("src/plain.ts");
+  await v.settle(80);
+  assert.equal(v.$("#diff-before-path").textContent, "src/plain.ts");
+  assert.equal(v.$("#diff-after-path").textContent, "src/plain.ts");
+  assert.equal(v.$('.change-row[data-file="src/plain.ts"]').dataset.oldPath, undefined, "no rename, no old path");
+  v.close();
+});

@@ -34,9 +34,8 @@ function ensureDiagnosticsState() {
 // The path whose content is actually painted in the visible source body. dataset.openPath alone is not enough:
 // it is set before the lazy body repaint, so a fetch that resolves mid-switch must not paint the wrong file.
 function diagnosticsSurfacePath() {
-  var viewer = document.getElementById('source-viewer');
-  if (!viewer || viewer.classList.contains('hidden')) return '';
-  var path = viewer.dataset.openPath || '';
+  if (!isSourceViewerVisible()) return '';
+  var path = sourceOpenPath();
   return path && sourceBodyPath === path ? path : '';
 }
 
@@ -116,8 +115,7 @@ function diagnosticRank(severity) {
 
 /** Essential Highlighting flipped: repaint whatever is on screen through the gate above. */
 function refreshDiagnosticsFilter() {
-  var viewer = document.getElementById('source-viewer');
-  var open = viewer && viewer.dataset.openPath;
+  var open = sourceOpenPath();
   if (open) refreshSourceDiagnostics(open);
   // The ⌘6 list reads through the same gate, so it only needs re-rendering when it happens to be up. Its
   // own ⌥E errors-only filter still works and simply has nothing left to drop while this is on.

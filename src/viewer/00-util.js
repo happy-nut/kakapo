@@ -118,9 +118,19 @@ function applyBranchChip(element, branch) {
   if (!element) return;
   var name = String(branch || '');
   element.title = name;
-  var cut = name.lastIndexOf('/');
-  if (cut < 0 || cut === name.length - 1) { element.textContent = name; return; }
   element.textContent = '';
+  var cut = name.lastIndexOf('/');
+  // A branch with no "/" has no prefix to give up — but it still has to fit. Left as a bare text node it
+  // had nothing for the ellipsis rule to apply to (.brand-branch-name is a flex box, and text-overflow
+  // does not reach an anonymous flex item), so `bounty-2026-11-05` simply painted straight across the
+  // compare pill beside it. One .branch-tail with the whole name in it: the same rule, the same ellipsis.
+  if (cut < 0 || cut === name.length - 1) {
+    var only = document.createElement('span');
+    only.className = 'branch-tail';
+    only.textContent = name;
+    element.appendChild(only);
+    return;
+  }
   var head = document.createElement('span');
   head.className = 'branch-head';
   head.textContent = name.slice(0, cut + 1);

@@ -248,7 +248,7 @@ function visibleUsageRows(query) {
     if (!usageRowVisible(row)) return false;
     if (!needle) return true;
     var hay = (row.path + ' ' + row.text).toLowerCase();
-    return queries.some(function (variant) { return hay.includes(variant); });
+    return matchesQueryVariants(hay, queries);
   });
 }
 
@@ -524,23 +524,17 @@ function renderFindUsagesResults(query) {
       text: row.text,
     };
   });
-  quickActive = Math.min(quickActive, Math.max(quickItems.length - 1, 0));
+  clampQuickActive();
   var files = {};
   flat.forEach(function (row) { files[row.path] = 1; });
   var tests = flat.filter(function (row) { return row.isTest; }).length;
-  if (quickFilterEl) {
-    quickFilterEl.className = 'quick-open-filter' + (usageViewBusy ? ' is-loading' : '');
-    quickFilterEl.innerHTML = usageViewBusy
-      ? kakapoLoaderHtml('kakapo-loader-micro') + '<span>' + escapeHtml(t('quickopen.searching')) + '</span>'
-      : escapeHtml(t('findusages.summary', { n: flat.length, files: Object.keys(files).length })
-        // How much of this answer is test code, before any grouping is turned on. "Forty usages" and
-        // "forty usages, thirty-one of them in tests" are different facts about a symbol.
-        + (tests ? ' · ' + t('findusages.testCount', { n: tests }) : '')
-        + (usageViewEngine ? ' · ' + usageViewEngine : ''));
-  }
+  setQuickFilterChip(usageViewBusy, t('findusages.summary', { n: flat.length, files: Object.keys(files).length })
+    // How much of this answer is test code, before any grouping is turned on. "Forty usages" and
+    // "forty usages, thirty-one of them in tests" are different facts about a symbol.
+    + (tests ? ' · ' + t('findusages.testCount', { n: tests }) : '')
+    + (usageViewEngine ? ' · ' + usageViewEngine : ''));
   if (usageViewBusy) {
-    quickResults.innerHTML = loadingStateHtml(t('quickopen.searching'), 'quick-open-empty');
-    renderQuickPreview(null);
+    showQuickLoading();
     return;
   }
   // `entries`, not `flat`: a tree whose nodes are all folded has no rows and is not empty — it is a tree
@@ -550,13 +544,9 @@ function renderFindUsagesResults(query) {
     // and it is the one a reviewer would believe. Only when nothing was typed: with a query in the box,
     // "nothing matched" is what happened.
     var hidden = usageViewRows.length && !String(query || '').trim();
-    quickResults.innerHTML = '<div class="quick-open-empty">'
-      + escapeHtml(hidden
-        ? t('findusages.allFiltered', { n: usageViewRows.length })
-        : t('findusages.none').replace('{name}', usageViewName))
-      + (usageViewNote ? '<span class="quick-open-why">' + escapeHtml(usageViewNote) + '</span>' : '')
-      + '</div>';
-    renderQuickPreview(null);
+    showQuickEmpty(hidden
+      ? t('findusages.allFiltered', { n: usageViewRows.length })
+      : t('findusages.none').replace('{name}', usageViewName), usageViewNote);
     return;
   }
   var index = 0;
@@ -725,6 +715,43 @@ var usageMarkGeneration = -1;
 var usageMarkSurface = '';
 
 /**
+ * Everything a scan of one symbol needs, resolved once: the file's language (which decides what counts as
+ * code rather than a comment or a string) and the word-boundary matcher for the name.
+ */
+function usageScanContext(path, name) {
+  return {
+    path: path,
+    name: name,
+    language: usageLanguageOf(path),
+    // An identifier occurrence, not a substring of a longer one. Captured in group 1 so the column can be
+    // recovered from the match even though the pattern had to consume the character before it.
+    pattern: new RegExp('(?:^|[^A-Za-z0-9_$])(' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')(?![A-Za-z0-9_$])', 'g'),
+  };
+}
+
+/**
+ * Every CODE occurrence of the symbol in one line, handed to `onMark(column, write)`; returns true when the
+ * callback asked to stop. One copy on purpose: deciding whether a column is code at all, and whether the
+ * occurrence reads or writes, is one decision that the diff scan and the source scan must make the same way.
+ * It used to be written twice, so improving the write heuristic would have improved it in one view only.
+ */
+function scanUsageLine(ctx, line, onMark) {
+  ctx.pattern.lastIndex = 0;
+  var match = null;
+  while ((match = ctx.pattern.exec(line))) {
+    var column = match.index + match[0].length - match[1].length;
+    ctx.pattern.lastIndex = column + match[1].length;
+    if (usageZoneAt(line, column, ctx.language) !== 'code') continue;
+    var type = classifyUsage(ctx.name, line, column, ctx.path);
+    // `let x = 1` declares AND writes; `let x` alone does not. The assignment has to follow the name, and
+    // `==`/`=>` are not assignments.
+    var initialised = type === 'declaration' && /^\s*=(?![=>])/.test(line.slice(column + ctx.name.length));
+    if (onMark(column, type === 'write' || initialised)) return true;
+  }
+  return false;
+}
+
+/**
  * Every code occurrence of `name` in a rendered diff file, both panes.
  *
  * The scan is the diff's own rows rather than the file's content, for the reason the in-file find scans
@@ -735,33 +762,23 @@ var usageMarkSurface = '';
 function usageMarksInDiff(wrapper, name) {
   if (!wrapper || !name) return [];
   var path = diffWrapperPathKey(wrapper);
-  var language = usageLanguageOf(path);
-  var pattern = new RegExp('(?:^|[^A-Za-z0-9_$])(' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')(?![A-Za-z0-9_$])', 'g');
+  var ctx = usageScanContext(path, name);
   var marks = [];
   ['old', 'new'].some(function (side) {
     var rows = diffRowsOf(diffSideTable(wrapper, side));
     return rows.some(function (row, rowIndex) {
       if (!isDiffCodeRow(row)) return false;
-      var line = diffLineText(row);
-      pattern.lastIndex = 0;
-      var match = null;
-      while ((match = pattern.exec(line))) {
-        var column = match.index + match[0].length - match[1].length;
-        pattern.lastIndex = column + match[1].length;
-        if (usageZoneAt(line, column, language) !== 'code') continue;
-        var type = classifyUsage(name, line, column, path);
-        var initialised = type === 'declaration' && /^\s*=(?![=>])/.test(line.slice(column + name.length));
+      return scanUsageLine(ctx, diffLineText(row), function (column, write) {
         // Addressed, never held. A mark used to carry its <tr>, and a watch refresh replaces the whole
         // wrapper: the next ⌘⌥↓ then painted detached nodes, built Ranges in a document fragment nobody
         // can see, and moved the caret to a row index taken from DOM that no longer exists. The source
         // side has always re-resolved its rows per paint (sourceFindRow) for the same reason.
         marks.push({
           path: path, side: side, rowIndex: rowIndex,
-          column: column, length: name.length, write: type === 'write' || initialised,
+          column: column, length: name.length, write: write,
         });
-        if (marks.length >= USAGE_MARK_LIMIT) return true;
-      }
-      return false;
+        return marks.length >= USAGE_MARK_LIMIT;
+      });
     });
   });
   // By row, not by pane. Collected pane by pane, every base-side mark precedes every working-tree one —
@@ -783,22 +800,13 @@ function usageMarksInCaretPane() {
 function usageMarksIn(path, name) {
   var file = typeof sourceByPath !== 'undefined' ? sourceByPath.get(path) : null;
   if (!file || !file.embedded || file.image || !name) return [];
-  var language = usageLanguageOf(path);
-  var pattern = new RegExp('(?:^|[^A-Za-z0-9_$])(' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')(?![A-Za-z0-9_$])', 'g');
+  var ctx = usageScanContext(path, name);
   var marks = [];
   String(file.content || '').split(/\r?\n/).some(function (line, lineIndex) {
-    pattern.lastIndex = 0;
-    var match = null;
-    while ((match = pattern.exec(line))) {
-      var column = match.index + match[0].length - match[1].length;
-      pattern.lastIndex = column + match[1].length;
-      if (usageZoneAt(line, column, language) !== 'code') continue;
-      var type = classifyUsage(name, line, column, path);
-      var initialised = type === 'declaration' && /^\s*=(?![=>])/.test(line.slice(column + name.length));
-      marks.push({ path: path, lineIndex: lineIndex, column: column, length: name.length, write: type === 'write' || initialised });
-      if (marks.length >= USAGE_MARK_LIMIT) return true;
-    }
-    return false;
+    return scanUsageLine(ctx, line, function (column, write) {
+      marks.push({ path: path, lineIndex: lineIndex, column: column, length: name.length, write: write });
+      return marks.length >= USAGE_MARK_LIMIT;
+    });
   });
   return marks;
 }
@@ -948,7 +956,7 @@ function usageSurface() {
  * they differed, a second ⌘F7 on the same symbol re-highlighted rather than putting the highlight away.
  */
 function usageMarkPathFor(surface, symbol) {
-  if (surface === 'source') return (document.getElementById('source-viewer') || { dataset: {} }).dataset.openPath || '';
+  if (surface === 'source') return sourceOpenPath();
   return (symbol && symbol.path) || '';
 }
 

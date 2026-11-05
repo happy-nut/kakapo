@@ -175,6 +175,74 @@ test("source: e opens the editor prefilled (parity with diff)", async () => {
   v.close();
 });
 
+// ---------- stepping OFF the box has to clear whatever is in the way ----------
+//
+// The step off a selected box used to read exactly one sibling row and, if that row was not a line it could
+// address, put the caret back where it started — so ArrowDown did nothing at all, with no hint why. Two
+// rows that are routinely next to a comment box hit that: a code-vision note, which is painted ABOVE the
+// line it annotates and is therefore the row below every box on the line before one; and, in the diff, any
+// row belonging to the other pane's reality (a placeholder, a hunk header, a fold, a comment spacer).
+test("source: stepping off a box clears a code-vision row and reaches the next line", async () => {
+  const v = await loadViewer(html, {
+    // A lens on line 2 (lineIndex 1) puts its row between the box on line 1 and line 2 itself.
+    analysisBridge: (request) => {
+      const base = { ok: true, generation: 0, engine: "lsp", confidence: "semantic", locations: [] };
+      if (request.kind === "codeLens") return { ...base, lenses: [{ lineIndex: 1, title: "2 references" }] };
+      return { ...base, hints: [], lenses: [] };
+    },
+    analysisStatus: { generation: 0, phase: "ready", updatedAt: new Date(1000).toISOString() },
+  });
+  await v.openSourceFile("src/app.ts");
+  await v.settle(200);
+  assert.ok(v.$("#source-body .code-vision-row"), "a lens row is painted (otherwise this test proves nothing)");
+  await v.clickSourceLine(0);
+  await v.openComposer("q");
+  await v.writeAndSave("above the lens");
+  v.key("ArrowDown"); await v.settle(20);
+  const box = v.selectedCommentBox();
+  assert.ok(box, "box selected");
+  // Re-read the row here: saving a comment re-renders the body, so a lens element captured before the save
+  // is a detached node and comparing against it would pass this test for the wrong reason.
+  const below = box.nextElementSibling;
+  assert.ok(below && below.classList.contains("code-vision-row"),
+    `the lens row really is what the step has to walk past (got ${below && below.className})`);
+  v.key("ArrowDown"); await v.settle(20);
+  assert.equal(v.selectedCommentBox(), null, "stepped off the box");
+  assert.equal(v.caretLine(), 2, "caret reached line 2 instead of falling back to line 1");
+  v.close();
+});
+
+// A comment on a DELETED line lives in the left pane. The step resolved every sibling against the right
+// pane's row list, where no left-pane row has an index, so it answered "cannot address that" for the next
+// code line as readily as for a placeholder: the commonest review comment there is could not be left with
+// an arrow key at all.
+test("diff: stepping off a box on a deleted line moves down that same pane", async () => {
+  const { html: deletion } = await makeReviewHtml([
+    { path: "src/keep.ts", before: "export const keep = 1;\n", after: "export const keep = 1;\n" },
+    { path: "src/gone.ts", before: "const a = 1;\nconst gone = 2;\nconst b = 3;\n", after: "const a = 1;\nconst b = 3;\n" },
+  ]);
+  const v = await loadViewer(deletion);
+  await v.openDiffFor("src/gone.ts");
+  const left = v.$all("#diff2html-container .d2h-file-wrapper:not(.df-inactive) .d2h-file-side-diff")[0];
+  const deleted = Array.from(left.querySelectorAll("tr")).find(
+    (r) => (r.querySelector(".d2h-code-side-linenumber")?.textContent || "").trim() === "2",
+  );
+  assert.ok(deleted, "the deleted line has a row in the left pane");
+  v.click(deleted.querySelector(".d2h-code-line, .d2h-code-side-line") || deleted);
+  await v.settle(30);
+  assert.equal(v.diffCaretLine(), 2, "caret is on the deleted line");
+  await v.openComposer("q");
+  await v.writeAndSave("why was this removed?");
+  v.key("ArrowDown"); await v.settle(20);
+  const box = v.selectedCommentBox();
+  assert.ok(box, "box selected on the old side");
+  assert.ok(left.contains(box), "the box is in the left pane, which is the point of this test");
+  v.key("ArrowDown"); await v.settle(20);
+  assert.equal(v.selectedCommentBox(), null, "stepped off the box");
+  assert.equal(v.diffCaretLine(), 3, "caret moved to the next line of the pane it was already in");
+  v.close();
+});
+
 // F8 / Shift+F8 step between review comments the way F7 steps between changes — changes on one key, comments
 // on the next one over. Cmd+F7 does the same and stays for muscle memory.
 test("F8 and Shift+F8 walk the comments, mirroring F7 for changes", async () => {
@@ -347,7 +415,11 @@ test("going to a comment waits for a lazily fetched file instead of placing the 
   const seq = v.agentSays({ kind: "note", path: "src/far.ts", line: 50, group: 1, text: "far down a file that is still being fetched" });
   await v.settle(40);
   v.window.revealComment(seq);
-  await v.settle(400);
+  // Not settle(400): the chain this waits on is fetch -> repaint -> frame -> caret, and its wall clock
+  // depends on what else the runner is doing, so a fixed sleep failed here roughly one run in six. Waiting
+  // for the landing itself keeps the guard — a build that never places the caret runs the cap out and the
+  // assertions below still fail.
+  await v.until(() => v.caretLine() === 50 && v.$all("#source-body .source-row").length === 61);
 
   assert.equal(v.$("#source-viewer")?.dataset.openPath, "src/far.ts", "the file opened");
   assert.equal(v.$all("#source-body .source-row").length, 61, "and finished painting");

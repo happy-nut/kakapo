@@ -4,6 +4,8 @@ import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { errorMessage, readOption } from "./util.js";
+import { parseReviewArgs } from "./cli-args.js";
+import { isGitRepository, validateReviewBase } from "./git.js";
 import { applicationsBundlePath, installApp, uninstallApp } from "./install-app.js";
 
 const nodeRequire = createRequire(import.meta.url);
@@ -89,6 +91,19 @@ function launchReviewApp(args: string[]): void {
   const openFile = statSync(requested).isFile() ? requested : undefined;
   const targetCwd = openFile ? dirname(openFile) : requested;
   process.chdir(targetCwd);
+
+  // Check the review flags HERE, where the person who typed them is standing.
+  //
+  // The app checks them too — parseArgs runs the same two functions — but it runs DETACHED with its stdio
+  // discarded, so a typo went like this: `kakapo --base mian` printed "Opened kakapo review app.", exited 0,
+  // and no window ever appeared. The one message that would have explained it ("--base mian is not a commit
+  // in this repository") was written to a pipe pointed at nothing. Same checks, one process earlier: the
+  // error reaches the terminal and the exit code says the launch failed.
+  parseReviewArgs(args); // --staged with --base, and a --context that is not a positive integer
+  const requestedBase = readOption(args, "--base");
+  if (requestedBase !== undefined && isGitRepository(process.cwd())) {
+    validateReviewBase(process.cwd(), requestedBase);
+  }
 
   const appArgs = [
     appMainPath(),

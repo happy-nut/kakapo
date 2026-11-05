@@ -112,8 +112,7 @@ function diffRowInfoFromNode(node) {
   var sideEl = el.closest('.d2h-file-side-diff');
   var row = el.closest('tr');
   if (!wrapper || !sideEl || !row) return null;
-  var nameEl = wrapper.querySelector('.d2h-file-name');
-  var path = (nameEl && nameEl.textContent ? nameEl.textContent : '').trim();
+  var path = diffWrapperPathKey(wrapper);
   var t = diffSideTables(wrapper);
   var side = sideEl === t.left ? 'old' : 'new';
   if (!isDiffCodeRow(row)) return null;
@@ -378,8 +377,7 @@ function ensureDiffCursor() {
   var wrapper = diffActiveWrapper();
   if (!wrapper) return;
   whenFileReady(wrapper, function () {
-    var nameEl = wrapper.querySelector('.d2h-file-name');
-    var path = (nameEl && nameEl.textContent ? nameEl.textContent : '').trim();
+    var path = diffWrapperPathKey(wrapper);
     if (!path) return;
     if (diffCursor && diffCursor.path === path) { renderDiffCaret(); return; }
     var ri = firstDiffCodeRow(wrapper, 'new');
@@ -521,29 +519,20 @@ function handleDiffCaretKey(event) {
     }
     return false;
   }
-  // A comment box is selected: Backspace/Delete removes it, `e` edits it, an arrow/Escape steps off it.
-  // Same contract as the source view (handleSourceCaretKey), but caret moves go through setDiffCursor.
+  // A comment box is selected: the same contract as the source view, which owns it
+  // (handleSelectedCommentRowKey). A diff row is addressed by pane and row index, and diffRowInfoFromNode
+  // reads both off the row itself — including WHICH pane it is in. Resolving the new-side table for every
+  // sibling instead meant a comment on the old side, which is a comment on a deleted line, could never be
+  // stepped off: no left-pane row has an index in the right pane's list, so every arrow restored the caret.
   if (selectedCommentRow) {
-    if (event.key === 'Backspace' || event.key === 'Delete') { event.preventDefault(); deleteCommentsInRow(selectedCommentRow); return true; }
-    if (event.code === 'KeyE' || event.key === 'e' || event.key === 'E') { event.preventDefault(); editCommentInRow(selectedCommentRow); return true; }
-    if (event.key === 'Enter' && enterSelectedCommentCard()) { event.preventDefault(); return true; }
-    if (event.key === 'ArrowUp' || event.key === 'ArrowDown' || event.key === 'ArrowLeft' || event.key === 'ArrowRight' || event.key === 'Escape') {
-      var dir = event.key === 'ArrowUp' ? -1 : (event.key === 'ArrowDown' ? 1 : 0);
-      // Walk the thread's own turns first; only step off the row once there is no further card that way.
-      if (dir && stepSelectedCommentCard(dir)) { event.preventDefault(); return true; }
-      var sib = dir < 0 ? selectedCommentRow.previousElementSibling : (dir > 0 ? selectedCommentRow.nextElementSibling : null);
-      clearCommentRowSelection();
-      event.preventDefault();
-      var wrapper = diffWrapperByPath(diffCursor.path);
-      if (sib && wrapper && isDiffCodeRow(sib)) {
-        var rows = diffRowsOf(diffSideTable(wrapper, 'new'));
-        var idx = rows.indexOf(sib);
-        if (idx >= 0) { setDiffCursor(diffCursor.path, 'new', idx, 0, true); return true; }
-      }
-      setDiffCursor(diffCursor.path, diffCursor.side, diffCursor.rowIndex, diffCursor.column, false); // restore caret where it was
+    return handleSelectedCommentRowKey(event, function (sib) {
+      var at = diffRowInfoFromNode(sib);
+      if (!at) return false;
+      setDiffCursor(at.path, at.side, at.rowIndex, 0, true);
       return true;
-    }
-    return false;
+    }, function () {
+      setDiffCursor(diffCursor.path, diffCursor.side, diffCursor.rowIndex, diffCursor.column, false);
+    });
   }
   // Plain Up/Down: a comment box attached to the caret line is a selectable stop (caret stays visible).
   if (!extend && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {

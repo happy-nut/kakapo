@@ -87,8 +87,7 @@ function activateFilesView() {
   setSourceSidebarCollapsed(false);
   if (isDiffViewVisible()) {
     var wrapper = diffActiveWrapper();
-    var name = wrapper && wrapper.querySelector('.d2h-file-name');
-    var path = (diffCursor && diffCursor.path) || (name ? (name.textContent || '').trim() : '');
+    var path = (diffCursor && diffCursor.path) || (wrapper ? diffWrapperPathKey(wrapper) : '');
     if (path && sourceByPath.has(path)) {
       openSourceFile(path);
     } else {
@@ -326,8 +325,7 @@ var SHORTCUT_ACTIONS = {
     return (i ? navForward() : navBack()) ? undefined : false;
   },
   toggleRendered: function () {
-    var sv = document.getElementById('source-viewer');
-    var open = sv && sv.dataset.openPath;
+    var open = sourceOpenPath();
     if (!open || !isRenderToggleable(open) || !isSourceViewerVisible()) return false;
     toggleRenderMode();
   },
@@ -352,8 +350,7 @@ var SHORTCUT_ACTIONS = {
     if (treeFocusIndex >= 0) return false;
     // The diff shows .http files too, and the request on the new side is the one the file now says to
     // send. This used to be gated on the source view being up, so the key did nothing there.
-    var enterPath = isSourceViewerVisible()
-      ? (document.getElementById('source-viewer').dataset.openPath || '') : '';
+    var enterPath = isSourceViewerVisible() ? sourceOpenPath() : '';
     if (enterPath && isHttpFile(enterPath)) { runHttpAtCaret(); return; }
     if (!isSourceViewerVisible() && isDiffViewVisible() && runDiffHttpAtCaret()) return;
     // ⌥Enter on a diagnostic line drafts a "fix this" change-request comment for the agent. On BOTH
@@ -468,9 +465,8 @@ function stepToChange(delta) {
   // clicking a file in the tree and then pressing F7, the caret moved but arrows still drove the tree.
   // (Not in setDiffCursor — a sidebar CLICK legitimately keeps its row focused while opening the diff.)
   clearTreeFocus();
-  var sourceViewer = document.getElementById('source-viewer');
-  if (delta > 0 && sourceViewer && !sourceViewer.classList.contains('hidden')) {
-    var sp = sourceViewer.dataset.openPath || '';
+  if (delta > 0 && isSourceViewerVisible()) {
+    var sp = sourceOpenPath();
     var sourceHunk = firstHunkForPath(sp);
     // Enter the diff at the open file's own hunk — UNLESS it's already viewed. A viewed file's diff body
     // is hidden (display:none), so landing on it blanks the content and F7 appears stuck; fall through to
@@ -539,7 +535,7 @@ document.addEventListener('keydown', (event) => {
         focusTree(treeFocusIndex >= 0 ? treeFocusIndex : 0); // ← left: focus sidebar tree
       } else {
         clearTreeFocus(); // → right: hand focus back to the content pane (source caret / diff nav)
-        const openPath = document.getElementById('source-viewer')?.dataset.openPath || '';
+        const openPath = sourceOpenPath();
         if (isSourceViewerVisible() && openPath && (!viewerCursor || viewerCursor.path !== openPath)) {
           setSourceCursor(openPath, viewerCursor ? viewerCursor.lineIndex : 0, 0, false, -1);
         }

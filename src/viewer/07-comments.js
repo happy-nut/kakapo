@@ -845,8 +845,7 @@ function currentCommentTarget() {
   var toEl = toNode ? (toNode.nodeType === 1 ? toNode : toNode.parentElement) : null;
   var wrapper = (toEl && toEl.closest && toEl.closest('.d2h-file-wrapper')) || document.querySelector('#diff2html-container .d2h-file-wrapper:not(.df-inactive)');
   if (!wrapper) return null;
-  var nameEl = wrapper.querySelector('.d2h-file-name');
-  var path = (nameEl && nameEl.textContent ? nameEl.textContent : '').trim();
+  var path = diffWrapperPathKey(wrapper);
   if (!path) return null;
   var toRow = toEl && toEl.closest ? toEl.closest('tr') : null;
   if (!toRow || !toRow.querySelector('.d2h-code-side-linenumber')) {
@@ -1019,8 +1018,7 @@ function renderDiffComments() {
   return affected;
 }
 function renderDiffCommentsForFile(w, commentsByPath, remember) {
-  var nameEl = w.querySelector('.d2h-file-name');
-  var path = (nameEl && nameEl.textContent ? nameEl.textContent : '').trim();
+  var path = diffWrapperPathKey(w);
   if (!path) return;
   var pathComments = commentsByPath[path] || [];
   var activeComposer = composerState && composerState.path === path ? composerState : null;
@@ -1080,8 +1078,7 @@ function renderSourceComments() {
   var body = document.getElementById('source-body');
   if (!body) return;
   body.querySelectorAll('.mc-comment-row').forEach(function (r) { r.remove(); });
-  var viewer = document.getElementById('source-viewer');
-  var path = viewer ? (viewer.dataset.openPath || '') : '';
+  var path = sourceOpenPath();
   if (!path) return;
   relevantLines(path).forEach(function (line) {
     var anchor = body.querySelector('.source-row[data-line-index="' + (line - 1) + '"]');

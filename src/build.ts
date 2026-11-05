@@ -19,6 +19,7 @@ import {
   renderSourceTree,
   shouldLazyRender,
   splitDiffForLazy,
+  annotateDiffWrappers,
 } from "./render.js";
 
 // What the toolbar pill says this diff is. Every value here has already been resolved above it — this only
@@ -162,7 +163,11 @@ export function buildDiffReview(input: {
         // Highlighting a single-file component needs the file, not just its hunks — see markupLanguageByLine.
         const byPath = new Map(sourceFiles.map((file) => [file.path, file.content]));
         const diffHtml = renderDiff2Html(diffText, (path) => byPath.get(path) || undefined);
-        return lazy ? splitDiffForLazy(diffHtml, files) : { container: diffHtml, islands: "", bodies: [] as string[] };
+        return lazy
+          ? splitDiffForLazy(diffHtml, files)
+          // Eager, but still keyed by path: the viewer looks a file up by its wrapper, and diff2html's own
+          // header is not a path for a rename (annotateDiffWrappers).
+          : { container: annotateDiffWrappers(diffHtml, files), islands: "", bodies: [] as string[] };
       })();
   const signature = createHash("sha1")
     .update(reviewBase ?? "HEAD")

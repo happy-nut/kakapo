@@ -209,13 +209,13 @@ function showSourceView() {
   document.getElementById('source-viewer')?.classList.remove('hidden');
   setTab('files');
   syncReviewSidebarVisibility();
-  scheduleSourceTabOverflow(currentSourceTabPath());
+  scheduleSourceTabOverflow(sourceOpenPath());
   setTimeout(refreshFileFindForActiveView, 0);
 }
 
 function saveUiState() {
   const activeTab = document.querySelector('.sidebar-switch-item.active')?.dataset.tab || 'changes';
-  const sourcePath = document.getElementById('source-viewer')?.dataset.openPath || '';
+  const sourcePath = sourceOpenPath();
   var state = {
     tab: activeTab,
     view: document.getElementById('source-viewer')?.classList.contains('hidden') ? 'diff' : 'source',
@@ -511,9 +511,8 @@ function refreshOpenSourceAfterUpdate(path, cursorSnapshot) {
   // paints a Loading placeholder, which is correct for a NEW tab but causes a large flash and resets the
   // scroll position when a live update refreshes the file already under review.
   loadSourceFile(path).then(function (file) {
-    var viewer = document.getElementById('source-viewer');
     var body = document.getElementById('source-body');
-    if (!file || !sourceContentLoaded(file) || !viewer || !body || viewer.dataset.openPath !== path || !isSourceViewerVisible()) return;
+    if (!file || !sourceContentLoaded(file) || !body || sourceOpenPath() !== path || !isSourceViewerVisible()) return;
     var scrollTop = body.scrollTop;
     var liveCursor = captureSourceRefreshCursor(path) || cursorSnapshot;
     if (liveCursor && cursorSnapshot && !liveCursor.text) liveCursor.text = cursorSnapshot.text;
@@ -548,8 +547,7 @@ function applyDiffUpdate(u) {
   if (typingAge < TYPING_IDLE_MS) { holdDiffUpdateFor(u, TYPING_IDLE_MS - typingAge + 20); return false; }
 
   // Remember what to restore after the swap (comments/viewed persist on their own; these don't).
-  var sv = document.getElementById('source-viewer');
-  var openPath = (sv && sv.dataset.openPath) || '';
+  var openPath = sourceOpenPath();
   var wasSource = isSourceViewerVisible();
   var container = document.getElementById('diff2html-container');
   var diffScrollTop = container ? container.scrollTop : 0;

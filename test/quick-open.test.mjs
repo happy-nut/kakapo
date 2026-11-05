@@ -507,3 +507,82 @@ test("Cmd+E still closes the rail-less Recent files it opened", async () => {
   assert.equal(v.quickOpenVisible(), false, "a second ⌘E closes it");
   v.close?.();
 });
+
+// The highlight must never point past the end of the list. Every Quick Open renderer re-clamps it after
+// assigning the items (clampQuickActive), because narrowing a query makes the list SHORTER while the
+// highlight stays where the reader left it: without the clamp, Enter opens the item that used to be at
+// that index — nothing, or something the reader is no longer looking at. The clamp existed in ten
+// hand-written copies before it had one home, and nothing tested it.
+test("narrowing the list pulls the highlight back inside it", async () => {
+  const { html: many } = await makeReviewHtml([
+    { path: "src/alpha.ts", before: "export const a = 1;\n", after: "export const a = 2;\n" },
+    { path: "src/alpine.ts", before: "export const b = 1;\n", after: "export const b = 2;\n" },
+    { path: "src/almond.ts", before: "export const c = 1;\n", after: "export const c = 2;\n" },
+    { path: "src/zebra.ts", before: "export const d = 1;\n", after: "export const d = 2;\n" },
+  ]);
+  const v = await loadViewer(many);
+  v.key("Shift", { location: 1 });
+  v.key("Shift", { location: 1 });
+  await v.settle(10);
+
+  v.typeInto(v.$("#quick-open-input"), "al");
+  await v.settle(40);
+  const wide = v.$all("#quick-open-results .quick-open-item");
+  assert.ok(wide.length >= 3, `"al" matches the three al* files (got ${wide.length})`);
+
+  // Walk the highlight down to the last of them.
+  for (let i = 1; i < wide.length; i += 1) v.key("ArrowDown");
+  await v.settle(20);
+  const far = v.$(".quick-open-item.active");
+  assert.equal(far?.dataset.index, String(wide.length - 1), "the highlight is on the last row");
+
+  // Narrow to one. The highlight cannot stay on row 2 of a one-row list.
+  v.typeInto(v.$("#quick-open-input"), "alph");
+  await v.settle(40);
+  const narrow = v.$all("#quick-open-results .quick-open-item");
+  assert.equal(narrow.length, 1, "only alpha.ts is left");
+  const active = v.$all("#quick-open-results .quick-open-item.active");
+  assert.equal(active.length, 1, "exactly one row is highlighted");
+  assert.ok(
+    Number(active[0].dataset.index) < narrow.length,
+    `the highlight is inside the list (index ${active[0].dataset.index} of ${narrow.length})`,
+  );
+  v.close();
+});
+
+// A list whose provider has not answered yet must SAY it is working. Five renderers share that state
+// (workspace symbols, content search, file structure, hierarchy, find usages) and nothing in the suite
+// asserted it in any of them — the five copies and the one `showQuickLoading()` that replaced them were
+// equally untested. The distinction it protects is the one a reader acts on: "still looking" and "looked,
+// found nothing" are different answers, and only one of them means the list is finished.
+test("a list still waiting on its provider says so, instead of showing an empty answer", async () => {
+  const v = await loadViewer(html);
+  v.key("Shift", { location: 1 });
+  v.key("Shift", { location: 1 });
+  await v.settle(10);
+
+  // The file-structure list, with its provider still working. structureQuery is set to the same query so
+  // the renderer takes no async path and the state under test cannot be flipped by a late answer. These
+  // reach the bundle because they are top-level `var`s; a `let` (quickMode) would not be on window at all.
+  v.window.structurePath = "src/a.ts";
+  v.window.structureQuery = "";
+  v.window.structureItems = [];
+  v.window.structureBusy = true;
+  v.window.renderFileStructureResults("");
+  await v.settle(10);
+  assert.equal(v.$all("#quick-open-results .mc-loading-state").length, 1, "the body says it is still working");
+  assert.ok(v.$("#quick-open-filter")?.classList.contains("is-loading"), "and the chip above it agrees");
+
+  // The answer arrives, and it is empty: the waiting state must give way to a real empty state.
+  v.window.structureBusy = false;
+  v.window.renderFileStructureResults("");
+  await v.settle(10);
+  assert.equal(v.$all("#quick-open-results .mc-loading-state").length, 0, "the spinner goes when the answer lands");
+  assert.equal(
+    v.$all("#quick-open-results .quick-open-empty:not(.mc-loading-state)").length,
+    1,
+    "and an empty answer is allowed to say it is empty",
+  );
+  assert.equal(v.$("#quick-open-filter")?.classList.contains("is-loading"), false, "the chip stops waiting too");
+  v.close();
+});

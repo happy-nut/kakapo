@@ -4,9 +4,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { readOption, parsePositiveInteger, parseReviewArgs } from "../dist/cli-args.js";
+import { compareSelectionFor, readOption, parsePositiveInteger, parseReviewArgs } from "../dist/cli-args.js";
 
 test("readOption returns the value after a flag, or undefined when absent", () => {
   assert.equal(readOption(["--base", "main"], "--base"), "main");
@@ -80,4 +82,63 @@ test("--version answers instead of opening the app", () => {
   }
   assert.match(execFileSync(process.execPath, [cli, "--help"], { encoding: "utf8" }), /--version, -v/,
     "and the help says it exists");
+});
+
+// The flags are checked HERE, in the process the person typed them in, not only inside the app.
+//
+// The app checks them too, but it is spawned detached with its stdio discarded, so `kakapo --base mian`
+// printed "Opened kakapo review app.", exited 0, and no window ever appeared: the one message that
+// explained it went to a pipe pointed at nothing. The CLI must refuse first, and say why, and say so
+// with an exit code.
+test("the CLI refuses review flags it cannot honour, instead of launching into nothing", () => {
+  const cli = fileURLToPath(new URL("../dist/cli.js", import.meta.url));
+  const repo = mkdtempSync(join(tmpdir(), "kakapo-cli-"));
+  const git = (args) => execFileSync("git", args, { cwd: repo, stdio: "pipe" });
+  git(["init", "-q"]);
+  git(["config", "user.email", "test@kakapo.test"]);
+  git(["config", "user.name", "kakapo test"]);
+  git(["config", "commit.gpgsign", "false"]);
+  writeFileSync(join(repo, "a.txt"), "one\n");
+  git(["add", "-A"]);
+  git(["commit", "-qm", "base"]);
+
+  const run = (args) => {
+    try {
+      const stdout = execFileSync(process.execPath, [cli, ...args], { cwd: repo, encoding: "utf8", stdio: "pipe" });
+      return { status: 0, stdout, stderr: "" };
+    } catch (error) {
+      return { status: error.status, stdout: String(error.stdout || ""), stderr: String(error.stderr || "") };
+    }
+  };
+
+  for (const [args, pattern] of [
+    [["--base", "no-such-ref-xyz"], /not a commit in this repository/],
+    [["--staged", "--base", "HEAD"], /either --staged or --base/],
+    [["--context", "zero"], /--context/],
+  ]) {
+    const result = run(args);
+    assert.equal(result.status, 1, `${args.join(" ")} fails`);
+    assert.match(result.stderr, pattern, `${args.join(" ")} says why`);
+    assert.doesNotMatch(result.stdout, /Opened kakapo review app/, `${args.join(" ")} does not claim success`);
+  }
+  rmSync(repo, { recursive: true, force: true });
+});
+
+// A second folder opened by the SAME app is a different repository, and the launch's compare selection is
+// not about it. The symptom was a window that never stopped loading: `kakapo --base HEAD~5` in one repo,
+// then `kakapo` typed in a two-commit repo, which answered `fatal: bad revision 'HEAD~5'` and left the
+// handed-over window on the loading mark for the rest of the session.
+test("the compare selection stays in the repository it was typed in", () => {
+  const launch = { base: "HEAD~5", baseLabel: undefined, staged: false };
+  assert.deepEqual(compareSelectionFor("/repo", "/repo", launch), launch, "the launched repo keeps it");
+
+  const elsewhere = compareSelectionFor("/repo", "/other", launch);
+  assert.equal(elsewhere.base, undefined, "another repository gets no base");
+  assert.equal(elsewhere.baseLabel, undefined, "and no label for one");
+  assert.equal(elsewhere.staged, false, "and is not put into staged mode either");
+
+  // Both halves: a branch name travels no better than a revision does.
+  const named = { base: "main", baseLabel: "main", staged: true };
+  assert.deepEqual(compareSelectionFor("/repo", "/repo", named), named);
+  assert.deepEqual(compareSelectionFor("/repo", "/other", named), { base: undefined, baseLabel: undefined, staged: false });
 });

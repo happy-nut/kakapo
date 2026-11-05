@@ -364,7 +364,7 @@ function visibleProblemRows(query) {
     if (problemsErrorsOnly && row.severity !== 'error') return false;
     if (!needle) return true;
     var hay = (row.path + ' ' + row.message).toLowerCase();
-    return queries.some(function (variant) { return hay.includes(variant); });
+    return matchesQueryVariants(hay, queries);
   }).sort(function (a, b) {
     // Severity first, then the review's own files. A list of twenty-five where the three that belong to
     // the change sit at positions 9, 14 and 22 is a list the reviewer has to read all of.
@@ -390,19 +390,15 @@ function renderProblemsResults(query) {
       text: row.message,
     };
   });
-  quickActive = Math.min(quickActive, Math.max(quickItems.length - 1, 0));
+  clampQuickActive();
   var errors = problemRows.filter(function (row) { return row.severity === 'error'; }).length;
+  var summary = t('problems.summary', { n: problemRows.length, errors: errors, files: problemsTotal });
+  if (problemsUnavailable) {
+    summary += ' · ' + t('problems.unavailable', { n: problemsUnavailable });
+  }
+  // This scan can say more than "Searching…": it knows how many files it has got through.
+  setQuickFilterChip(problemsBusy, summary, t('problems.scanning', { done: problemsScanned, total: problemsTotal }));
   if (quickFilterEl) {
-    quickFilterEl.className = 'quick-open-filter' + (problemsBusy ? ' is-loading' : '');
-    var summary = t('problems.summary', { n: problemRows.length, errors: errors, files: problemsTotal });
-    if (problemsUnavailable) {
-      summary += ' · ' + t('problems.unavailable', { n: problemsUnavailable });
-    }
-    quickFilterEl.innerHTML = problemsBusy
-      ? kakapoLoaderHtml('kakapo-loader-micro') + '<span>'
-        + escapeHtml(t('problems.scanning', { done: problemsScanned, total: problemsTotal }))
-        + '</span>'
-      : escapeHtml(summary);
     // "N not checked" is a count with a warning attached, and the warning only existed on the empty
     // branch below — so a review WITH problems showed the bare figure and nothing saying that those files
     // are not clean, they are unexamined. The risk is identical in both branches; hang the sentence on the
@@ -416,13 +412,10 @@ function renderProblemsResults(query) {
     var empty = problemsBusy ? t('quickopen.searching')
       : problemsErrorsOnly && problemRows.length ? t('problems.noErrors')
         : t('problems.none');
-    quickResults.innerHTML = '<div class="quick-open-empty">' + escapeHtml(empty)
-      // "No problems" over a review where half the files had no server is the reassuring lie Flow 6 names.
-      + (!problemsBusy && problemsUnavailable
-        ? '<span class="quick-open-why">' + escapeHtml(t('problems.unavailableWhy', { n: problemsUnavailable })) + '</span>'
-        : '')
-      + '</div>';
-    renderQuickPreview(null);
+    // "No problems" over a review where half the files had no server is the reassuring lie Flow 6 names.
+    showQuickEmpty(empty, !problemsBusy && problemsUnavailable
+      ? t('problems.unavailableWhy', { n: problemsUnavailable })
+      : '');
     return;
   }
   quickResults.innerHTML = rows.map(function (row, index) {

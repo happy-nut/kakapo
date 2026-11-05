@@ -1109,6 +1109,18 @@ test("the toolbars show the current git branch, and the sidebar header keeps the
     assert.ok((chip.querySelector(".brand-branch-name")?.textContent || "").trim().length > 0, "it names a branch");
     assert.ok(chip.closest(".toolbar"), "and it is in a toolbar, where there is room for a long name");
   }
+  // Every branch name has to be able to give way, not only the ones with a "/" in them. A bare name was
+  // left as a text node, and `text-overflow` does not reach the anonymous flex item a text node becomes:
+  // measured at a 1024px window, `bounty-2026-11-05` painted straight across the compare pill beside it.
+  for (const name of ["feature/KAKAPO-1-long-branch-name", "bounty-2026-11-05", "main"]) {
+    const chip = chips[0].querySelector(".brand-branch-name");
+    v.window.applyBranchChip(chip, name);
+    assert.equal(chip.textContent, name, `${name} is still spelled in full`);
+    assert.equal(chip.title, name, "and the whole of it is on the title");
+    const tail = chip.querySelector(".branch-tail");
+    assert.ok(tail, `${name} has a tail that can be ellipsised`);
+    assert.equal(chip.querySelector(".branch-head")?.textContent ?? "", name.slice(0, name.length - tail.textContent.length));
+  }
   assert.equal(v.$(".sidebar-brand .brand-branch"), null, "and not back in the band it outgrew");
   assert.equal(v.$(".sidebar > .sidebar-brand")?.parentElement, v.$(".sidebar"), "the project name lives outside the scrolling tree");
   assert.equal(v.$(".sidebar-scroll .sidebar-brand"), null, "scrolling files cannot move the fixed project header");

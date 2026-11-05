@@ -66,8 +66,8 @@ function openFileStructure() {
 /** Which file the structure is of: the open source tab, else the file the diff is showing. */
 function structureTargetPath() {
   if (isSourceViewerVisible()) {
-    var open = document.getElementById('source-viewer');
-    if (open && open.dataset.openPath) return open.dataset.openPath;
+    var open = sourceOpenPath();
+    if (open) return open;
   }
   var loc = caretSourceLoc();
   return loc ? loc.path : '';
@@ -117,26 +117,18 @@ function renderFileStructureResults(query) {
   quickItems = needle
     ? structureItems.filter(function (item) {
       var hay = item.name.toLowerCase();
-      return queries.some(function (variant) { return hay.includes(variant); });
+      return matchesQueryVariants(hay, queries);
     })
     : structureItems;
-  quickActive = Math.min(quickActive, Math.max(quickItems.length - 1, 0));
-  if (quickFilterEl) {
-    quickFilterEl.className = 'quick-open-filter' + (structureBusy ? ' is-loading' : '');
-    quickFilterEl.innerHTML = structureBusy
-      ? kakapoLoaderHtml('kakapo-loader-micro') + '<span>' + escapeHtml(t('quickopen.searching')) + '</span>'
-      : escapeHtml(sourceTabLabel(structurePath) + ' · ' + resultsLabel(quickItems.length)
-        + (structureEngine ? ' · ' + structureEngine : ''));
-  }
+  clampQuickActive();
+  setQuickFilterChip(structureBusy, sourceTabLabel(structurePath) + ' · ' + resultsLabel(quickItems.length)
+    + (structureEngine ? ' · ' + structureEngine : ''));
   if (structureBusy) {
-    quickResults.innerHTML = loadingStateHtml(t('quickopen.searching'), 'quick-open-empty');
-    renderQuickPreview(null);
+    showQuickLoading();
     return;
   }
   if (!quickItems.length) {
-    quickResults.innerHTML = '<div class="quick-open-empty">'
-      + escapeHtml(t(structureItems.length ? 'quickopen.noMatches' : 'structure.none')) + '</div>';
-    renderQuickPreview(null);
+    showQuickEmpty(t(structureItems.length ? 'quickopen.noMatches' : 'structure.none'));
     return;
   }
   quickResults.innerHTML = quickItems.map(function (item, index) {
@@ -320,17 +312,13 @@ function renderRecentLocationResults(query) {
   quickItems = needle
     ? all.filter(function (item) {
       var hay = (item.path + ' ' + item.name).toLowerCase();
-      return queries.some(function (variant) { return hay.includes(variant); });
+      return matchesQueryVariants(hay, queries);
     })
     : all;
-  quickActive = Math.min(quickActive, Math.max(quickItems.length - 1, 0));
-  if (quickFilterEl) {
-    quickFilterEl.className = 'quick-open-filter';
-    quickFilterEl.textContent = resultsLabel(quickItems.length);
-  }
+  clampQuickActive();
+  setQuickFilterChip(false, resultsLabel(quickItems.length));
   if (!quickItems.length) {
-    quickResults.innerHTML = '<div class="quick-open-empty">' + escapeHtml(t('locations.none')) + '</div>';
-    renderQuickPreview(null);
+    showQuickEmpty(t('locations.none'));
     return;
   }
   quickResults.innerHTML = quickItems.map(function (item, index) {
@@ -661,7 +649,7 @@ function renderHierarchyResults(query) {
   var visible = needle
     ? hierarchyRows.filter(function (row) {
       var hay = String(row.location.name || row.location.path || '').toLowerCase();
-      return queries.some(function (variant) { return hay.includes(variant); });
+      return matchesQueryVariants(hay, queries);
     })
     : hierarchyRows;
   quickItems = visible.map(function (row) {
@@ -677,26 +665,16 @@ function renderHierarchyResults(query) {
       hierarchyIndex: hierarchyRows.indexOf(row),
     };
   });
-  quickActive = Math.min(quickActive, Math.max(quickItems.length - 1, 0));
-  if (quickFilterEl) {
-    quickFilterEl.className = 'quick-open-filter' + (hierarchyBusy ? ' is-loading' : '');
-    quickFilterEl.innerHTML = hierarchyBusy
-      ? kakapoLoaderHtml('kakapo-loader-micro') + '<span>' + escapeHtml(t('quickopen.searching')) + '</span>'
-      : escapeHtml(hierarchyTitle(hierarchyKind).replace('{name}', hierarchyRootName)
-        + ' · ' + resultsLabel(quickItems.length)
-        + (hierarchyEngine ? ' · ' + hierarchyEngine : ''));
-  }
+  clampQuickActive();
+  setQuickFilterChip(hierarchyBusy, hierarchyTitle(hierarchyKind).replace('{name}', hierarchyRootName)
+    + ' · ' + resultsLabel(quickItems.length)
+    + (hierarchyEngine ? ' · ' + hierarchyEngine : ''));
   if (hierarchyBusy) {
-    quickResults.innerHTML = loadingStateHtml(t('quickopen.searching'), 'quick-open-empty');
-    renderQuickPreview(null);
+    showQuickLoading();
     return;
   }
   if (!quickItems.length) {
-    quickResults.innerHTML = '<div class="quick-open-empty">'
-      + escapeHtml(t('hierarchy.none').replace('{name}', hierarchyRootName))
-      + (hierarchyNote ? '<span class="quick-open-why">' + escapeHtml(hierarchyNote) + '</span>' : '')
-      + '</div>';
-    renderQuickPreview(null);
+    showQuickEmpty(t('hierarchy.none').replace('{name}', hierarchyRootName), hierarchyNote);
     return;
   }
   quickResults.innerHTML = visible.map(function (row, index) {
@@ -915,8 +893,7 @@ function toggleBookmarkAtCaret() {
  * than repainting a file to add one dot.
  */
 function paintBookmarkGutter() {
-  var viewer = document.getElementById('source-viewer');
-  var path = viewer ? viewer.dataset.openPath || '' : '';
+  var path = sourceOpenPath();
   if (!path) return;
   var lines = bookmarkLinesFor(path);
   var body = document.getElementById('source-body');
@@ -1022,17 +999,13 @@ function renderBookmarkResults(query) {
   quickItems = needle
     ? all.filter(function (item) {
       var hay = (item.path + ' ' + item.name).toLowerCase();
-      return queries.some(function (variant) { return hay.includes(variant); });
+      return matchesQueryVariants(hay, queries);
     })
     : all;
-  quickActive = Math.min(quickActive, Math.max(quickItems.length - 1, 0));
-  if (quickFilterEl) {
-    quickFilterEl.className = 'quick-open-filter';
-    quickFilterEl.textContent = resultsLabel(quickItems.length);
-  }
+  clampQuickActive();
+  setQuickFilterChip(false, resultsLabel(quickItems.length));
   if (!quickItems.length) {
-    quickResults.innerHTML = '<div class="quick-open-empty">' + escapeHtml(t('bookmark.none')) + '</div>';
-    renderQuickPreview(null);
+    showQuickEmpty(t('bookmark.none'));
     return;
   }
   quickResults.innerHTML = quickItems.map(function (item, index) {

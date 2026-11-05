@@ -323,6 +323,18 @@ class Viewer {
   settle(ms = 50) {
     return tick(ms);
   }
+  /**
+   * Settle until `fn()` is true, then return at once. `settle(ms)` is a real sleep, so every fixed wait is
+   * a bet on the machine: the lazy-fetch chain in comment-nav (fetch -> repaint -> frame -> caret) finishes
+   * in ~280ms on an idle machine and past 560ms when the runner has every other file in flight, which made
+   * `settle(400)` a coin flip. Waiting for the outcome is both faster in the common case and honest about a
+   * real regression — `cap` runs out and the assertion after it still fails, rather than hanging.
+   */
+  async until(fn, cap = 3000) {
+    const deadline = Date.now() + cap;
+    while (!fn() && Date.now() < deadline) await this.settle(20);
+    return Boolean(fn());
+  }
   /** Simulate a watch refresh (Electron diff-update) with a hand-built payload. Needs { menuBridge: true }. */
   async pushDiffUpdate(payload) {
     const cb = this.window.__diffUpdateCb;

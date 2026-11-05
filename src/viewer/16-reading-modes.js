@@ -55,8 +55,7 @@ function refreshStickyLines() {
   var body = document.getElementById('source-body');
   var overlay = stickyLinesOverlay(body);
   if (!overlay) return;
-  var viewer = document.getElementById('source-viewer');
-  var path = viewer && viewer.dataset.openPath;
+  var path = sourceOpenPath();
   var off = !renderToggleOn('stickyLines') || !path || !isSourceViewerVisible()
     || body.classList.contains('rendered-body');
   if (off) { overlay.classList.add('hidden'); overlay.innerHTML = ''; return; }
@@ -103,8 +102,7 @@ function scheduleStickyLines() {
 document.addEventListener('click', function (event) {
   var row = event.target && event.target.closest ? event.target.closest('#sticky-lines .source-row') : null;
   if (!row) return;
-  var viewer = document.getElementById('source-viewer');
-  var path = viewer && viewer.dataset.openPath;
+  var path = sourceOpenPath();
   var line = Number(row.dataset.stickyLine);
   if (!path || !isFinite(line)) return;
   event.preventDefault();
@@ -121,8 +119,7 @@ document.getElementById('source-body')?.addEventListener('scroll', scheduleStick
 function refreshFocusMode() {
   var body = document.getElementById('source-body');
   if (!body) return;
-  var viewer = document.getElementById('source-viewer');
-  var path = viewer && viewer.dataset.openPath;
+  var path = sourceOpenPath();
   var on = renderToggleOn('focusMode') && path && isSourceViewerVisible()
     && viewerCursor && viewerCursor.path === path;
   if (!on) {
@@ -171,8 +168,7 @@ function decorationsFor(kind, path) {
         : (response && Array.isArray(response.hints) ? response.hints : null);
       if (!value) { decorationCacheMap().delete(key); return; } // not an answer — see the fold cache
       decorationCacheMap().set(key, { generation: analysisGeneration(), value: value, pending: false });
-      var viewer = document.getElementById('source-viewer');
-      if (viewer && viewer.dataset.openPath === path) paintSourceDecorations();
+      if (sourceOpenPath() === path) paintSourceDecorations();
     }, function () {
       if (pageAlive()) decorationCacheMap().delete(key);
     });
@@ -252,8 +248,7 @@ function codeVisionLineText(titles) {
 function paintSourceDecorations() {
   var body = document.getElementById('source-body');
   if (!body) return;
-  var viewer = document.getElementById('source-viewer');
-  var path = viewer && viewer.dataset.openPath;
+  var path = sourceOpenPath();
   clearSourceDecorations(body);
   if (!path || !isSourceViewerVisible() || body.classList.contains('rendered-body')) return;
 

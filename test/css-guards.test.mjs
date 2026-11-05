@@ -749,3 +749,37 @@ test("the extension chain keeps its width and the base name is what shrinks", ()
   assert.match(head || "", /min-width:\s*0/, "and the base name is the one allowed to shrink to nothing");
   assert.match(head || "", /text-overflow:\s*ellipsis/, "with an ellipsis where it was cut");
 });
+
+test("the crumb trail gives way in the right order: the figure last, the directories first", () => {
+  // Measured in the running app at a 1024px window: the children were all `flex: 0 1 auto` with
+  // `min-width: auto`, so none of them shrank and `.breadcrumb { overflow: hidden }` cut the LAST one —
+  // the +N −M. A file that was +14 −4 printed `+1`. Not a figure gone missing: a figure gone wrong.
+  const crumb = ruleDeclaring(".crumb", "flex-shrink");
+  assert.ok(crumb, "a plain crumb has a shrink budget");
+  assert.match(crumb, /min-width:\s*0/, "and may shrink below its content");
+  assert.match(crumb, /text-overflow:\s*ellipsis/, "saying so with an ellipsis");
+  const leaf = ruleDeclaring(".crumb-leaf", "flex-shrink");
+  assert.ok(leaf, "the file name has its own, smaller budget");
+  const shrinkOf = (body) => Number((body.match(/flex-shrink:\s*(\d+)/) || [])[1]);
+  assert.ok(shrinkOf(crumb) > shrinkOf(leaf),
+    `directories give way before the file name (${shrinkOf(crumb)} > ${shrinkOf(leaf)})`);
+  const stat = ruleDeclaring(".crumb-stat", "flex");
+  assert.match(stat || "", /flex:\s*none/, "and the change counts never give way at all");
+  const sep = ruleDeclaring(".crumb-sep", "flex-shrink");
+  assert.ok(sep && shrinkOf(sep) === shrinkOf(crumb),
+    "a separator goes with the crumb it separates, or the trail opens with a chevron pointing at nothing");
+});
+
+test("every chrome control a pointer aims at clears the 24px target floor", () => {
+  // WCAG 2.5.8. These three measured 20x20, 20x20 and 247x19 in the running app, and the spacing
+  // exemption does not rescue them: each sits within 24px of another target.
+  const reveal = ruleDeclaring(".brand-reveal", "min-height");
+  assert.match(reveal || "", /min-width:\s*24px/, "the reveal/settings buttons are 24px wide");
+  assert.match(reveal || "", /min-height:\s*24px/, "and 24px tall");
+  const pill = ruleDeclaring(".compare-pill", "min-height");
+  assert.match(pill || "", /min-height:\s*24px/, "the compare pill is a button, and is 24px tall");
+  // ...without making the bar that holds them taller: its padding gave up the 4px they needed.
+  const tools = ruleDeclaring(".sidebar-tools", "padding");
+  assert.match(tools || "", /padding:\s*3px\s+8px/, "the bar's padding leaves room for 24px buttons inside 30px");
+  assert.match(tools || "", /min-height:\s*30px/, "and the bar is still the height it was");
+});

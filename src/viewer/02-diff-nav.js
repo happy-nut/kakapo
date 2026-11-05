@@ -188,6 +188,15 @@ function appendBreadcrumbStat(container, path) {
   container.appendChild(stat);
 }
 
+/** The path this file had on the BASE side: a rename's old path, or the active path for everything else. */
+function diffBaseSidePath(path) {
+  if (!path) return path;
+  var row = Array.prototype.find.call(document.querySelectorAll('.change-row'), function (el) {
+    return el.dataset.file === path;
+  });
+  return (row && row.dataset.oldPath) || path;
+}
+
 // The diff's chrome, all of it, from the one path it is about.
 //
 // The breadcrumb used to be rendered by each navigation site separately, and setDiffCursor — the caret,
@@ -226,7 +235,13 @@ function syncDiffReviewChrome(path) {
       afterKind.textContent = t('diff.workingTree');
     }
   }
-  if (beforePath) { beforePath.textContent = activePath; beforePath.title = activePath; }
+  // A RENAME has two paths, and the left pane holds the one that existed at the base. Printing the new path
+  // there named a file the base revision has never had — `Base src/renamed-to.ts` against a revision where
+  // only src/renamed-from.ts exists — so the one header that answers "what am I comparing against" was the
+  // one header that could not be taken at its word. The old path rides on the change row beside the counts
+  // (render-tree.ts); only a rename carries one, and every other file reads the active path as before.
+  var basePath = diffBaseSidePath(activePath);
+  if (beforePath) { beforePath.textContent = basePath; beforePath.title = basePath; }
   if (afterPath) { afterPath.textContent = activePath; afterPath.title = activePath; }
   // Every arrow key reaches this through setDiffCursor; rebuilding the crumb DOM per keystroke would be
   // the same answer thirty times a second. Two things can change without the path changing, and both
@@ -714,8 +729,7 @@ function next(delta) {
   // look broken. Re-enter the reviewed diff at the open file's own hunk when possible (otherwise the last
   // active hunk); preferredReviewHunk deliberately permits a viewed target when the whole queue is viewed.
   {
-    var sourceViewer = document.getElementById('source-viewer');
-    var sourcePath = sourceViewer ? (sourceViewer.dataset.openPath || '') : '';
+    var sourcePath = sourceOpenPath();
     var sourceHunk = sourcePath ? firstHunkForPath(sourcePath) : -1;
     var fallbackHunk = sourceHunk >= 0 ? sourceHunk : (base >= 0 ? base : (current >= 0 ? current : 0));
     setActive(fallbackHunk);
@@ -735,7 +749,7 @@ function next(delta) {
 function diffNavTargets() {
   const out = [];
   document.querySelectorAll('#diff2html-container .d2h-file-wrapper').forEach(function (w) {
-    const path = w.dataset.path || ((w.querySelector('.d2h-file-name') || {}).textContent || '').trim();
+    const path = diffWrapperPathKey(w);
     const own = [];
     if (REVIEW_LAZY) {
       // data-first-hunk/data-hunk-count exist only on the shells render.ts rewrites for a lazy review.
@@ -815,7 +829,7 @@ function nextUnviewedHunk(base, delta) {
 }
 
 function initialHunkForNavigation(delta) {
-  const openPath = document.getElementById('source-viewer')?.dataset.openPath || '';
+  const openPath = sourceOpenPath();
   const sourceHunk = firstHunkForPath(openPath);
   if (sourceHunk >= 0) return sourceHunk;
   return delta < 0 ? hunkTotal() - 1 : 0;

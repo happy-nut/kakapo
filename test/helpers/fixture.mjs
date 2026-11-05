@@ -29,9 +29,12 @@ async function loadBuilder() {
 const createdDirs = [];
 
 /**
- * @param {Array<{path: string, before?: string, after?: string}>} files
+ * @param {Array<{path: string, before?: string, after?: string, renamedFrom?: string}>} files
  *   before === undefined -> file is created in the change (untracked/new)
  *   after  === undefined -> file is deleted in the change
+ *   renamedFrom          -> the path it had at the baseline; the change `git mv`s it to `path`.
+ *     Staged, because that is how a rename reaches git: a delete plus an untracked file is not one, and
+ *     rename detection would pair them only by accident.
  * @param {object} [opts] forwarded onto buildDiffReview (title, context, ignoreWhitespace, ...)
  * @returns {Promise<{dir: string, html: string, build: object}>}
  */
@@ -46,8 +49,9 @@ export async function makeReviewHtml(files, opts = {}) {
   git(["config", "commit.gpgsign", "false"]);
 
   // Baseline commit: every file that has a `before` (i.e. exists prior to the change under review).
+  // A renamed file is committed under the path it HAD.
   const baseline = files.filter((f) => f.before !== undefined);
-  for (const f of baseline) writeFile(dir, f.path, f.before);
+  for (const f of baseline) writeFile(dir, f.renamedFrom || f.path, f.before);
   if (baseline.length) {
     git(["add", "-A"]);
     git(["commit", "-qm", "baseline"]);
@@ -60,7 +64,11 @@ export async function makeReviewHtml(files, opts = {}) {
 
   // Apply the change under review.
   for (const f of files) {
-    if (f.after === undefined && f.before !== undefined) {
+    if (f.renamedFrom) {
+      mkdirSync(dirname(join(dir, f.path)), { recursive: true });
+      git(["mv", f.renamedFrom, f.path]);
+      if (f.after !== undefined) writeFile(dir, f.path, f.after);
+    } else if (f.after === undefined && f.before !== undefined) {
       rmSync(join(dir, f.path), { force: true });
     } else if (f.after !== undefined) {
       writeFile(dir, f.path, f.after);
