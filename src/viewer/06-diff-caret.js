@@ -520,15 +520,15 @@ function handleDiffCaretKey(event) {
     return false;
   }
   // A comment box is selected: the same contract as the source view, which owns it
-  // (handleSelectedCommentRowKey). A diff row is addressed by pane and row index, so stepping onto one
-  // resolves the wrapper's new-side rows and finds the sibling's position in them.
+  // (handleSelectedCommentRowKey). A diff row is addressed by pane and row index, and diffRowInfoFromNode
+  // reads both off the row itself — including WHICH pane it is in. Resolving the new-side table for every
+  // sibling instead meant a comment on the old side, which is a comment on a deleted line, could never be
+  // stepped off: no left-pane row has an index in the right pane's list, so every arrow restored the caret.
   if (selectedCommentRow) {
     return handleSelectedCommentRowKey(event, function (sib) {
-      var wrapper = diffWrapperByPath(diffCursor.path);
-      if (!wrapper || !isDiffCodeRow(sib)) return false;
-      var idx = diffRowsOf(diffSideTable(wrapper, 'new')).indexOf(sib);
-      if (idx < 0) return false;
-      setDiffCursor(diffCursor.path, 'new', idx, 0, true);
+      var at = diffRowInfoFromNode(sib);
+      if (!at) return false;
+      setDiffCursor(at.path, at.side, at.rowIndex, 0, true);
       return true;
     }, function () {
       setDiffCursor(diffCursor.path, diffCursor.side, diffCursor.rowIndex, diffCursor.column, false);

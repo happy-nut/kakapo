@@ -1048,7 +1048,18 @@ function handleSelectedCommentRowKey(event, stepOntoRow, restoreCaret) {
     var sib = dir < 0 ? selectedCommentRow.previousElementSibling : (dir > 0 ? selectedCommentRow.nextElementSibling : null);
     clearCommentRowSelection();
     event.preventDefault();
-    if (!(sib && stepOntoRow(sib))) restoreCaret();
+    // Rows the caret cannot address sit between code lines: a code-vision note (which is painted ABOVE the
+    // symbol it annotates, so it is the row below every comment on the line before one), a hunk header, a
+    // fold marker, the spacer the opposite pane gets for a comment, the placeholder a pane gets for a line
+    // that is not on its side. Walk past them, the way moveFromSelectedDiffFold already walks for the fold
+    // row — stepOntoRow declines what it cannot land on, so the first row it accepts is the next real line.
+    // Reading only the immediate sibling made ArrowDown dead whenever one of those rows happened to be next.
+    var landed = false;
+    while (sib && !landed) {
+      landed = stepOntoRow(sib);
+      if (!landed) sib = dir < 0 ? sib.previousElementSibling : sib.nextElementSibling;
+    }
+    if (!landed) restoreCaret();
     return true;
   }
   return false;
