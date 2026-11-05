@@ -136,7 +136,11 @@ export function languageForPath(path: string): string {
   // the source view painted `fun`, `override` and `companion object` as plain text (and `type`, an ordinary
   // Kotlin parameter name, as a keyword), and hljs needed a special case here to reach its kotlin grammar.
   if (lower.endsWith(".kt") || lower.endsWith(".kts")) return "kotlin";
-  if (lower.endsWith(".sh") || lower.endsWith(".bash") || lower.endsWith(".zsh")) return "shell";
+  // "bash", not "shell": highlight.js's `shell` grammar is Shell SESSION — a pasted transcript, where the
+  // only thing it colours is the prompt in front of a command. Handed an actual script it emits no tokens
+  // at all, so every .sh in a diff rendered flat. `bash` is the grammar for the file. Two siblings read
+  // this name: markdownLanguage() for a fenced block's tag, and lineCommentPrefixes() for `#`.
+  if (lower.endsWith(".sh") || lower.endsWith(".bash") || lower.endsWith(".zsh")) return "bash";
   if (lower.endsWith(".yml") || lower.endsWith(".yaml")) return "yaml";
   if (lower.endsWith(".toml")) return "toml";
   if (lower.endsWith(".sql")) return "sql";

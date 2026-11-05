@@ -78,34 +78,87 @@ test("every non-// language has a comment style for the source view", () => {
   assert.deepEqual(undecided, [], "give these a LINE_COMMENT_PREFIXES row or add them to SLASHES");
 });
 
-// A grammar can be reachable and still invisible. languageForPath answers "markdown", hljs tokenizes the
-// file, the diff carries the spans — and it still reads as flat prose, because the theme maps hljs's class
-// names onto its own --token-* palette BY HAND and a class nobody wrote a row for inherits the line's
-// plain colour. That is exactly what happened to `inline code`: markdown emits almost nothing else, so a
-// .md diff held 25 hljs-code spans and not one other token, every one of them the same grey as the prose
-// around it. Ask hljs which classes a markdown document produces instead of listing them here, so a
-// grammar change cannot quietly add a colourless one.
-test("every class a markdown file paints with has a colour in the theme", () => {
+// A grammar can be reachable and still invisible. languageForPath answers a name, hljs tokenizes the file,
+// the diff carries the spans — and it still reads as flat text, because the theme maps hljs's class names
+// onto the app's own --token-* palette BY HAND and a class nobody wrote a row for inherits the line's plain
+// colour. `inline code` was the whole of markdown's vocabulary that way: a .md diff held 25 hljs-code spans
+// and not one other token, every one the same grey as the prose around it.
+//
+// Rather than sample files, ask each grammar what it CAN emit — a sample only proves what it happened to
+// contain. hljs renders a scope "a.b_" as class="hljs-a b_", so the first segment decides the colour, and
+// `className: ""` is hljs's way of saying "no scope", which emits no class at all.
+const PLAIN_ON_PURPOSE = new Set([
+  // Identifiers and brackets. The source view's tokenizer paints neither, so plain is the answer that keeps
+  // the two surfaces agreeing — and a palette entry for "every parameter name" would colour most of a file.
+  "hljs-params", "hljs-punctuation", "hljs-operator",
+  // The code inside a string interpolation. It sits INSIDE hljs-string, so with no row of its own it
+  // inherits the string colour — which is exactly what the source view does with `${...}` too.
+  "hljs-subst",
+  // f#-only, and not a role this palette has.
+  "hljs-computation-expression",
+]);
+
+function emittableClasses(name, seen = new Set()) {
+  const out = new Set();
+  const lang = hljs.getLanguage(name);
+  if (!lang) return out;
+  const add = (scope) => { const first = String(scope).split(".")[0]; if (first) out.add("hljs-" + first); };
+  const walk = (node, depth) => {
+    if (!node || typeof node !== "object" || depth > 12) return;
+    if (Array.isArray(node)) { node.forEach((n) => walk(n, depth + 1)); return; }
+    for (const key of ["scope", "className"]) if (typeof node[key] === "string") add(node[key]);
+    for (const key of ["beginScope", "endScope"]) {
+      const v = node[key];
+      if (typeof v === "string") add(v);
+      else if (v && typeof v === "object") Object.values(v).forEach((x) => typeof x === "string" && add(x));
+    }
+    if (typeof node.subLanguage === "string" && !seen.has(node.subLanguage)) {
+      seen.add(node.subLanguage);
+      emittableClasses(node.subLanguage, seen).forEach((c) => out.add(c));
+    }
+    for (const key of ["contains", "variants", "starts", "keywords", "cases"]) {
+      if (node[key] && typeof node[key] === "object") walk(node[key], depth + 1);
+    }
+  };
+  walk(lang, 0);
+  return out;
+}
+
+test("every token class the mapped grammars can emit has a colour, or is plain on purpose", () => {
   const css = readFileSync(new URL("../dist/viewer.css", import.meta.url), "utf8");
   const styled = new Set([...css.matchAll(/\.(hljs-[a-z_-]+)/g)].map((m) => m[1]));
 
-  // The diff highlights one line at a time (highlightSideLines), so the sample is read that way too.
-  const sample = [
-    "# Heading", "## Sub heading", "Prose with \`inline code\`, **bold** and *emphasis*.",
-    "- a bullet", "1. an ordered item", "> a quote",
-    "[a link](http://example.com)", "\`\`\`js", "const a = 1;", "\`\`\`", "    indented code", "---",
-  ];
-  const emitted = new Set();
-  for (const line of sample) {
-    const html = hljs.highlight(line, { language: "markdown", ignoreIllegals: true }).value;
-    for (const m of html.matchAll(/class="(hljs-[a-z_-]+)"/g)) emitted.add(m[1]);
+  const names = new Set();
+  for (const ext of [...EXTENSIONS, ...FILENAMES]) {
+    const language = languageForPath(ext.includes("file") ? ext : `f.${ext}`);
+    names.add(language === "markup" ? "xml" : language);
   }
+  names.delete("text");
 
-  // Guard the guard: a sample that stopped producing the token this test was written for would pass by
-  // saying nothing at all.
-  assert.ok(emitted.has("hljs-code"), "the sample no longer exercises markdown's code token");
-  assert.ok(emitted.size >= 5, `only ${emitted.size} markdown token classes — did the sample go stale?`);
+  const all = new Set();
+  for (const name of names) emittableClasses(name).forEach((c) => all.add(c));
 
-  const colourless = [...emitted].filter((c) => !styled.has(c)).sort();
-  assert.deepEqual(colourless, [], "give these a row in viewer.css's hljs -> --token-* mapping");
+  // Guard the guard: a walk that stopped reaching into the grammars would report nothing missing and pass.
+  assert.ok(all.size > 20, `the grammar walk found only ${all.size} classes — did hljs change shape?`);
+  assert.ok(all.has("hljs-code") && all.has("hljs-selector-class"),
+    "the walk no longer reaches the classes it was written for");
+
+  const colourless = [...all].filter((c) => !styled.has(c) && !PLAIN_ON_PURPOSE.has(c)).sort();
+  assert.deepEqual(colourless, [],
+    "give these a row in viewer.css's hljs -> --token-* mapping, or a reason in PLAIN_ON_PURPOSE");
+});
+
+// A grammar can also be the WRONG one and still look like a mapping. highlight.js has both `bash` (the
+// script) and `shell` (Shell SESSION — a pasted transcript, where the only thing it colours is the prompt
+// in front of a command). `.sh` asked for `shell`, so every shell script in a diff came back with zero
+// tokens: not a missing colour, nothing to colour. A name being a real hljs language is not enough; it has
+// to have something to say about the file.
+test("a shell script gets a grammar that actually tokenizes a script", () => {
+  assert.equal(languageForPath("scripts/run.sh"), "bash");
+  const line = 'if [ -f x ]; then echo "hi"; fi';
+  const tokens = (name) => [...hljs.highlight(line, { language: name, ignoreIllegals: true }).value
+    .matchAll(/class="hljs-[a-z_-]+/g)].length;
+  assert.equal(tokens("shell"), 0, "the control: Shell Session still says nothing about a script");
+  assert.ok(tokens(languageForPath("run.sh")) >= 3,
+    "the mapped grammar must colour a script, not just a transcript's prompt");
 });

@@ -1662,6 +1662,11 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
 .d2h-code-line-ctn .hljs-literal { color: var(--token-literal); }
 .d2h-code-line-ctn .hljs-string,
 .d2h-code-line-ctn .hljs-regexp,
+/* `regex` and `character` are what a few grammars (Clojure, Elixir) call what the rest call regexp and a
+   char literal. Same meaning, so the same colour — otherwise a regex reads as code in JavaScript and as
+   prose in Elixir. */
+.d2h-code-line-ctn .hljs-regex,
+.d2h-code-line-ctn .hljs-character,
 /* Markdown's `inline code` and fenced blocks. Missed when the mapping above was written, and markdown is
    almost nothing but this class: a .md diff carried 25 hljs-code spans and not one other token, all of them
    painted the same grey as the prose around them, so the file read as unhighlighted. The source view's own
@@ -1693,6 +1698,10 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
 .d2h-code-line-ctn .hljs-variable.constant_,
 .d2h-code-line-ctn .hljs-property { color: var(--token-constant, var(--token-literal)); }
 .d2h-code-line-ctn .hljs-tag,
+.d2h-code-line-ctn .hljs-selector-class,
+.d2h-code-line-ctn .hljs-selector-id,
+.d2h-code-line-ctn .hljs-selector-attr,
+.d2h-code-line-ctn .hljs-selector-pseudo,
 .d2h-code-line-ctn .hljs-name { color: var(--token-tag); font-weight: 650; }
 .d2h-code-line-ctn .hljs-symbol,
 .d2h-code-line-ctn .hljs-bullet,
