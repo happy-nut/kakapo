@@ -1662,6 +1662,12 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
 .d2h-code-line-ctn .hljs-literal { color: var(--token-literal); }
 .d2h-code-line-ctn .hljs-string,
 .d2h-code-line-ctn .hljs-regexp,
+/* Markdown's `inline code` and fenced blocks. Missed when the mapping above was written, and markdown is
+   almost nothing but this class: a .md diff carried 25 hljs-code spans and not one other token, all of them
+   painted the same grey as the prose around them, so the file read as unhighlighted. The source view's own
+   markdown branch paints those backticks with .tok-string, so the two surfaces also disagreed about one
+   fact; this is the colour that makes them agree. */
+.d2h-code-line-ctn .hljs-code,
 .d2h-code-line-ctn .hljs-char.escape_ { color: var(--token-string); }
 .d2h-code-line-ctn .hljs-number { color: var(--token-number); }
 /* Comments are not italic. In a well-commented file the comment IS most of the screen — whole paragraphs

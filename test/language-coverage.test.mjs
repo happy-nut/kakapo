@@ -77,3 +77,35 @@ test("every non-// language has a comment style for the source view", () => {
   }
   assert.deepEqual(undecided, [], "give these a LINE_COMMENT_PREFIXES row or add them to SLASHES");
 });
+
+// A grammar can be reachable and still invisible. languageForPath answers "markdown", hljs tokenizes the
+// file, the diff carries the spans — and it still reads as flat prose, because the theme maps hljs's class
+// names onto its own --token-* palette BY HAND and a class nobody wrote a row for inherits the line's
+// plain colour. That is exactly what happened to `inline code`: markdown emits almost nothing else, so a
+// .md diff held 25 hljs-code spans and not one other token, every one of them the same grey as the prose
+// around it. Ask hljs which classes a markdown document produces instead of listing them here, so a
+// grammar change cannot quietly add a colourless one.
+test("every class a markdown file paints with has a colour in the theme", () => {
+  const css = readFileSync(new URL("../dist/viewer.css", import.meta.url), "utf8");
+  const styled = new Set([...css.matchAll(/\.(hljs-[a-z_-]+)/g)].map((m) => m[1]));
+
+  // The diff highlights one line at a time (highlightSideLines), so the sample is read that way too.
+  const sample = [
+    "# Heading", "## Sub heading", "Prose with \`inline code\`, **bold** and *emphasis*.",
+    "- a bullet", "1. an ordered item", "> a quote",
+    "[a link](http://example.com)", "\`\`\`js", "const a = 1;", "\`\`\`", "    indented code", "---",
+  ];
+  const emitted = new Set();
+  for (const line of sample) {
+    const html = hljs.highlight(line, { language: "markdown", ignoreIllegals: true }).value;
+    for (const m of html.matchAll(/class="(hljs-[a-z_-]+)"/g)) emitted.add(m[1]);
+  }
+
+  // Guard the guard: a sample that stopped producing the token this test was written for would pass by
+  // saying nothing at all.
+  assert.ok(emitted.has("hljs-code"), "the sample no longer exercises markdown's code token");
+  assert.ok(emitted.size >= 5, `only ${emitted.size} markdown token classes — did the sample go stale?`);
+
+  const colourless = [...emitted].filter((c) => !styled.has(c)).sort();
+  assert.deepEqual(colourless, [], "give these a row in viewer.css's hljs -> --token-* mapping");
+});
