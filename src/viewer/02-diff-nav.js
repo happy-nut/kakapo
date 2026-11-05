@@ -729,8 +729,7 @@ function next(delta) {
   // look broken. Re-enter the reviewed diff at the open file's own hunk when possible (otherwise the last
   // active hunk); preferredReviewHunk deliberately permits a viewed target when the whole queue is viewed.
   {
-    var sourceViewer = document.getElementById('source-viewer');
-    var sourcePath = sourceViewer ? (sourceViewer.dataset.openPath || '') : '';
+    var sourcePath = sourceOpenPath();
     var sourceHunk = sourcePath ? firstHunkForPath(sourcePath) : -1;
     var fallbackHunk = sourceHunk >= 0 ? sourceHunk : (base >= 0 ? base : (current >= 0 ? current : 0));
     setActive(fallbackHunk);
@@ -830,7 +829,7 @@ function nextUnviewedHunk(base, delta) {
 }
 
 function initialHunkForNavigation(delta) {
-  const openPath = document.getElementById('source-viewer')?.dataset.openPath || '';
+  const openPath = sourceOpenPath();
   const sourceHunk = firstHunkForPath(openPath);
   if (sourceHunk >= 0) return sourceHunk;
   return delta < 0 ? hunkTotal() - 1 : 0;

@@ -55,8 +55,7 @@ function openSourceFile(path, shouldSwitch = true, options) {
     updateRenderToggle(path);
     if (shouldSwitch) showSourceView();
     loadSourceFile(path).then(function () {
-      var viewer = document.getElementById('source-viewer');
-      if (viewer && viewer.dataset.openPath === path) openSourceFile(path, false, options);
+      if (sourceOpenPath() === path) openSourceFile(path, false, options);
     });
     return;
   }
@@ -221,15 +220,13 @@ function updateDiffLineWrapToggle() {
   }
 }
 function applyLineWrapState() {
-  var viewer = document.getElementById('source-viewer');
-  updateLineWrapToggle(viewer && viewer.dataset.openPath);
+  updateLineWrapToggle(sourceOpenPath());
   updateDiffLineWrapToggle();
 }
 function toggleLineWrap() {
   if (!isSourceViewerVisible() && !isDiffViewVisible()) return false;
   if (isSourceViewerVisible()) {
-    var viewer = document.getElementById('source-viewer');
-    var open = viewer && viewer.dataset.openPath;
+    var open = sourceOpenPath();
     if (!open || !sourceLineWrapAvailable(open)) return false;
   }
   lineWrapEnabled = !lineWrapEnabled;
@@ -262,8 +259,7 @@ function updateRenderToggle(path) {
   updateLineWrapToggle(path);
 }
 function toggleRenderMode() {
-  var sv = document.getElementById('source-viewer');
-  var open = sv && sv.dataset.openPath;
+  var open = sourceOpenPath();
   if (!open || !isRenderToggleable(open)) return;
   renderRawMode = !renderRawMode;
   openSourceFile(open, false); // re-render the current file in the new mode
@@ -284,8 +280,7 @@ function toggleRenderMode() {
     var link = event.target && event.target.closest ? event.target.closest('a[data-md-link]') : null;
     if (!link) return;
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
-    var viewer = document.getElementById('source-viewer');
-    var from = (viewer && viewer.dataset.openPath) || '';
+    var from = sourceOpenPath();
     var target = resolveRepoHref(from, link.getAttribute('data-md-link') || '');
     if (!target) return; // a bare fragment resolves to nothing to open; leave it to the browser
     event.preventDefault();
@@ -887,7 +882,7 @@ function populateHttpEnvSelect() {
     select.addEventListener('change', function () {
       currentHttpEnvName = select.value;
       persistSave(httpEnvKey, currentHttpEnvName);
-      const path = document.getElementById('source-viewer')?.dataset.openPath || '';
+      const path = sourceOpenPath();
       if (path && isHttpFile(path)) {
         const file = sourceByPath.get(path);
         const body = document.getElementById('source-body');
@@ -1004,8 +999,7 @@ function flushSourceRows() {
 // Comments and the blame gutter decorate rows, and they ran when only the window existed. Re-run them once
 // the rest has arrived rather than teaching each one to wait.
 function sourceRowsCompleted(path) {
-  const viewer = document.getElementById('source-viewer');
-  if (!viewer || viewer.dataset.openPath !== path) return;
+  if (!path || sourceOpenPath() !== path) return;
   try { renderSourceComments(); } catch (e) {}
   try { refreshSourceBlamePaint(path); } catch (e) {}
   try { refreshSourceDiagnostics(path); } catch (e) {}

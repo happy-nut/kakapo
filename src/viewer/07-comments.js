@@ -1078,8 +1078,7 @@ function renderSourceComments() {
   var body = document.getElementById('source-body');
   if (!body) return;
   body.querySelectorAll('.mc-comment-row').forEach(function (r) { r.remove(); });
-  var viewer = document.getElementById('source-viewer');
-  var path = viewer ? (viewer.dataset.openPath || '') : '';
+  var path = sourceOpenPath();
   if (!path) return;
   relevantLines(path).forEach(function (line) {
     var anchor = body.querySelector('.source-row[data-line-index="' + (line - 1) + '"]');

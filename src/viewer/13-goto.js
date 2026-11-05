@@ -67,7 +67,7 @@ function compareClipboardWith(path) {
 /** The file the reader is on: the open source file, else whichever the diff caret is in. '' if neither. */
 function activeReadingPath() {
   if (isSourceViewerVisible()) {
-    return (document.getElementById('source-viewer') || { dataset: {} }).dataset.openPath || '';
+    return sourceOpenPath();
   }
   if (diffCursor && diffCursor.path) return diffCursor.path;
   var wrapper = diffActiveWrapper();
@@ -79,8 +79,7 @@ function compareClipboardWithFile() { return compareClipboardWith(activeReadingP
 // "path:line" for the current caret — source view (the painted file) or the diff caret. '' if neither.
 function caretLocation() {
   if (isSourceViewerVisible()) {
-    var sv = document.getElementById('source-viewer');
-    var p = (sv && sv.dataset.openPath) || '';
+    var p = sourceOpenPath();
     if (p && typeof viewerCursor !== 'undefined' && viewerCursor && viewerCursor.path === p) return p + ':' + (viewerCursor.lineIndex + 1);
     if (p) return p;
   }
@@ -126,8 +125,7 @@ function gotoDiffLine(n) {
 function gotoLineJump(n) {
   if (!(n >= 1)) return;
   if (isSourceViewerVisible()) {
-    var sv = document.getElementById('source-viewer');
-    var p = (sv && sv.dataset.openPath) || '';
+    var p = sourceOpenPath();
     var f = p && sourceByPath.get(p);
     if (f && f.embedded && typeof f.content === 'string') {
       var max = f.content.split(/\r?\n/).length;
@@ -367,8 +365,7 @@ function hideSourceBlame(path) {
   sourceBlameLines = null;
   sourceBlameAges = new Map();
   clearSourceBlamePaint();
-  var viewer = document.getElementById('source-viewer');
-  var openPath = viewer && viewer.dataset.openPath || '';
+  var openPath = sourceOpenPath();
   if (openPath) openSourceFile(openPath, false, { scrollTree: false });
 }
 
@@ -446,8 +443,7 @@ function refreshSourceBlamePaint(path) {
   body.addEventListener('contextmenu', function (event) {
     var number = event.target && event.target.closest ? event.target.closest('.source-row .num') : null;
     var row = number && number.closest ? number.closest('.source-row[data-line-index]') : null;
-    var viewer = document.getElementById('source-viewer');
-    var path = viewer && viewer.dataset.openPath || '';
+    var path = sourceOpenPath();
     if (!row || !path || !window.kakapoGit || typeof window.kakapoGit.blame !== 'function') return;
     event.preventDefault();
     event.stopPropagation();

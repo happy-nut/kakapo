@@ -24,12 +24,11 @@ function openDefaultSourceFile() {
 function sourceSelectionCitation() {
   const selection = window.getSelection();
   const sourceBody = document.getElementById('source-body');
-  const viewer = document.getElementById('source-viewer');
-  if (!selection || selection.isCollapsed || !sourceBody || !viewer || viewer.classList.contains('hidden')) return null;
+  if (!selection || selection.isCollapsed || !sourceBody || !isSourceViewerVisible()) return null;
   if (!selection.anchorNode || !selection.focusNode) return null;
   if (!sourceBody.contains(selection.anchorNode) || !sourceBody.contains(selection.focusNode)) return null;
 
-  const path = viewer.dataset.openPath || '';
+  const path = sourceOpenPath();
   const file = sourceByPath.get(path);
   if (!file || !file.embedded) return null;
   const rows = selectedSourceRows(selection);
@@ -264,8 +263,7 @@ function sourceServerFoldRanges(path) {
       else sourceFoldServerCacheMap().set(path, { generation: analysisGeneration(), ranges: ranges, pending: false });
       // Only re-render when the answer actually changes what folds: an unsupported server or an empty
       // answer leaves the braces as they were, and re-rendering for that would be a flash for nothing.
-      var viewer = document.getElementById('source-viewer');
-      if (ranges && ranges.length && viewer && viewer.dataset.openPath === path) openSourceFile(path, false);
+      if (ranges && ranges.length && sourceOpenPath() === path) openSourceFile(path, false);
     }, function () {
       if (!pageAlive()) return;
       // A failed ASK is not an answer. Caching it would turn "the server was still starting" into "this
@@ -318,8 +316,7 @@ function semanticTokensFor(path) {
       });
       byLine.forEach(function (row) { row.sort(function (a, b) { return a.startColumn - b.startColumn; }); });
       semanticTokenCacheMap().set(path, { generation: analysisGeneration(), byLine: byLine, pending: false });
-      var viewer = document.getElementById('source-viewer');
-      if (viewer && viewer.dataset.openPath === path) openSourceFile(path, false);
+      if (sourceOpenPath() === path) openSourceFile(path, false);
     }, function () {
       if (pageAlive()) semanticTokenCacheMap().delete(path);
     });
@@ -433,8 +430,7 @@ function repaintSourceFold(path, lineIndex, column) {
   requestAnimationFrame(function () { revealSourceCursorWithMargin(); });
 }
 function openSourceFoldButton(button) {
-  var viewer = document.getElementById('source-viewer');
-  var path = viewer && viewer.dataset.openPath;
+  var path = sourceOpenPath();
   if (!path || !button) return false;
   var start = Number(button.dataset.foldStart) || 0;
   var end = Number(button.dataset.foldEnd) || start;
@@ -482,8 +478,7 @@ function toggleCurrentSourceFold() {
 // All three write the same `sourceManualFoldKeys` the gutter buttons write, so a fold made by a key and a
 // fold made by a click are the same fold, and the next render draws both from one list.
 function sourceFoldActionTarget() {
-  var viewer = document.getElementById('source-viewer');
-  var path = viewer && viewer.dataset.openPath;
+  var path = sourceOpenPath();
   if (!path || !isSourceViewerVisible()) return null;
   var file = sourceByPath.get(path);
   if (!file || !file.embedded) return null;
@@ -595,8 +590,7 @@ function handleSourceClick(event) {
   const row = target?.closest?.('.source-row');
   if (!row) return;
   clearTreeFocus();
-  const viewer = document.getElementById('source-viewer');
-  const path = viewer?.dataset.openPath || '';
+  const path = sourceOpenPath();
   const file = sourceByPath.get(path);
   if (!file || !file.embedded) return;
   const lineIndex = Number(row.dataset.lineIndex || 0);
@@ -663,7 +657,7 @@ function handleSourceDoubleClick(event) {
   const codeCell = target?.closest?.('.source-code');
   const row = codeCell?.closest?.('.source-row');
   if (!codeCell || !row) return;
-  const path = document.getElementById('source-viewer')?.dataset.openPath || '';
+  const path = sourceOpenPath();
   const file = sourceByPath.get(path);
   if (!file || !file.embedded) return;
   const lineIndex = Number(row.dataset.lineIndex || 0);
@@ -741,7 +735,6 @@ function setSourceCursor(path, lineIndex, column, shouldReveal = false, targetLi
   const unfolded = expandSourceFoldsAt(path, boundedLine);
 
   const prev = viewerCursor;
-  const viewer = document.getElementById('source-viewer');
   // Fast path: the file is already on screen and only the caret moved. Re-rendering the whole
   // file on every keystroke blocks the main thread on large files, so patch just the previous
   // and new caret lines in place instead.
@@ -749,7 +742,7 @@ function setSourceCursor(path, lineIndex, column, shouldReveal = false, targetLi
   // are metadata that can be set before the body repaints (lazy fetch in flight, fast file switch, watch
   // refresh), so without this the caret patches a STALE body and one file's content shows under another's
   // breadcrumb. On mismatch we fall through to openSourceFile, which re-renders the body for `path`.
-  const sameFileOpen = !unfolded && Boolean(viewer && viewer.dataset.openPath === path && !viewer.classList.contains('hidden')
+  const sameFileOpen = !unfolded && Boolean(sourceOpenPath() === path && isSourceViewerVisible()
     && prev && prev.path === path && !isHttpFile(path) && sourceBodyPath === path);
 
   viewerCursor = { path, lineIndex: boundedLine, column: boundedColumn, targetLine };
@@ -761,7 +754,7 @@ function setSourceCursor(path, lineIndex, column, shouldReveal = false, targetLi
     if (shouldReveal) scheduleSourceReveal(prev);
     else updateSourceCaret(prev, lines, file.language || 'text');
   } else {
-    const shouldSwitch = !viewer || viewer.dataset.openPath !== path || viewer.classList.contains('hidden');
+    const shouldSwitch = sourceOpenPath() !== path || !isSourceViewerVisible();
     openSourceFile(path, shouldSwitch);
     if (shouldReveal) scheduleScrollIntoView(document.querySelector('.source-row.cursor-line'), document.getElementById('source-body'), 0.15);
   }
@@ -1033,6 +1026,33 @@ function selectCommentRow(row, fromBelow) {
   // caret must never be hidden ("어떤 경우에도 커서는 가려지면 안 됨"). Previously this removed cursor-line +
   // code-cursor, so Go-to-comment → ArrowDown (which selects the comment box on that line) made the caret vanish.
 }
+/**
+ * The keys that act on a SELECTED comment box, in one place because the contract is one: Backspace/Delete
+ * deletes the row's comments, `e` edits, Enter enters the card, an arrow walks the thread's own turns and
+ * then steps off onto the neighbouring row, Escape steps off without moving. Returns true when the key was
+ * consumed, false to decline it.
+ *
+ * The two carets differ only in what a neighbouring row IS — a diff row addressed by pane and row index, a
+ * source row addressed by line index — so each passes in those two moves: `stepOntoRow(sib)` returns true
+ * when it took the caret there, and `restoreCaret()` puts the caret back where it was. This used to be two
+ * copies twenty lines long, and a key added to one view would silently not exist in the other.
+ */
+function handleSelectedCommentRowKey(event, stepOntoRow, restoreCaret) {
+  if (event.key === 'Backspace' || event.key === 'Delete') { event.preventDefault(); deleteCommentsInRow(selectedCommentRow); return true; }
+  if (event.code === 'KeyE' || event.key === 'e' || event.key === 'E') { event.preventDefault(); editCommentInRow(selectedCommentRow); return true; }
+  if (event.key === 'Enter' && enterSelectedCommentCard()) { event.preventDefault(); return true; }
+  if (event.key === 'ArrowUp' || event.key === 'ArrowDown' || event.key === 'ArrowLeft' || event.key === 'ArrowRight' || event.key === 'Escape') {
+    var dir = event.key === 'ArrowUp' ? -1 : (event.key === 'ArrowDown' ? 1 : 0);
+    // Walk the thread's own turns first; only step off the row once there is no further card that way.
+    if (dir && stepSelectedCommentCard(dir)) { event.preventDefault(); return true; }
+    var sib = dir < 0 ? selectedCommentRow.previousElementSibling : (dir > 0 ? selectedCommentRow.nextElementSibling : null);
+    clearCommentRowSelection();
+    event.preventDefault();
+    if (!(sib && stepOntoRow(sib))) restoreCaret();
+    return true;
+  }
+  return false;
+}
 function clearCommentRowSelection() {
   if (selectedCommentRow) selectedCommentRow.classList.remove('mc-row-selected');
   selectedCommentRow = null;
@@ -1075,26 +1095,18 @@ function handleSourceCaretKey(event) {
   var ae = document.activeElement;
   if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT')) return false;
   const extend = event.shiftKey;
-  // A comment box is selected (caret hidden): Backspace/Delete removes it; an arrow steps off it.
+  // A comment box is selected (caret hidden): the shared contract handles it. A source row is addressed by
+  // its line index.
   if (selectedCommentRow) {
-    if (event.key === 'Backspace' || event.key === 'Delete') { event.preventDefault(); deleteCommentsInRow(selectedCommentRow); return true; }
-    if (event.code === 'KeyE' || event.key === 'e' || event.key === 'E') { event.preventDefault(); editCommentInRow(selectedCommentRow); return true; }
-    if (event.key === 'Enter' && enterSelectedCommentCard()) { event.preventDefault(); return true; }
-    if (event.key === 'ArrowUp' || event.key === 'ArrowDown' || event.key === 'ArrowLeft' || event.key === 'ArrowRight' || event.key === 'Escape') {
-      var dir = event.key === 'ArrowUp' ? -1 : (event.key === 'ArrowDown' ? 1 : 0);
-      // Walk the thread's own turns first; only step off the row once there is no further card that way.
-      if (dir && stepSelectedCommentCard(dir)) { event.preventDefault(); return true; }
-      var sib = dir < 0 ? selectedCommentRow.previousElementSibling : (dir > 0 ? selectedCommentRow.nextElementSibling : null);
-      clearCommentRowSelection();
-      event.preventDefault();
-      if (sib && sib.classList && sib.classList.contains('source-row')) {
-        var li = parseInt(sib.dataset.lineIndex, 10);
-        if (isFinite(li)) { setSourceCursor(viewerCursor.path, li, 0, true, -1); return true; }
-      }
-      setSourceCursor(viewerCursor.path, viewerCursor.lineIndex, viewerCursor.column, false, -1); // restore caret where it was
+    return handleSelectedCommentRowKey(event, function (sib) {
+      if (!sib.classList || !sib.classList.contains('source-row')) return false;
+      var li = parseInt(sib.dataset.lineIndex, 10);
+      if (!isFinite(li)) return false;
+      setSourceCursor(viewerCursor.path, li, 0, true, -1);
       return true;
-    }
-    return false;
+    }, function () {
+      setSourceCursor(viewerCursor.path, viewerCursor.lineIndex, viewerCursor.column, false, -1);
+    });
   }
   // Plain Up/Down: a comment box between the caret line and the next line becomes a selectable stop.
   if (!extend && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
@@ -1242,7 +1254,6 @@ function sourceTabMenuLabel(path) {
   var p = String(path || ''), name = sourceTabLabel(p), slash = p.lastIndexOf('/');
   return slash > 0 ? name + '  —  ' + p.slice(0, slash) : name;
 }
-function currentSourceTabPath() { var v = document.getElementById('source-viewer'); return (v && v.dataset.openPath) || ''; }
 var sourceTabOverflowPaths = [];
 var sourceTabOverflowRaf = 0;
 var sourceTabResizeObserver = null;
@@ -1314,13 +1325,13 @@ function syncSourceTabOverflow(activePath) {
 function scheduleSourceTabOverflow(activePath) {
   if (sourceTabOverflowRaf) cancelAnimationFrame(sourceTabOverflowRaf);
   sourceTabOverflowRaf = requestAnimationFrame(function () {
-    syncSourceTabOverflow(activePath || currentSourceTabPath());
+    syncSourceTabOverflow(activePath || sourceOpenPath());
   });
 }
 
 function observeSourceTabWidth(bar) {
   if (!bar || sourceTabResizeObserver || typeof ResizeObserver !== 'function') return;
-  sourceTabResizeObserver = new ResizeObserver(function () { scheduleSourceTabOverflow(currentSourceTabPath()); });
+  sourceTabResizeObserver = new ResizeObserver(function () { scheduleSourceTabOverflow(sourceOpenPath()); });
   sourceTabResizeObserver.observe(bar);
 }
 
@@ -1337,8 +1348,7 @@ function showSourceTabOverflowMenu(button) {
 // row for a file that is not open — which reads as the app claiming something it is not doing. Re-derive it
 // from the one authority, here, on every tab render: no open path means no active row anywhere.
 function syncSourceTreeActive() {
-  var viewer = document.getElementById('source-viewer');
-  var openPath = (viewer && viewer.dataset.openPath) || '';
+  var openPath = sourceOpenPath();
   document.querySelectorAll('.source-link').forEach(function (link) {
     link.classList.toggle('active', !!openPath && link.dataset.sourceFile === openPath);
   });
@@ -1377,9 +1387,9 @@ function renderSourceTabs(activePath) {
 function closeSourceTab(path) {
   var idx = sourceTabs.indexOf(path);
   if (idx < 0) return;
-  var wasActive = path === currentSourceTabPath();
+  var wasActive = path === sourceOpenPath();
   sourceTabs.splice(idx, 1);
-  if (!wasActive) { renderSourceTabs(currentSourceTabPath()); return; }
+  if (!wasActive) { renderSourceTabs(sourceOpenPath()); return; }
   var nextPath = sourceTabs[idx] || sourceTabs[idx - 1] || '';
   if (nextPath) { openSourceFile(nextPath); return; }
   // No tabs left: reset the source view to its empty state.
@@ -1393,11 +1403,11 @@ function closeSourceTab(path) {
   sourceLinks.forEach(function (l) { l.classList.remove('active'); });
   renderSourceTabs('');
 }
-function closeActiveSourceTab() { var p = currentSourceTabPath(); if (p) { closeSourceTab(p); return true; } return false; }
+function closeActiveSourceTab() { var p = sourceOpenPath(); if (p) { closeSourceTab(p); return true; } return false; }
 function cycleSourceTab(dir) {
   if (sourceTabs.length < 2) return;
-  var cur = sourceTabs.indexOf(currentSourceTabPath());
+  var cur = sourceTabs.indexOf(sourceOpenPath());
   if (cur < 0) cur = 0;
   openSourceFile(sourceTabs[(cur + dir + sourceTabs.length) % sourceTabs.length]);
 }
-window.addEventListener('resize', function () { scheduleSourceTabOverflow(currentSourceTabPath()); }, { passive: true });
+window.addEventListener('resize', function () { scheduleSourceTabOverflow(sourceOpenPath()); }, { passive: true });

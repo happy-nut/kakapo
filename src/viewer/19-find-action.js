@@ -70,19 +70,15 @@ function renderFindActionResults(query) {
     // The chord is part of the haystack on purpose: "what was ⌘⇧E again" is the other half of why this
     // list is opened, and typing the chord finds the action it belongs to.
     var hay = (item.name + ' ' + item.actionId + ' ' + item.chords.join(' ')).toLowerCase();
-    return queries.some(function (variant) { return hay.includes(variant); });
+    return matchesQueryVariants(hay, queries);
   });
   quickItems = rows.map(function (item) {
     return { path: '', name: item.name, detail: item.chords.join(' / '), kind: 'action', recent: false, lineIndex: 0, column: 0, text: '', actionId: item.actionId };
   });
-  quickActive = Math.min(quickActive, Math.max(quickItems.length - 1, 0));
-  if (quickFilterEl) {
-    quickFilterEl.className = 'quick-open-filter';
-    quickFilterEl.textContent = resultsLabel(rows.length);
-  }
+  clampQuickActive();
+  setQuickFilterChip(false, resultsLabel(rows.length));
   if (!rows.length) {
-    quickResults.innerHTML = '<div class="quick-open-empty">' + escapeHtml(t('quickopen.noMatches')) + '</div>';
-    renderQuickPreview(null);
+    showQuickEmpty(t('quickopen.noMatches'));
     return;
   }
   quickResults.innerHTML = rows.map(function (item, index) {

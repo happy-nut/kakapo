@@ -68,7 +68,7 @@ function fileFindSurface() {
 }
 
 function fileFindSurfacePath() {
-  if (isSourceViewerVisible()) return document.getElementById('source-viewer')?.dataset.openPath || '';
+  if (isSourceViewerVisible()) return sourceOpenPath();
   var wrapper = diffActiveWrapper();
   return wrapper ? diffWrapperPathKey(wrapper) : '';
 }
@@ -284,7 +284,7 @@ var FILE_FIND_OPTIONS = [
 function withinFileFindChanges(lineIndex, row) {
   if (!fileFindChangesOnly) return true;
   if (row) return isChangeCodeRow(row);
-  var file = sourceByPath.get(document.getElementById('source-viewer')?.dataset.openPath || '');
+  var file = sourceByPath.get(sourceOpenPath());
   if (!file || !Array.isArray(file.changedLines)) return false; // nothing is known to have changed here
   return file.changedLines.indexOf(lineIndex + 1) >= 0;
 }
@@ -427,7 +427,7 @@ function withinFileFindSelection(line, side) {
 }
 
 function collectSourceFindResults(query) {
-  var path = document.getElementById('source-viewer')?.dataset.openPath || '';
+  var path = sourceOpenPath();
   var file = sourceByPath.get(path);
   var results = [];
   if (!file || !file.embedded || file.image) return results;

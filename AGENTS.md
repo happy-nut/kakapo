@@ -53,3 +53,13 @@ because they dispatch keydown straight at the page. `test/menu-accelerators.test
 and checks the table against it; a row may collide only when it says `fixed: "menu"` or when the menu item
 forwards the key on with `sendToFocused`. That guard runs on macOS only — the menu it checks is macOS's —
 so run the suite there before trusting a chord change; Linux CI skips it.
+
+The viewer is one concatenated script with no module boundaries, so nothing stops a second copy of an
+answer from growing beside the first — and when one does, a fix reaches one copy and the two surfaces
+drift. `test/viewer-slices.test.mjs` therefore holds a one-fact-one-reader rule: the file the source view
+is showing is read only by `sourceOpenPath()`, Quick Open's active-row clamp / empty state / loading state
+/ filter chip only by `clampQuickActive()` / `showQuickEmpty()` / `showQuickLoading()` /
+`setQuickFilterChip()`, a selected comment box's keys only by `handleSelectedCommentRowKey()`, a symbol's
+occurrences only by `scanUsageLine()`, and a typed query's match only by `matchesQueryVariants()`. Reach
+for the accessor rather than the DOM or the formula; if you genuinely need a second reader, change the
+rule in that test and say why there.

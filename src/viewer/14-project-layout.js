@@ -160,14 +160,8 @@ function projectHasModules() {
   return projectLayoutData().modules.length > 1;
 }
 
-/** The file on screen, which is what IntelliJ's "Module '<name>'" scope is relative to. */
-function projectOpenPath() {
-  var viewer = document.getElementById('source-viewer');
-  return (viewer && viewer.dataset ? viewer.dataset.openPath : '') || '';
-}
-
 function projectCurrentModule() {
-  var path = projectOpenPath();
+  var path = sourceOpenPath();
   return path ? projectModuleName(path) : '';
 }
 
@@ -185,7 +179,7 @@ function projectScopePrefixes(scope) {
   if (scope === 'production') return { include: [], exclude: layout.testRoots.concat(layout.generatedRoots) };
   if (scope === 'tests') return { include: layout.testRoots, exclude: [] };
   if (scope === 'module') {
-    var module = projectModuleOf(projectOpenPath());
+    var module = projectModuleOf(sourceOpenPath());
     var root = module ? projectNormalizePath(module.root) : '';
     return { include: root ? [root] : [], exclude: [] };
   }

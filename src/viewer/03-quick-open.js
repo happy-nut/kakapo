@@ -366,6 +366,13 @@ function queryVariants(query) {
 function quickItemHaystack(item) {
   return (item.path + '\n' + item.name + '\n' + item.detail).toLowerCase();
 }
+// The other half of queryVariants: does this haystack hold any variant of what was typed. Eight lists match
+// their own haystack — a symbol's name only, a file's path and name, a usage's path and line text, an
+// action's name and chords — but the RULE is one, and it was written out eight times. Changing how a query
+// matches (a fuzzy pass, a word-boundary bonus) is one edit here instead of eight that drift apart.
+function matchesQueryVariants(hay, queries) {
+  return queries.some(function (variant) { return hay.includes(variant); });
+}
 // Rank on the variant that actually matched, so a Korean-typed query is scored like the English one it means.
 function matchedQuery(item, queries) {
   var hay = quickItemHaystack(item);
@@ -390,8 +397,7 @@ function renderQuickOpenResults() {
   if (!isRecent && !rawQuery) {
     quickItems = [];
     quickActive = 0;
-    quickResults.innerHTML = '<div class="quick-open-empty">' + escapeHtml(t('quickopen.typeFileName')) + '</div>';
-    renderQuickPreview(null);
+    showQuickEmpty(t('quickopen.typeFileName'));
     return;
   }
   if (!isRecent && REVIEW_LAZY_LOAD && !projectIndexLoaded) {
@@ -416,15 +422,14 @@ function renderQuickOpenResults() {
         return Boolean(file && file.embedded && file.content.toLowerCase().includes(query));
       }
       const hay = quickItemHaystack(item);
-      return queries.some((variant) => hay.includes(variant));
+      return matchesQueryVariants(hay, queries);
     })
     .sort((a, b) => scoreQuickItem(a, matchedQuery(a, queries)) - scoreQuickItem(b, matchedQuery(b, queries)) || a.path.localeCompare(b.path))
     .slice(0, 80)
     .map((item) => (gotoLine ? Object.assign({}, item, { kind: 'symbol', lineIndex: gotoLine - 1, column: 0 }) : item));
-  quickActive = Math.min(quickActive, Math.max(quickItems.length - 1, 0));
+  clampQuickActive();
   if (quickItems.length === 0) {
-    quickResults.innerHTML = '<div class="quick-open-empty">' + escapeHtml(t('quickopen.noFiles')) + '</div>';
-    renderQuickPreview(null);
+    showQuickEmpty(t('quickopen.noFiles'));
     return;
   }
   quickResults.innerHTML = quickItems.map((item, index) => [
@@ -469,21 +474,14 @@ function renderWorkspaceSymbolResults(query) {
     workspaceSymbolTimer = setTimeout(function () { runWorkspaceSymbolSearch(query, seq); }, 80);
   }
   quickItems = workspaceSymbolItems;
-  quickActive = Math.min(quickActive, Math.max(quickItems.length - 1, 0));
-  if (quickFilterEl) {
-    quickFilterEl.className = 'quick-open-filter' + (workspaceSymbolBusy ? ' is-loading' : '');
-    quickFilterEl.innerHTML = workspaceSymbolBusy
-      ? kakapoLoaderHtml('kakapo-loader-micro') + '<span>' + escapeHtml(t('quickopen.searching')) + '</span>'
-      : escapeHtml(resultsLabel(quickItems.length) + ' · ' + workspaceSymbolEngine);
-  }
+  clampQuickActive();
+  setQuickFilterChip(workspaceSymbolBusy, resultsLabel(quickItems.length) + ' · ' + workspaceSymbolEngine);
   if (workspaceSymbolBusy) {
-    quickResults.innerHTML = loadingStateHtml(t('quickopen.searching'), 'quick-open-empty');
-    renderQuickPreview(null);
+    showQuickLoading();
     return;
   }
   if (!quickItems.length) {
-    quickResults.innerHTML = '<div class="quick-open-empty">' + escapeHtml(t('quickopen.noMatches')) + '</div>';
-    renderQuickPreview(null);
+    showQuickEmpty(t('quickopen.noMatches'));
     return;
   }
   quickResults.innerHTML = quickItems.map(function (item, index) {
@@ -752,9 +750,7 @@ function renderContentSearchResults(query) {
     contentSearchItems = [];
     quickItems = [];
     updateContentSearchStatus(query);
-    quickResults.innerHTML = '<div class="quick-open-empty">' + escapeHtml(t('quickopen.badPattern'))
-      + '<span class="quick-open-why">' + escapeHtml(patternError) + '</span></div>';
-    renderQuickPreview(null);
+    showQuickEmpty(t('quickopen.badPattern'), patternError);
     return;
   }
   var requestKey = contentSearchRequestKey(query, filters);
@@ -772,21 +768,18 @@ function renderContentSearchResults(query) {
   }
 
   quickItems = contentSearchItems;
-  quickActive = Math.min(quickActive, Math.max(quickItems.length - 1, 0));
+  clampQuickActive();
   updateContentSearchStatus(query);
   if (!query) {
-    quickResults.innerHTML = '<div class="quick-open-empty">' + escapeHtml(t('quickopen.typeToSearch')) + '</div>';
-    renderQuickPreview(null);
+    showQuickEmpty(t('quickopen.typeToSearch'));
     return;
   }
   if (contentSearchBusy) {
-    quickResults.innerHTML = loadingStateHtml(t('quickopen.searching'), 'quick-open-empty');
-    renderQuickPreview(null);
+    showQuickLoading();
     return;
   }
   if (!quickItems.length) {
-    quickResults.innerHTML = '<div class="quick-open-empty">' + escapeHtml(t('quickopen.noMatches')) + '</div>';
-    renderQuickPreview(null);
+    showQuickEmpty(t('quickopen.noMatches'));
     return;
   }
   quickResults.innerHTML = quickItems.map(function (item, index) {
@@ -803,19 +796,12 @@ function renderContentSearchResults(query) {
 }
 
 function updateContentSearchStatus(query) {
-  if (!quickFilterEl) return;
-  quickFilterEl.className = 'quick-open-filter';
-  if (!query) { quickFilterEl.textContent = ''; quickFilterEl.classList.remove('is-loading'); return; }
-  if (contentSearchBusy) {
-    quickFilterEl.classList.add('is-loading');
-    quickFilterEl.innerHTML = kakapoLoaderHtml('kakapo-loader-micro') + '<span>' + escapeHtml(t('quickopen.searching')) + '</span>';
-    return;
-  }
-  quickFilterEl.classList.remove('is-loading');
+  if (!query) { setQuickFilterChip(false, ''); return; }
+  if (contentSearchBusy) { setQuickFilterChip(true, ''); return; }
   // The "+" means "and more", so it belongs to the NUMBER — resultsLabel builds the whole sentence from
   // the catalog (Korean puts the count after the noun), so the marker goes on the count it modifies.
-  quickFilterEl.textContent = resultsLabel(String(contentSearchItems.length) + (contentSearchTruncated ? '+' : ''))
-    + ' · ' + contentSearchEngine;
+  setQuickFilterChip(false, resultsLabel(String(contentSearchItems.length) + (contentSearchTruncated ? '+' : ''))
+    + ' · ' + contentSearchEngine);
 }
 
 async function runContentSearch(query, seq, filters, requestKey) {

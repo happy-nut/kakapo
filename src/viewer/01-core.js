@@ -1002,6 +1002,15 @@ var sourceGeneration = 0; // increments on watch refresh so an older IPC respons
 // path and gets set BEFORE the body paints in the lazy-LOAD branch, so the caret fast-path must check this
 // instead — else it patches the caret onto a stale body, leaving one file's content under another's path.
 var sourceBodyPath = null;
+// The file the source view is SHOWING (its `openPath`), '' when nothing is open or the element is not up
+// yet. One accessor on purpose: this is the most-asked question in the viewer, and it used to be spelled
+// eight ways across sixteen slices — some returning '' for "nothing", some `undefined`, some reading
+// `.dataset` off an element they had not null-checked. Every reader goes through here so the answer has
+// one type. Contrast sourceBodyPath above, which is the file actually PAINTED.
+function sourceOpenPath() {
+  var viewer = document.getElementById('source-viewer');
+  return (viewer && viewer.dataset.openPath) || '';
+}
 var sourceTabs = []; // Files-mode tab paths (session-only); see addSourceTab / renderSourceTabs.
 var sourceImportOpenPaths = Object.create(null); // imports start folded in Review mode until explicitly opened
 var sourceManualFoldKeys = Object.create(null);  // path -> { "start:end": true } for Cmd/Ctrl+. brace folds
@@ -1116,6 +1125,48 @@ let checkingForUpdates = false;
 let quickMode = 'all';
 let quickItems = [];
 let quickActive = 0;
+
+// The four things every Quick Open list does identically. Ten renderers share this overlay — files,
+// workspace symbols, content search, usages, problems, actions, file structure, hierarchy, recent locations
+// and bookmarks — and each used to spell these out itself, which is how the active-row clamp came to exist
+// in ten copies and the empty state in thirteen. A fix to any of them reached one list.
+/**
+ * Keep the active row inside the list. Every assignment to quickItems must be followed by this: without it
+ * the highlight (and therefore Enter) keeps an index from the PREVIOUS, longer list and opens either nothing
+ * or the wrong thing.
+ */
+function clampQuickActive() {
+  quickActive = Math.min(quickActive, Math.max(quickItems.length - 1, 0));
+}
+/**
+ * The chip above the list: a spinner and a waiting message while a provider is still working, otherwise the
+ * list's own one-line summary. `busyLabel` overrides the waiting message for a provider that can say
+ * something more useful than "Searching…" (the problems scan reports its progress).
+ */
+function setQuickFilterChip(busy, label, busyLabel) {
+  if (!quickFilterEl) return;
+  quickFilterEl.className = 'quick-open-filter' + (busy ? ' is-loading' : '');
+  quickFilterEl.innerHTML = busy
+    ? kakapoLoaderHtml('kakapo-loader-micro') + '<span>' + escapeHtml(busyLabel || t('quickopen.searching')) + '</span>'
+    : escapeHtml(label);
+}
+/** The list body while a provider is still working, and no preview (there is nothing to preview yet). */
+function showQuickLoading() {
+  if (quickResults) quickResults.innerHTML = loadingStateHtml(t('quickopen.searching'), 'quick-open-empty');
+  renderQuickPreview(null);
+}
+/**
+ * The list body with nothing in it. `note` is the optional second line that says WHY it is empty — a bad
+ * pattern, a filter hiding everything, files no server could check. An empty list without that sentence is
+ * the reassuring lie: it reads as "nothing is wrong" when the truth is "nothing was looked at".
+ */
+function showQuickEmpty(text, note) {
+  if (quickResults) {
+    quickResults.innerHTML = '<div class="quick-open-empty">' + escapeHtml(text)
+      + (note ? '<span class="quick-open-why">' + escapeHtml(note) + '</span>' : '') + '</div>';
+  }
+  renderQuickPreview(null);
+}
 let recentFilter = ''; // IntelliJ-style speed-search: typed letters narrow the Recent list (no search box)
 let contentSearchItems = [];
 let contentSearchQuery = '';

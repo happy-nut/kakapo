@@ -181,7 +181,7 @@ function rememberHttpResponse(request, result) {
 // shows .http files too, and a request there is the same request. Both default to the source view, which
 // is where every existing caller runs from.
 async function runHttpRequest(reqIndex, pathOverride, targetOverride) {
-  const path = pathOverride || document.getElementById('source-viewer')?.dataset.openPath || '';
+  const path = pathOverride || sourceOpenPath();
   const requests = httpRequestsByPath.get(path);
   if (!requests || !requests[reqIndex]) return;
   const request = requests[reqIndex];
@@ -286,7 +286,7 @@ async function saveHttpResponseFile(request, result, scope) {
 
 /** The open .http file, or '' — the one place the runner's keyboard entry points ask where they are. */
 function httpOpenPath() {
-  const path = document.getElementById('source-viewer')?.dataset.openPath || '';
+  const path = sourceOpenPath();
   return isHttpFile(path) ? path : '';
 }
 
@@ -310,7 +310,7 @@ function httpRequestIndexAtCaret(path) {
 }
 
 function runHttpAtCaret() {
-  const path = document.getElementById('source-viewer')?.dataset.openPath || '';
+  const path = sourceOpenPath();
   const chosen = httpRequestIndexAtCaret(path);
   if (chosen >= 0) runHttpRequest(chosen);
 }
@@ -340,7 +340,7 @@ async function runHttpFile() {
  * writes to the file under review, so there would be nowhere to put it.
  */
 async function copyHttpAsCurl(reqIndex, pathOverride) {
-  const path = pathOverride || document.getElementById('source-viewer')?.dataset.openPath || '';
+  const path = pathOverride || sourceOpenPath();
   const requests = httpRequestsByPath.get(path);
   if (!requests || !requests[reqIndex]) return false;
   const request = requests[reqIndex];
