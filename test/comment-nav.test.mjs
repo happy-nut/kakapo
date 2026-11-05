@@ -415,7 +415,11 @@ test("going to a comment waits for a lazily fetched file instead of placing the 
   const seq = v.agentSays({ kind: "note", path: "src/far.ts", line: 50, group: 1, text: "far down a file that is still being fetched" });
   await v.settle(40);
   v.window.revealComment(seq);
-  await v.settle(400);
+  // Not settle(400): the chain this waits on is fetch -> repaint -> frame -> caret, and its wall clock
+  // depends on what else the runner is doing, so a fixed sleep failed here roughly one run in six. Waiting
+  // for the landing itself keeps the guard — a build that never places the caret runs the cap out and the
+  // assertions below still fail.
+  await v.until(() => v.caretLine() === 50 && v.$all("#source-body .source-row").length === 61);
 
   assert.equal(v.$("#source-viewer")?.dataset.openPath, "src/far.ts", "the file opened");
   assert.equal(v.$all("#source-body .source-row").length, 61, "and finished painting");
