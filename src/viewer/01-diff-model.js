@@ -12,7 +12,7 @@ if (REVIEW_LAZY) {
   Array.prototype.forEach.call(document.querySelectorAll('#diff2html-container .d2h-file-wrapper'), function (w) {
     var base = parseInt(w.dataset.firstHunk || '0', 10) || 0;
     var cnt = parseInt(w.dataset.hunkCount || '0', 10) || 0;
-    var p = w.dataset.path || ((w.querySelector('.d2h-file-name') || {}).textContent || '').trim();
+    var p = diffWrapperPathKey(w);
     for (var k = 0; k < cnt; k++) hunkMeta[base + k] = { path: p };
   });
 }
@@ -28,7 +28,7 @@ function refreshHunkIndex() {
     Array.prototype.forEach.call(document.querySelectorAll('#diff2html-container .d2h-file-wrapper'), function (w) {
       var base = parseInt(w.dataset.firstHunk || '0', 10) || 0;
       var cnt = parseInt(w.dataset.hunkCount || '0', 10) || 0;
-      var p = w.dataset.path || ((w.querySelector('.d2h-file-name') || {}).textContent || '').trim();
+      var p = diffWrapperPathKey(w);
       for (var k = 0; k < cnt; k++) hunkMeta[base + k] = { path: p };
     });
   } else {

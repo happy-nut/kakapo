@@ -87,8 +87,7 @@ function activateFilesView() {
   setSourceSidebarCollapsed(false);
   if (isDiffViewVisible()) {
     var wrapper = diffActiveWrapper();
-    var name = wrapper && wrapper.querySelector('.d2h-file-name');
-    var path = (diffCursor && diffCursor.path) || (name ? (name.textContent || '').trim() : '');
+    var path = (diffCursor && diffCursor.path) || (wrapper ? diffWrapperPathKey(wrapper) : '');
     if (path && sourceByPath.has(path)) {
       openSourceFile(path);
     } else {

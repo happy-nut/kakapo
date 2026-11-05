@@ -1518,8 +1518,7 @@ var diffHttpSlot = 0;
 // Reading only the dataset meant those reviews silently had no run buttons at all.
 function diffHttpPath(wrapper) {
   if (!wrapper) return '';
-  var path = (wrapper.dataset && wrapper.dataset.path)
-    || ((wrapper.querySelector('.d2h-file-name') || {}).textContent || '').trim();
+  var path = diffWrapperPathKey(wrapper);
   return isHttpFile(path) ? path : '';
 }
 var diffHttpPending = Object.create(null);

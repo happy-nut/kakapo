@@ -180,8 +180,14 @@ function renderDiffNode(
     // rendered +/- rows in the DOM would report nothing for any file nobody has scrolled to yet.
     const { added, deleted } = diffLineTotals(file);
     const trivial = trivialChange(file);
+    // The path this file had at the BASE. Carried on the row for the same reason the counts are: the row is
+    // the client's per-file record, and the diff pane headers need it to stop naming the new path on both
+    // sides of a rename — at the base revision that path does not exist.
+    const renamedFrom = file.status === "renamed" && file.oldPath && file.oldPath !== file.displayPath
+      ? file.oldPath
+      : "";
     return [
-      `<a class="${classes}${trivial ? " is-trivial" : ""}" href="#file-${node.fileIndex}" data-hunk="${node.firstHunk}" data-file="${escapeAttr(file.displayPath)}" data-added="${added}" data-deleted="${deleted}"${trivial ? ` data-trivial="${trivial}"` : ""} style="--depth:${depth}" aria-label="${escapeAttr(file.displayPath + " — " + (CHANGE_STATUS_NAMES[file.status] ?? CHANGE_STATUS_NAMES.modified) + statLabel(added, deleted))}">`,
+      `<a class="${classes}${trivial ? " is-trivial" : ""}" href="#file-${node.fileIndex}" data-hunk="${node.firstHunk}" data-file="${escapeAttr(file.displayPath)}" data-added="${added}" data-deleted="${deleted}"${renamedFrom ? ` data-old-path="${escapeAttr(renamedFrom)}"` : ""}${trivial ? ` data-trivial="${trivial}"` : ""} style="--depth:${depth}" aria-label="${escapeAttr(file.displayPath + " — " + (CHANGE_STATUS_NAMES[file.status] ?? CHANGE_STATUS_NAMES.modified) + statLabel(added, deleted))}">`,
       viewedBox(),
       fileTypeIcon(file.displayPath),
       `<span class="change-name"><span class="path" title="${escapeAttr(node.name)}">${leafNameHtml(node.name)}</span></span>`,

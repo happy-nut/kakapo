@@ -112,8 +112,7 @@ function diffRowInfoFromNode(node) {
   var sideEl = el.closest('.d2h-file-side-diff');
   var row = el.closest('tr');
   if (!wrapper || !sideEl || !row) return null;
-  var nameEl = wrapper.querySelector('.d2h-file-name');
-  var path = (nameEl && nameEl.textContent ? nameEl.textContent : '').trim();
+  var path = diffWrapperPathKey(wrapper);
   var t = diffSideTables(wrapper);
   var side = sideEl === t.left ? 'old' : 'new';
   if (!isDiffCodeRow(row)) return null;
@@ -378,8 +377,7 @@ function ensureDiffCursor() {
   var wrapper = diffActiveWrapper();
   if (!wrapper) return;
   whenFileReady(wrapper, function () {
-    var nameEl = wrapper.querySelector('.d2h-file-name');
-    var path = (nameEl && nameEl.textContent ? nameEl.textContent : '').trim();
+    var path = diffWrapperPathKey(wrapper);
     if (!path) return;
     if (diffCursor && diffCursor.path === path) { renderDiffCaret(); return; }
     var ri = firstDiffCodeRow(wrapper, 'new');

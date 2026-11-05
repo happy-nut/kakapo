@@ -110,8 +110,7 @@ function gotoDiffLine(n) {
   var path = (typeof diffCursor !== 'undefined' && diffCursor && diffCursor.path) || '';
   if (!path) {
     var w = diffActiveWrapper();
-    var nm = w && w.querySelector('.d2h-file-name');
-    if (nm && nm.textContent) path = nm.textContent.trim();
+    if (w) path = diffWrapperPathKey(w);
   }
   var wrap = path && diffWrapperByPath(path);
   if (!wrap) return;

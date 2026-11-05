@@ -870,6 +870,11 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  /* 24px, the WCAG 2.5.8 floor. A 14px glyph in 3px of padding measured 20x20, and the spacing exemption
+     does not rescue it: the sibling button is 4px away and the tree row above touches it, so a 24px circle
+     centred on either one overlaps another target. The bar's padding above gave up the 4px this needs. */
+  min-width: 24px;
+  min-height: 24px;
   padding: 3px;
   border: 0;
   border-radius: 5px;
@@ -906,7 +911,8 @@ body {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 5px 8px;
+  /* 3px, not 5px, so the two 24px buttons below fit inside the bar's own 30px without growing it. */
+  padding: 3px 8px;
   border-top: 1px solid var(--border);
   min-height: 30px;
 }
@@ -2220,13 +2226,21 @@ h1 { margin: 0; font-size: 18px; }
   white-space: nowrap;
   font: 13px Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
-.crumb-leaf { font-weight: 500; }
+/* A shrink budget for the crumb trail. The children were all `flex: 0 1 auto` with `min-width: auto`, so
+   each kept its content width, nothing shrank, and `.breadcrumb`'s own `overflow: hidden` cut whatever
+   stuck out — which is always the LAST child, the +N −M figure. At a 1024px window a file that is +14 −4
+   printed `+1`: not a figure that had gone missing, a figure that had gone WRONG, in the one place the
+   toolbar states how big the change in front of you is.
+   So: the figure never gives way, the directories give way first (ten times as readily), and the file
+   name gives way last — each with an ellipsis of its own, so a shortened crumb says that it is short. */
+.crumb { min-width: 0; overflow: hidden; text-overflow: ellipsis; flex-shrink: 10; }
+.crumb-leaf { font-weight: 500; flex-shrink: 1; }
 /* A library file is not from this project, and its breadcrumb says so rather than pretending its absolute
    path is a tree inside the review. Dimmed and uppercased like the other "this is a kind of thing" marks. */
 .crumb-library { text-transform: uppercase; font-size: 10px; letter-spacing: 0.04em; opacity: 0.7; }
 /* +30 -46 beside the path, for the one file the toolbar names. Built only from variables every theme block
    already defines, so it needs no per-theme override — the thing viewer.css keeps having to be reminded of. */
-.crumb-stat { margin-left: 10px; display: inline-flex; gap: 7px; font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; }
+.crumb-stat { flex: none; margin-left: 10px; display: inline-flex; gap: 7px; font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; }
 /* The same figure as the tree row's, and it had the same bug: --add-strong and --del-strong are the fills
    the diff paints behind a changed line, and as 11px text they measured 2.09:1 / 1.65:1 dark and
    1.14:1 / 1.36:1 light. --chrome-stat-* is the readable pair: each theme's OWN add/del hue with only its
@@ -2256,7 +2270,10 @@ h1 { margin: 0; font-size: 18px; }
    --chrome-selected in 7 of 36 theme/ground pairs. */
 .change-row .change-stat-add { color: var(--chrome-stat-add); }
 .change-row .change-stat-del { color: var(--chrome-stat-del); }
-.crumb-sep { opacity: 0.55; }
+/* The separator gives way with the crumb it separates. Protected (flex: none) it survived the shrink that
+   had taken its directory to nothing, and the trail opened with a bare "› com…" — a chevron pointing at a
+   level that is no longer on screen. */
+.crumb-sep { flex-shrink: 10; min-width: 0; overflow: hidden; opacity: 0.55; }
 /* While the review is pointed at commits, the breadcrumb leads with the one it is showing. Its own accent —
    not one of the pill's three — because this is the state the pill's rule did not cover: those three colour
    what the app chose FOR you, and the two it leaves neutral are the ones you picked with the control right in
@@ -2310,6 +2327,10 @@ h1 { margin: 0; font-size: 18px; }
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  /* The pill is a button (it opens the compare menu), and an 11px label in 2px of padding measured 19px
+     tall — under the 24px target floor, with the wrap toggle 9px away. The padding stays as drawn and the
+     box grows to the floor around the centred row. */
+  min-height: 24px;
   padding: 2px 9px 2px 7px;
   border-radius: 999px;
   background: color-mix(in srgb, currentColor 14%, transparent);

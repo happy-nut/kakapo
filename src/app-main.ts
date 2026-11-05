@@ -21,7 +21,7 @@ import { usableCompareBase } from "./patch-sets.js";
 import { handoffRoot } from "./handoff.js";
 import { localRevisionFor, lookupPullRequest, parsePullRequestRef, remoteSlug } from "./github-pr.js";
 import { decideWatchTick, shouldPushUpdate } from "./watch-decision.js";
-import { parseReviewArgs, readOption } from "./cli-args.js";
+import { compareSelectionFor, parseReviewArgs, readOption } from "./cli-args.js";
 import { ByteBudgetCache, errorMessage, escapeAttr, escapeHtml } from "./util.js";
 import { AppPreferences } from "./app-preferences.js";
 import { compareDefaultRef, registerReviewIpc } from "./app-review-ipc.js";
@@ -1331,10 +1331,13 @@ async function bootWindow(state: WinState, themeLight: boolean): Promise<void> {
   // Diff-first: this build paints the diff + changed-file sources; the full project index is materialized on
   // demand (ensureFullProjectIndex) so a large tree's enumeration never blocks first paint.
   if (!welcome) attachThreadFiles(state, state.options.root);
+  // Why the message is kept rather than only logged: main's console goes to a pipe the CLI discards, so a
+  // build that threw was invisible from outside — the window simply never stopped loading (see below).
+  let buildFailure = "";
   const building = welcome ? null : buildReview(state, true, claimPendingBuild(state.options.root)).catch((error: unknown) => {
-    // One window's build failure shouldn't take down the whole app (other windows may be fine); log and
-    // leave this window on the loading mark rather than quitting.
-    console.error(errorMessage(error));
+    // One window's build failure shouldn't take down the whole app (other windows may be fine).
+    buildFailure = errorMessage(error);
+    console.error(buildFailure);
     return null;
   });
   await state.win.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(loadingHtml(themeLight, compact)));
@@ -1344,7 +1347,14 @@ async function bootWindow(state: WinState, themeLight: boolean): Promise<void> {
     const firstBuild = await building;
     // Window closed mid-build, or superseded. Its closed handler already tore down state, so loading here is
     // wasted and (critically) arming the watch timer below would re-create an interval nothing will clear.
-    if (!firstBuild || state.win.isDestroyed()) return;
+    if (state.win.isDestroyed()) return;
+    if (!firstBuild) {
+      // A build that THREW used to stop here, leaving an animated loading mark that would never resolve —
+      // the one state in the app that says nothing at all, for the rest of the session. Say what happened
+      // and leave the window usable: the welcome screen can open a different folder.
+      if (buildFailure) await reportBuildFailure(state, buildFailure);
+      return;
+    }
     state.signature = firstBuild.signature;
     preferences.recordRecentProject(state.options.root); // remember the launched/new-window repo for the welcome screen
     restoreCompareRef(state);
@@ -1531,13 +1541,28 @@ async function showWelcome(state: WinState): Promise<void> {
   await state.win.loadFile(welcomePath);
 }
 
+// What a window does when its review cannot be built. Before this it did nothing at all: the loading mark
+// went on animating for the rest of the session, which is the one state in the app that says nothing. Main's
+// console goes to a pipe the CLI discards, so the message was not readable from outside either.
+async function reportBuildFailure(state: WinState, message: string): Promise<void> {
+  if (state.win.isDestroyed()) return;
+  const t = tr();
+  dialog.showErrorBox(t("dialog.buildFailed.title"), t("dialog.buildFailed.message", { path: state.options.root, error: message }));
+  await showWelcome(state); // leave the window usable: from here another folder can be opened
+}
+
 // Load a chosen git repo into an existing window — the welcome screen's folder picker, or File > Open
 // Folder. Repoints the window's root, (re)writes the review, swaps the page, and re-arms its watch timer.
 // No process.chdir: root is threaded through buildReview/refreshIfChanged per window.
 async function openReview(state: WinState, root: string): Promise<void> {
   if (state.analysisWarmTimer) { clearTimeout(state.analysisWarmTimer); state.analysisWarmTimer = undefined; }
   state.analysis.dispose();
+  const previousRoot = state.options.root;
   state.options.root = resolve(root);
+  // Same rule as a new window's (compareSelectionFor): a base belongs to the repository it was chosen in.
+  // This window was the second place that forgot it — File > Open Folder carried `--base HEAD~5` into
+  // whatever repo the picker chose next.
+  Object.assign(state.options, compareSelectionFor(resolveWorkspaceRoot(previousRoot), resolveWorkspaceRoot(state.options.root), state.options));
   state.perf = new ReviewPerformanceTrace(state.options.root, app.getPath("userData"));
   state.perf.mark("review-opened");
   state.analysis = makeAnalysis(state.options.root, () => state);
@@ -1547,8 +1572,18 @@ async function openReview(state: WinState, root: string): Promise<void> {
   attachThreadFiles(state, state.options.root); // new repo -> its own thread, its own shared notes
   // Diff-first, same as the cold boot: reusing this window for another repo paints its diff without waiting
   // on the new tree's full enumeration; the full index is pulled on demand (state.ensureFullIndex persists).
-  const build = await buildReview(state, true);
-  if (!build) return; // window closed mid-build, or superseded by another switch
+  let switchFailure = "";
+  const build = await buildReview(state, true).catch((error: unknown) => {
+    switchFailure = errorMessage(error);
+    console.error(switchFailure);
+    return null;
+  });
+  if (!build) {
+    // Not only "closed mid-build, or superseded" — a throw landed here too, as an unhandled rejection
+    // inside a menu handler, leaving this window showing the PREVIOUS repo's review under the new root.
+    if (switchFailure) await reportBuildFailure(state, switchFailure);
+    return;
+  }
   state.signature = build.signature;
   if (!state.win.isDestroyed()) await state.win.loadFile(reviewPath(state.options.root));
   armWatchTimers(state);
@@ -1601,7 +1636,15 @@ async function pickRepo(parent: BrowserWindow | undefined, defaultPath?: string)
 // and a GUI launch (Launchpad, Spotlight, the Applications icon) inherits "/". Hardcoding true here sent
 // that straight past the welcome screen into a review of the whole filesystem.
 function makeOptions(root: string, explicitRoot = true): AppOptions {
-  return { ...options, root: resolveWorkspaceRoot(root), openPath: undefined, explicitRoot };
+  const resolved = resolveWorkspaceRoot(root);
+  // The compare selection belongs to the repository it was typed in, and only to that one. `kakapo --base
+  // HEAD~5` is a statement about THIS history; carried into another repository — File > Open, a recent
+  // project, a second window, a folder handed over by a second launch — it names a revision that one may
+  // not have. A repo with a single commit answered `fatal: bad revision 'HEAD~5'`, the build threw, and the
+  // window it was opened for sat on the loading mark for the rest of the session. Every other option here
+  // (context, watch, whitespace) is a preference about READING and travels between repositories fine.
+  const compare = compareSelectionFor(resolveWorkspaceRoot(options.root), resolved, options);
+  return { ...options, ...compare, root: resolved, openPath: undefined, explicitRoot };
 }
 
 function parseArgs(args: string[]): AppOptions {

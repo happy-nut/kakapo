@@ -200,6 +200,37 @@ export function shouldLazyRender(fileCount: number, totalLines: number): boolean
   return fileCount > 60 || totalLines > 4000;
 }
 
+// The opening tag of one file's diff wrapper, carrying what the VIEWER keys a file by.
+//
+// It cannot read the key off diff2html's own header, because for a RENAME that header is the compact
+// `src/{old-name.ts → new-name.ts}` spelling — a sentence about two paths, not a path. A review rendered
+// eagerly (small, or a standalone export) therefore had one file whose wrapper nothing could look up:
+// clicking its row in the sidebar left the previous file on screen and the caret never entered it.
+function diffWrapperOpenTag(index: number, file: DiffFile | undefined, firstHunk: number, hunkCount: number): string {
+  const path = file ? file.displayPath : "";
+  return `<div id="file-${index}" class="d2h-file-wrapper" data-path="${escapeAttr(path)}"`
+    + ` data-first-hunk="${firstHunk}" data-hunk-count="${hunkCount}"`;
+}
+
+/** Key every wrapper by its path, for the eager render — the lazy ones are keyed as they are built. */
+export function annotateDiffWrappers(diffHtml: string, files: DiffFile[]): string {
+  const parts = diffHtml.split(/(?=<div [^>]*class="d2h-file-wrapper")/);
+  let hunkIndex = 0;
+  let fileIndex = 0;
+  return parts
+    .map((part) => {
+      if (!part.includes('class="d2h-file-wrapper"')) return part;
+      const file = files[fileIndex];
+      const firstHunk = hunkIndex;
+      const hunkCount = file ? file.hunks.length : 0;
+      hunkIndex += hunkCount;
+      const tag = diffWrapperOpenTag(fileIndex, file, firstHunk, hunkCount);
+      fileIndex += 1;
+      return part.replace(/<div id="[^"]*" class="d2h-file-wrapper"/, tag);
+    })
+    .join("");
+}
+
 export function splitDiffForLazy(diffHtml: string, files: DiffFile[]): { container: string; islands: string; bodies: string[] } {
   const parts = diffHtml.split(/(?=<div [^>]*class="d2h-file-wrapper")/).filter((p) => p.includes('class="d2h-file-wrapper"'));
   const shells: string[] = [];
@@ -221,11 +252,10 @@ export function splitDiffForLazy(diffHtml: string, files: DiffFile[]): { contain
     const before = part.slice(0, open);
     const after = part.slice(open + marker.length);
     const body = after.replace(/<\/div>\s*<\/div>\s*$/, "");
-    const path = file ? file.displayPath : "";
     const shell =
       before.replace(
         /<div id="[^"]*" class="d2h-file-wrapper"/,
-        `<div id="file-${i}" class="d2h-file-wrapper" data-path="${escapeAttr(path)}" data-first-hunk="${firstHunk}" data-hunk-count="${hunkCount}"`,
+        diffWrapperOpenTag(i, file, firstHunk, hunkCount),
       ) + '<div class="d2h-files-diff" data-lazy="1"></div></div>';
     shells.push(shell);
     bodies.push(body);

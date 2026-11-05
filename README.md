@@ -99,7 +99,7 @@ kakapo --base 9f3c1a2       # vs a commit
 kakapo --staged             # index vs HEAD
 ```
 
-`kakapo --help` lists every flag; `--base` takes any revision and validates it at startup, and `--staged` and `--base` are mutually exclusive. For a narrower slice than the dropdown offers, the patch-set bar under the toolbar diffs any single commit on the branch against any other, and `⌘9` opens the commit graph — Enter on a commit opens it in the main review.
+`kakapo --help` lists every flag; `--base` takes any revision and is validated before anything is launched — a typo is an error in the terminal you typed it in, not a window that never appears — and `--staged` and `--base` are mutually exclusive. For a narrower slice than the dropdown offers, the patch-set bar under the toolbar diffs any single commit on the branch against any other, and `⌘9` opens the commit graph — Enter on a commit opens it in the main review.
 
 ### When the base has moved under you
 

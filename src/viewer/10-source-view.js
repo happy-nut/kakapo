@@ -962,7 +962,7 @@ function openDiffFileAtCaret() {
   const el = node ? (node.nodeType === 1 ? node : node.parentElement) : null;
   const wrapper = (el && el.closest && el.closest('.d2h-file-wrapper')) || document.querySelector('.d2h-file-wrapper:not(.df-inactive)');
   if (!wrapper) return;
-  const fileName = (wrapper.querySelector('.d2h-file-name')?.textContent || '').trim();
+  const fileName = diffWrapperPathKey(wrapper);
   if (!fileName) return;
   if (!sourceByPath.has(fileName)) { openSourceFile(fileName); return; }
   let lineIndex = 0;

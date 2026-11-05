@@ -394,8 +394,7 @@ function focusOpenFileInTree() {
   let openPath = document.getElementById('source-viewer')?.dataset.openPath || '';
   if (!openPath) {
     const w = diffActiveWrapper();
-    const n = w && w.querySelector('.d2h-file-name');
-    if (n && n.textContent) openPath = n.textContent.trim();
+    if (w) openPath = diffWrapperPathKey(w);
   }
   let idx = 0;
   if (openPath) {
@@ -431,8 +430,7 @@ function revealOpenFileInTree() {
     var openPath = (document.getElementById('source-viewer') && document.getElementById('source-viewer').dataset.openPath) || '';
     if (!openPath) {
       var w = diffActiveWrapper();
-      var n = w && w.querySelector('.d2h-file-name');
-      if (n && n.textContent) openPath = n.textContent.trim();
+      if (w) openPath = diffWrapperPathKey(w);
     }
     if (!openPath) return;
     revealTreeFor(openPath, false); // open ancestor folders; center below

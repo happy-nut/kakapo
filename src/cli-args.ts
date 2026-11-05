@@ -52,3 +52,23 @@ export function parseReviewArgs(args: string[]): ParsedReviewArgs {
     whitespace: whitespaceMode(readOption(args, "--whitespace"), args.includes("--ignore-whitespace")),
   };
 }
+
+/**
+ * What `--base` / `--staged` mean for a window opened on `windowRoot`, given a launch that named
+ * `launchRoot`.
+ *
+ * They mean nothing outside the repository they were typed in. `kakapo --base HEAD~5` is a statement about
+ * THIS history; carried into another repository — File > Open, a recent project, a second window, a folder
+ * handed over by a second launch — it names a revision that one may not have. A repo with a single commit
+ * answered `fatal: bad revision 'HEAD~5'`, its build threw, and the window it was opened for sat on the
+ * loading mark for the rest of the session. The reading preferences (context, watch, whitespace) are not
+ * about a revision and travel fine, which is why only these three are cleared.
+ */
+export function compareSelectionFor(
+  launchRoot: string,
+  windowRoot: string,
+  launch: { base?: string; baseLabel?: string; staged: boolean },
+): { base: string | undefined; baseLabel: string | undefined; staged: boolean } {
+  if (launchRoot === windowRoot) return { base: launch.base, baseLabel: launch.baseLabel, staged: launch.staged };
+  return { base: undefined, baseLabel: undefined, staged: false };
+}

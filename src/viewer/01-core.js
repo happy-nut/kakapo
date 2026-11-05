@@ -222,8 +222,7 @@ function paintDiffImportFoldRow(row, count) {
 }
 function decorateDiffImportFold(wrapper, oldRows, newRows) {
   if (!wrapper) return;
-  var path = (wrapper.dataset && wrapper.dataset.path)
-    || ((wrapper.querySelector('.d2h-file-name') || {}).textContent || '').trim();
+  var path = diffWrapperPathKey(wrapper);
   if (path && diffImportOpenPaths[path]) return;
   var oldLines = oldRows.map(function (row) { return isDiffCodeRow(row) ? diffLineText(row) : null; });
   var newLines = newRows.map(function (row) { return isDiffCodeRow(row) ? diffLineText(row) : null; });
@@ -242,8 +241,7 @@ function decorateDiffImportFold(wrapper, oldRows, newRows) {
 function openDiffImportFold(row) {
   var wrapper = row && row.closest ? row.closest('.d2h-file-wrapper') : null;
   if (!wrapper) return;
-  var path = (wrapper.dataset && wrapper.dataset.path)
-    || ((wrapper.querySelector('.d2h-file-name') || {}).textContent || '').trim();
+  var path = diffWrapperPathKey(wrapper);
   if (path) diffImportOpenPaths[path] = true;
   clearSelectedDiffFold();
   resetDiffImportFolds(wrapper);
@@ -460,7 +458,7 @@ function expandDiffContext(row) {
 // data-first-hunk so indices stay globally consistent with the eager numbering.
 function markWrapperHunks(wrapper) {
   var base = parseInt(wrapper.dataset.firstHunk || '0', 10) || 0;
-  var fileName = ((wrapper.querySelector('.d2h-file-name') || {}).textContent || '').trim();
+  var fileName = diffWrapperPathKey(wrapper);
   var headerToIndex = new Map();
   var local = 0;
   Array.prototype.forEach.call(wrapper.querySelectorAll('tr'), function (row) {
@@ -1188,7 +1186,7 @@ function prepareDiff2HtmlHunks() {
   let globalHunkIndex = 0;
   wrappers.forEach((wrapper, fileIndex) => {
     wrapper.id = 'file-' + fileIndex;
-    const fileName = wrapper.querySelector('.d2h-file-name')?.textContent?.trim() || '';
+    const fileName = diffWrapperPathKey(wrapper);
     const headerToIndex = new Map();
     const rows = Array.from(wrapper.querySelectorAll('tr'));
     rows.forEach((row) => {
@@ -1283,7 +1281,7 @@ function setFileViewed(path, viewed) {
 // F7's queue filtering can never disagree.
 function applyViewedState() {
   document.querySelectorAll('.d2h-file-wrapper').forEach((wrapper) => {
-    const fileName = wrapper.querySelector('.d2h-file-name')?.textContent?.trim() || '';
+    const fileName = diffWrapperPathKey(wrapper);
     const viewed = isFileViewed(fileName);
     wrapper.classList.toggle('file-viewed', viewed);
   });
