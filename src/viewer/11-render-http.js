@@ -18,7 +18,7 @@ function openSourceFile(path, shouldSwitch = true, options) {
   if (!file) {
     loadLibrarySourceFile(path).then(function (record) {
       if (record) openSourceFile(path, shouldSwitch, options);
-      else showCaretHint(t('source.libraryUnavailable').replace('{file}', sourceTabLabel(path)));
+      else reportLibraryMiss(path);
     });
     return;
   }

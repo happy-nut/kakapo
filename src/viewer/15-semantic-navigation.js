@@ -267,6 +267,10 @@ async function goToDefOrUsages(name, explicitLoc) {
     if (def && def.external) {
       var external = await loadLibrarySourceFile(def.path);
       if (!external || !String(external.content || '')) {
+        // Not every unopenable target is compiled. Sorbet names a github.com URL for its stdlib RBIs, and
+        // calling that "compiled, with no source to open" was wrong twice over — it is not compiled and the
+        // source is one click away.
+        if (openLibraryOnWeb(def.path)) return;
         showCaretHint(t('monaco.definitionExternal')
           .replace('{symbol}', String(name || ''))
           .replace('{where}', externalLocationLabel(def.path)));

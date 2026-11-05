@@ -150,6 +150,13 @@ test("a fact the whole viewer asks about has exactly one reader", () => {
   only("the usage occurrence scan", "scanUsageLine()",
     sitesOf(/match\.index \+ match\[0\]\.length - match\[1\]\.length/));
 
+  // Why a library definition produced nothing — a web-only source, an entry in an archive, or a real
+  // failure. Two slices hit this miss and both used to spell out the same single message.
+  only("the library-miss message", "reportLibraryMiss()", sitesOf(/source\.libraryUnavailable/));
+  // Handing a web-published library target to the browser: the source view's miss and the
+  // external-definition branch both get here, and a second copy would drift on the scheme test.
+  only("the web library handoff", "openLibraryOnWeb()", sitesOf(/window\.open\(/));
+
   // How a typed query matches. Eight lists build their own haystack, which is right; the rule that decides
   // a match is one, and each list used to spell it out.
   only("the speed-search match rule", "matchesQueryVariants()",

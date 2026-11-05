@@ -195,7 +195,7 @@ else's repository behind their back is a worse thing to do than making them type
 | `⌘U` | Go to the supertype |
 | `F3` / `⌘F3` | Bookmark this line / show every bookmark |
 | `⇧⌥1`…`⇧⌥9` / `⌥1`…`⌥9` | Number this line / go to that number |
-| `⌘↓` / `⌘`-click | Go to definition — including into library code (a dependency, a stdlib module, a bundled type stub, a compiled class in a jar or in the JDK image), which opens read-only |
+| `⌘↓` / `⌘`-click | Go to definition — including into library code (a dependency, a stdlib module, a bundled type stub, an entry inside a `.phar`, a class a server can decompile for itself), which opens read-only. A definition the server publishes only on the web — Sorbet answers its stdlib with a github.com link — opens in your browser instead. A class in a JDK image reports where it is: reading one needs a decompiler kakapo does not ship, and only Java has a server that decompiles on its own |
 | `⌥F1` | Reveal the open file in the sidebar |
 | `F2` / `⇧F2` | Next / previous problem the language server found |
 | `⌥Enter` | On a flagged line: draft the change request that asks an agent to fix it |

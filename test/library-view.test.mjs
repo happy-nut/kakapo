@@ -130,3 +130,63 @@ test("a path main refuses to serve does not open a blank tab", async () => {
     v.close();
   }
 });
+
+// Three different things reach the same miss, and only one of them is a failure. Before this, all three
+// said "could not be opened" — which made two known limits look like bugs and sent one real answer
+// (Sorbet publishes its stdlib RBIs on github.com and ships no file) nowhere at all.
+const hintText = (v) => (v.$(".mc-caret-hint")?.textContent || "").trim();
+const filled = (v, key, label) => v.window.t(key).replace("{file}", () => label);
+
+test("a definition published only on the web is handed to the browser", async () => {
+  const v = await loadViewer(html);
+  try {
+    installLibraryBridge(v);
+    const opened = [];
+    v.window.open = (url) => { opened.push(url); return null; };
+    const target = "https://github.com/sorbet/sorbet/tree/aafce23/rbi/stdlib/json.rbi#L194";
+
+    v.window.openSourceFile(target);
+    await settle();
+
+    assert.deepEqual(opened, [target], "the URL went to the browser, which is the only place that source is");
+    assert.equal(hintText(v), filled(v, "source.libraryOnWeb", "json.rbi#L194"), "and the hint says so");
+    assert.notEqual(v.$("#source-viewer").dataset.openPath, target, "no empty tab opened for it");
+  } finally {
+    v.close();
+  }
+});
+
+test("a target inside an archive or a JDK image says that, and does not open a browser", async () => {
+  const v = await loadViewer(html);
+  try {
+    installLibraryBridge(v);
+    const opened = [];
+    v.window.open = (url) => { opened.push(url); return null; };
+    // What the Kotlin server answers for java.time.Instant: an entry in the JDK's jimage, which needs a
+    // decompiler this app does not ship. A `$` in the name is the other half of this test — `$&` in a
+    // replacement STRING is a pattern, and a Java inner class is spelled `Map$Entry`.
+    v.window.openSourceFile("/opt/kotlin/jbr/Contents/Home!/java.base/java/util/Map$Entry.class");
+    await settle();
+
+    assert.equal(hintText(v), filled(v, "source.libraryInArchive", "Map$Entry.class"));
+    assert.deepEqual(opened, [], "a path is not a URL — nothing is handed to the OS");
+  } finally {
+    v.close();
+  }
+});
+
+test("a server-named file that simply would not read keeps the plain message", async () => {
+  const v = await loadViewer(html);
+  try {
+    installLibraryBridge(v);
+    v.window.openSourceFile("/opt/typescript/lib/gone.d.ts");
+    await settle();
+
+    assert.equal(hintText(v), filled(v, "source.libraryUnavailable", "gone.d.ts"));
+    // The control: the three messages really are different, so the two above cannot be passing by accident.
+    assert.notEqual(v.window.t("source.libraryUnavailable"), v.window.t("source.libraryOnWeb"));
+    assert.notEqual(v.window.t("source.libraryUnavailable"), v.window.t("source.libraryInArchive"));
+  } finally {
+    v.close();
+  }
+});

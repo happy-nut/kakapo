@@ -2,8 +2,9 @@ import { existsSync, statSync } from "node:fs";
 import { basename } from "node:path";
 import { SOURCE_MAX_LAZY_FILE_BYTES } from "./constants.js";
 import type { SourceFile } from "./types.js";
-import { formatBytes, hashText, isLikelyBinary, languageForPath, readTextFile } from "./util.js";
+import { decodeTextBuffer, formatBytes, hashText, isLikelyBinary, isLikelyBinaryHead, languageForPath, readTextFile } from "./util.js";
 import { externalLocationLabel } from "./lsp.js";
+import { readArchiveEntry } from "./archive-source.js";
 
 /**
  * A file read for library navigation — a dependency, a stdlib module, a bundled type stub — after a
@@ -14,23 +15,39 @@ import { externalLocationLabel } from "./lsp.js";
  * `displayPath` is what the record is keyed by (repo-relative for a file under the root, absolute for one
  * outside it); `absolutePath` is what is actually read.
  */
-export function readLibrarySourceFile(absolutePath: string, displayPath = absolutePath): SourceFile | null {
-  if (!existsSync(absolutePath)) return null;
-  let stats: ReturnType<typeof statSync>;
-  try { stats = statSync(absolutePath); } catch { return null; }
-  if (!stats.isFile()) return null;
-  const base: SourceFile = {
+function libraryBase(displayPath: string, size: number): SourceFile {
+  return {
     path: displayPath,
     name: basename(displayPath),
     language: languageForPath(displayPath),
     content: "",
-    size: stats.size,
+    size,
     changed: false,
     embedded: false,
     changedLines: [],
     signature: "",
     library: true,
   };
+}
+
+export function readLibrarySourceFile(absolutePath: string, displayPath = absolutePath): SourceFile | null {
+  if (!existsSync(absolutePath)) {
+    // Not a file — but it can still be a path INTO one. A PHP definition lands inside Phpactor's own phar,
+    // where the stub it names is real source; `existsSync` is right about the path and wrong about the
+    // source. Which archives are read, and which deliberately are not, is in archive-source.ts.
+    const archived = readArchiveEntry(absolutePath, SOURCE_MAX_LAZY_FILE_BYTES);
+    if (!archived || isLikelyBinaryHead(archived.bytes)) return null;
+    return {
+      ...libraryBase(displayPath, archived.bytes.length),
+      content: decodeTextBuffer(archived.bytes),
+      embedded: true,
+      signature: hashText(`${displayPath}\0${archived.bytes.length}\0${archived.mtimeMs}`),
+    };
+  }
+  let stats: ReturnType<typeof statSync>;
+  try { stats = statSync(absolutePath); } catch { return null; }
+  if (!stats.isFile()) return null;
+  const base = libraryBase(displayPath, stats.size);
   // The kind travels beside the reason, because the reason is an English sentence written for a log while
   // the page puts it on screen in the reader's own language — see SourceFile.skippedKind.
   const unreadable = (skippedReason: string, kind: SourceFile["skippedKind"], tag: string): SourceFile =>
