@@ -996,8 +996,8 @@ function flushSourceRows() {
   sourceRowsCompleted(filled);
 }
 
-// Comments and the blame gutter decorate rows, and they ran when only the window existed. Re-run them once
-// the rest has arrived rather than teaching each one to wait.
+// Comments and the blame gutter decorate rows, and they ran when only the window existed. Re-run them each
+// time more rows arrive, rather than teaching each one to wait.
 function sourceRowsCompleted(path) {
   if (!path || sourceOpenPath() !== path) return;
   try { renderSourceComments(); } catch (e) {}
@@ -1005,6 +1005,47 @@ function sourceRowsCompleted(path) {
   try { refreshSourceDiagnostics(path); } catch (e) {}
   // A hint or a lens below the first window has no row to attach to until the rest of the file arrives.
   try { paintSourceDecorations(); } catch (e) {}
+  // Nor does a find highlight or a usage mark. Both read the painted rows now, so both have to be told.
+  try { scheduleFileFindHighlights(); } catch (e) {}
+  try { paintUsageHighlights(); } catch (e) {}
+}
+
+// The row a reader is being SENT to, built if it is not there yet. Rows below the window arrive as the
+// reader reaches them, so a jump — a definition, a comment, Go to line — can name one that does not exist.
+// Every such jump passes through setSourceCursor, which is the one place that has to make it exist, and
+// finishing the file is the escape hatch this design has always had.
+//
+// Decorators deliberately do NOT come here. A blame mark, a hint or a comment badge paints what is on
+// screen; sourceRowsCompleted re-runs them each time more rows arrive, so asking them to materialise a row
+// they merely wanted to decorate would build the whole file for nobody.
+function buildSourceRowFor(lineIndex) {
+  if (!sourceFill) return; // nothing outstanding: every row of this file is already built
+  const body = document.getElementById('source-body');
+  if (!body || body.querySelector('.source-row[data-line-index="' + lineIndex + '"]')) return;
+  flushSourceRows();
+}
+
+// The first spacer the reader can reach: on screen, or within two screens of it.
+//
+// Filling a file to its end regardless of where the reader is cost what the rows cost. Measured on
+// electron.d.ts (27,088 lines) in the real app: the window alone is +25 MB, the whole file +1,093 MB, and
+// the JS heap stays at 10 MB throughout — it is Blink's DOM and layout for 138,449 nodes, 5 per row, for
+// rows nobody scrolled to. 2026-10-18 declined true row windowing and wrote the condition to revisit it:
+// when memory, rather than latency, becomes the complaint. This is the half that needs no windowing —
+// rows are never removed, only built later, which is what a spacer has always meant.
+//
+// A zero rect — jsdom, or a pane with no layout — reads as "in reach", so a page that cannot measure
+// itself fills eagerly exactly as before.
+function nearbySourceSpacer(body) {
+  const spacers = body.querySelectorAll('.source-spacer');
+  if (!spacers.length) return null;
+  const view = body.getBoundingClientRect();
+  const margin = (body.clientHeight || 0) * 2;
+  for (let i = 0; i < spacers.length; i++) {
+    const rect = spacers[i].getBoundingClientRect();
+    if (rect.top <= view.bottom + margin && rect.bottom >= view.top - margin) return spacers[i];
+  }
+  return null;
 }
 
 // A timer, not requestAnimationFrame. The first fill is scheduled from the render itself, and a session
@@ -1017,15 +1058,21 @@ function scheduleSourceFill() {
     sourceFillTimer = undefined;
     const body = document.getElementById('source-body');
     if (!sourceFill || !body) return;
-    const spacer = body.querySelector('.source-spacer');
-    if (!spacer) { sourceFill = undefined; return; }
-    expandSourceSpacer(spacer, sourceProgressiveLimits().chunkRows);
-    if (body.querySelector('.source-spacer')) { scheduleSourceFill(); return; }
+    const spacer = nearbySourceSpacer(body);
+    if (spacer) {
+      expandSourceSpacer(spacer, sourceProgressiveLimits().chunkRows);
+      scheduleSourceFill();
+      return;
+    }
+    // Out of reach, or nothing left. Either way the rows that just arrived want their comments, blame
+    // marks and hints; the fill stays outstanding while any spacer remains, and scrolling brings us back.
     const filled = sourceFill.path;
-    sourceFill = undefined;
+    if (!body.querySelector('.source-spacer')) sourceFill = undefined;
     sourceRowsCompleted(filled);
   }, 16);
 }
+// Scrolling towards rows that are not built yet is what asks for them.
+document.getElementById('source-body')?.addEventListener('scroll', scheduleSourceFill, { passive: true });
 
 /**
  * A line's highlighted HTML: the language server's tokens where it has sent any for that line, and the

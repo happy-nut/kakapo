@@ -123,10 +123,15 @@ function fileFindRange(container, start, length) {
   } catch (e) { return null; }
 }
 
-function sourceFindRow(lineIndex) {
+// The row holding a line among the rows that are PAINTED — null when a big file has not built it yet.
+//
+// That is what a DECORATOR wants. A squiggle, a usage mark, a find highlight draws on what is on screen,
+// and sourceRowsCompleted runs it again each time more rows arrive. Asking one to materialise a row it
+// merely wanted to underline builds the whole file for nobody: diagnostics did exactly that, one flush per
+// item, so a single red dot on line 6 of electron.d.ts painted all 27,089 rows and cost a gigabyte.
+function paintedSourceRow(lineIndex) {
   var body = document.getElementById('source-body');
   if (!body) return null;
-  flushSourceRows(); // a match can be anywhere in the file, not only in the painted window
   var exact = body.querySelector('.source-row[data-line-index="' + lineIndex + '"]');
   if (exact) return exact;
   return Array.prototype.find.call(body.querySelectorAll('.source-row[data-line-index]'), function (row) {
@@ -136,9 +141,16 @@ function sourceFindRow(lineIndex) {
   }) || null;
 }
 
+// The row for a line the reader is being SENT to: a match can be anywhere in the file, not only in the
+// painted window, so this finishes the file first. One caller — revealing the ACTIVE result.
+function sourceFindRow(lineIndex) {
+  flushSourceRows();
+  return paintedSourceRow(lineIndex);
+}
+
 function fileFindResultContainer(result) {
   if (result.kind === 'diff') return result.row && diffCellCtn(result.row);
-  var row = sourceFindRow(result.lineIndex);
+  var row = paintedSourceRow(result.lineIndex);
   return row && (row.querySelector('.source-code') || row);
 }
 
@@ -154,7 +166,7 @@ function applyFileFindHighlights() {
   indexes.forEach(function (index) {
     var result = fileFindResults[index];
     var container = fileFindResultContainer(result);
-    var row = result.kind === 'diff' ? result.row : sourceFindRow(result.lineIndex);
+    var row = result.kind === 'diff' ? result.row : paintedSourceRow(result.lineIndex);
     if (row && !rowSet.has(row)) {
       rowSet.add(row);
       fileFindHighlightedRows.push(row);
