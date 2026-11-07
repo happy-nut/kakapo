@@ -909,7 +909,11 @@ function populateHttpEnvSelect() {
 // first render on. (TOKEN_SETS below is the same hazard, found the same way.)
 function sourceProgressiveLimits() {
   return {
-    minRows: 2000,   // below this a single-shot render is already fast — 74ms at 1k lines, measured
+    // The floor only has to clear the window below, or the windowed path would paint a spacer standing in
+    // for nothing. It used to sit at 2,000 on the grounds that a single-shot render below that is "already
+    // fast", which measurement does not support: a 1,920-row file took 150 ms in one shot and 25 ms through
+    // the window. Rows cost about 78 us each wherever they are built.
+    minRows: 600,
     windowRows: 400, // painted immediately, around the caret
     chunkRows: 2000, // appended per frame afterwards
   };
@@ -1008,21 +1012,6 @@ function sourceRowsCompleted(path) {
   // Nor does a find highlight or a usage mark. Both read the painted rows now, so both have to be told.
   try { scheduleFileFindHighlights(); } catch (e) {}
   try { paintUsageHighlights(); } catch (e) {}
-}
-
-// The row a reader is being SENT to, built if it is not there yet. Rows below the window arrive as the
-// reader reaches them, so a jump — a definition, a comment, Go to line — can name one that does not exist.
-// Every such jump passes through setSourceCursor, which is the one place that has to make it exist, and
-// finishing the file is the escape hatch this design has always had.
-//
-// Decorators deliberately do NOT come here. A blame mark, a hint or a comment badge paints what is on
-// screen; sourceRowsCompleted re-runs them each time more rows arrive, so asking them to materialise a row
-// they merely wanted to decorate would build the whole file for nobody.
-function buildSourceRowFor(lineIndex) {
-  if (!sourceFill) return; // nothing outstanding: every row of this file is already built
-  const body = document.getElementById('source-body');
-  if (!body || body.querySelector('.source-row[data-line-index="' + lineIndex + '"]')) return;
-  flushSourceRows();
 }
 
 // The first spacer the reader can reach: on screen, or within two screens of it.
