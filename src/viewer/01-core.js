@@ -927,10 +927,25 @@ const httpRequestVars = new Map();
 const httpResponsesByName = new Map();
 // Per-request script output: client.test() results, client.log() lines, and a script's own error.
 const httpScriptLogByRequest = new Map();
-let sourceByPath = new Map(sourceFiles.map((file) => [file.path, file]));
+let sourceByPath = rebuildSourceByPath(sourceFiles, new Map()); // one writer; see the helper below
 var projectIndexLoaded = !REVIEW_LAZY_LOAD;
 var projectIndexPromise = null;
 var projectIndexPayload = null;
+
+// The map behind every "what do we know about this path" lookup: the project's own files AND the library
+// records loadLibrarySourceFile() adds. A library file is openable but joins no index, so it is in no
+// project-index payload — and the two sites that rebuilt this map from a payload built it from the payload
+// alone, evicting the library file the reader had open. Nothing said so: the tab stayed and the body stayed
+// painted, but the next repaint found no entry for its path while libraryLoadPromises went on answering with
+// the evicted record, so openSourceFile's retry recursed on it without end. That was the hang. One writer,
+// so a third rebuild site cannot forget again (pinned in viewer-slices.test.mjs).
+function rebuildSourceByPath(records, previous) {
+  var next = new Map(records.map(function (file) { return [file.path, file]; }));
+  previous.forEach(function (file, path) {
+    if (file && file.library && !next.has(path)) next.set(path, file);
+  });
+  return next;
+}
 
 // Merge the lazily-fetched project index without discarding source bodies that are already open. Electron's
 // contextBridge freezes returned records, so clone each one before the renderer annotates it with __loaded.
@@ -950,7 +965,7 @@ function installProjectIndex(payload) {
     return file;
   });
   sourceFiles = records;
-  sourceByPath = new Map(records.map(function (file) { return [file.path, file]; }));
+  sourceByPath = rebuildSourceByPath(records, previousByPath);
   // The project index is SOURCE metadata; ProjectIndexPayload carries no review file states (types.ts), and a
   // source record's own signature is not the one the review was built with. Rebuilding the map from those
   // records therefore moved every changed file's signature the moment the Files tree was first opened — and a
@@ -1071,7 +1086,13 @@ function loadSourceFile(path) {
   if (typeof window !== 'undefined' && window.kakapoFile && typeof window.kakapoFile.getSource === 'function') {
     promise = Promise.resolve().then(function () { return window.kakapoFile.getSource(path); }).then(function (record) {
       if (generation !== sourceGeneration) return sourceByPath.get(path) || null;
-      return mergeSourceRecord(record) || file;
+      var merged = mergeSourceRecord(record);
+      // Main had no record for a path the index does hold — the file was deleted between the index and this
+      // open. Mark it loaded anyway, as the reject arm below always has: openSourceFile retries until
+      // sourceContentLoaded() is true, so a null answer left the flag off and turned a missing file into an
+      // unbounded retry loop instead of an empty body. A null answer is an answer too.
+      if (!merged) file.__loaded = true;
+      return merged || file;
     });
   } else {
     // The standalone browser viewer has a single source-data endpoint. Fetch it at most once and mark

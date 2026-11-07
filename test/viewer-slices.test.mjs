@@ -113,6 +113,25 @@ test("no slice reads a let/const declared by a later slice", () => {
 // in ten copies, its empty state in thirteen, the selected-comment-box key contract in two (one per caret),
 // and the usage occurrence scan in two. The accessor or helper is now the only place that knows how, so a
 // reintroduced copy fails here instead of becoming a surface that silently drifts from its twin.
+// sourceByPath answers "what do we know about this path", and a library file is in it without being in any
+// index — the source view can paint one, but the file tree and quick-open stay the project's own files. Two
+// places rebuilt the map when a project index arrived and both built it from the index alone, so each one
+// silently evicted the library file the reader had open; the retry in openSourceFile then recursed on the
+// evicted record for ever (library-view.test.mjs covers the first site). Every write goes through the one
+// helper that carries those records over, so a third rebuild site cannot forget again.
+test("sourceByPath is only ever rebuilt by rebuildSourceByPath()", () => {
+  const writes = order.flatMap((file) => sources.get(file).split("\n")
+    .map((text, i) => ({ at: `${file}:${i + 1}`, text: text.trim() }))
+    .filter(({ text }) => /\bsourceByPath = /.test(text) && !text.startsWith("//"))
+    .map(({ at, text }) => `${at}  ${text.slice(0, 96)}`));
+  assert.ok(writes.length >= 3, "the three known writes are still there, so this rule is still looking at something");
+  assert.deepEqual(
+    writes.filter((w) => !/= rebuildSourceByPath\(/.test(w)),
+    [],
+    "a rebuild that skips the helper drops every open library file:\n  " + writes.join("\n  "),
+  );
+});
+
 test("a fact the whole viewer asks about has exactly one reader", () => {
   // Lines matching `re`, as "file:line" locations, skipping comments so prose about a fact is not a reader.
   const sitesOf = (re, skip = []) => order.flatMap((file) => sources.get(file).split("\n")
