@@ -18,7 +18,7 @@ function openSourceFile(path, shouldSwitch = true, options) {
   if (!file) {
     loadLibrarySourceFile(path).then(function (record) {
       if (record) openSourceFile(path, shouldSwitch, options);
-      else showCaretHint(t('source.libraryUnavailable').replace('{file}', sourceTabLabel(path)));
+      else reportLibraryMiss(path);
     });
     return;
   }
@@ -396,7 +396,7 @@ var markdownEngine = null;
 function markdownLanguage(lang) {
   var l = String(lang || '').trim().split(/\s+/)[0].toLowerCase();
   if (l === 'js' || l === 'jsx' || l === 'ts' || l === 'tsx') return 'typescript';
-  if (l === 'sh' || l === 'bash' || l === 'zsh') return 'shell';
+  if (l === 'sh' || l === 'bash' || l === 'zsh') return 'bash'; // see languageForPath: 'shell' is Shell Session
   if (l === 'yml') return 'yaml';
   return l || 'text';
 }
@@ -1344,7 +1344,7 @@ function highlightYamlLine(text) {
 var lineCommentCache = null;
 function lineCommentPrefixes(language) {
   if (!lineCommentCache) lineCommentCache = {
-    python: ['#'], ruby: ['#'], shell: ['#'], yaml: ['#'], toml: ['#'],
+    python: ['#'], ruby: ['#'], bash: ['#'], yaml: ['#'], toml: ['#'],
     perl: ['#'], r: ['#'], julia: ['#'], elixir: ['#'], powershell: ['#'],
     makefile: ['#'], dockerfile: ['#'], ini: ['#', ';'], gherkin: ['#'], nginx: ['#'],
     graphql: ['#'],

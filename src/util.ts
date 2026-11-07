@@ -136,7 +136,11 @@ export function languageForPath(path: string): string {
   // the source view painted `fun`, `override` and `companion object` as plain text (and `type`, an ordinary
   // Kotlin parameter name, as a keyword), and hljs needed a special case here to reach its kotlin grammar.
   if (lower.endsWith(".kt") || lower.endsWith(".kts")) return "kotlin";
-  if (lower.endsWith(".sh") || lower.endsWith(".bash") || lower.endsWith(".zsh")) return "shell";
+  // "bash", not "shell": highlight.js's `shell` grammar is Shell SESSION — a pasted transcript, where the
+  // only thing it colours is the prompt in front of a command. Handed an actual script it emits no tokens
+  // at all, so every .sh in a diff rendered flat. `bash` is the grammar for the file. Two siblings read
+  // this name: markdownLanguage() for a fenced block's tag, and lineCommentPrefixes() for `#`.
+  if (lower.endsWith(".sh") || lower.endsWith(".bash") || lower.endsWith(".zsh")) return "bash";
   if (lower.endsWith(".yml") || lower.endsWith(".yaml")) return "yaml";
   if (lower.endsWith(".toml")) return "toml";
   if (lower.endsWith(".sql")) return "sql";
@@ -240,6 +244,18 @@ export function readTextFile(path: string): string {
   return decodeTextBuffer(readFileSync(path));
 }
 
+/**
+ * The heuristic itself, on bytes: a NUL in the first 8KB, unless a BOM says what the encoding is.
+ *
+ * Split out from isLikelyBinary because an archive entry's bytes are already in memory and there is no
+ * file to open (archive-source.ts) — and because "is this binary" must not grow a second spelling: the
+ * BOM clause was added here once already, after UTF-16 source was being refused as binary.
+ */
+export function isLikelyBinaryHead(head: Buffer): boolean {
+  if (bomEncodingOf(head)) return false; // a BOM says text, whatever NULs its encoding needs
+  return head.subarray(0, 8000).includes(0);
+}
+
 export function isLikelyBinary(path: string): boolean {
   // Read only the first 8KB — a NUL byte in the head is our binary heuristic. The previous version read
   // the WHOLE file just to slice 8KB off it, which on a large repo means re-reading every tracked file
@@ -248,9 +264,7 @@ export function isLikelyBinary(path: string): boolean {
   try {
     const buf = Buffer.alloc(8000);
     const n = readSync(fd, buf, 0, 8000, 0);
-    const head = buf.subarray(0, n);
-    if (bomEncodingOf(head)) return false; // a BOM says text, whatever NULs its encoding needs
-    return head.includes(0);
+    return isLikelyBinaryHead(buf.subarray(0, n));
   } finally {
     closeSync(fd);
   }

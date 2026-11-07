@@ -903,7 +903,7 @@ function openSourceAt(path, lineIndex, column) {
   // had the same hole.
   if (!file) {
     loadLibrarySourceFile(path).then(function (record) {
-      if (!record) { showCaretHint(t('source.libraryUnavailable').replace('{file}', sourceTabLabel(path))); return; }
+      if (!record) { reportLibraryMiss(path); return; }
       openSourceFile(path);
       loadSourceFile(path).then(function () { setSourceCursor(path, lineIndex, column, true, lineIndex); });
     });
@@ -1261,6 +1261,36 @@ function setSourceTypeIcon(path) {
 // calls run before this block don't see an undefined array.)
 function addSourceTab(path) { if (path && sourceTabs.indexOf(path) < 0) sourceTabs.push(path); }
 function sourceTabLabel(path) { var p = String(path || ''); var s = p.lastIndexOf('/'); return s >= 0 ? p.slice(s + 1) : p; }
+
+// A library target that is published on the web rather than shipped: Sorbet answers its own bundled stdlib
+// RBIs with a github.com link, so no file exists on this disk and nothing is broken. Hand it to the
+// browser — window.open reaches main's window-open handler, which passes only http(s) to the OS
+// (externalUrl in app-path-ipc.ts) and never navigates the page itself.
+//
+// Its own function because TWO surfaces arrive at a library target with no text: the source view's miss
+// below, and the external-definition branch in 15-semantic-navigation.js, which has its own (and for a
+// compiled class, better) message. Both have to make this one call the same way.
+// The label goes in through a FUNCTION replacement: `$&` in a replacement STRING is a pattern, and a URL
+// or a Java inner class (`Map$Entry`) carries `$`.
+function openLibraryOnWeb(path) {
+  var p = String(path || '');
+  if (!/^https?:\/\//i.test(p)) return false;
+  try { window.open(p, '_blank', 'noopener'); } catch (e) {}
+  showCaretHint(t('source.libraryOnWeb').replace('{file}', function () { return sourceTabLabel(p); }));
+  return true;
+}
+
+// Why a library definition produced nothing, for the source view's own miss — three different things, and
+// only one of them is a failure. One reader, both of its sites (test/viewer-slices.test.mjs holds that).
+function reportLibraryMiss(path) {
+  var p = String(path || '');
+  if (openLibraryOnWeb(p)) return;
+  var put = function (key) { showCaretHint(t(key).replace('{file}', function () { return sourceTabLabel(p); })); };
+  // A path INTO something: an entry in an archive, or a class in a JDK image. There is no file there, and
+  // for a jimage no decompiler here either, so "could not be opened" made a known limit look like a bug.
+  if (p.indexOf('!/') >= 0 || /\.(phar|jar|zip|apk|aar)\//i.test(p)) { put('source.libraryInArchive'); return; }
+  put('source.libraryUnavailable');
+}
 function sourceTabMenuLabel(path) {
   var p = String(path || ''), name = sourceTabLabel(p), slash = p.lastIndexOf('/');
   return slash > 0 ? name + '  —  ' + p.slice(0, slash) : name;

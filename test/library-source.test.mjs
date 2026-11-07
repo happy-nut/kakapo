@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { registerReviewIpc } from "../dist/app-review-ipc.js";
-import { normalizeLocationResult, isKnownLibraryPath, resetKnownLibraryPaths } from "../dist/lsp.js";
+import { normalizeLocationResult, isKnownLibraryPath, isKnownExternalUri, resetKnownLibraryPaths } from "../dist/lsp.js";
 
 function fakeIpc() {
   const handlers = new Map();
@@ -118,4 +118,22 @@ test("a relative path still cannot escape the review root", async () => {
   } finally {
     h.cleanup();
   }
+});
+
+test("a phar definition target is a path, not a URI only a language server could read", () => {
+  // Phpactor answers every PHP stdlib definition with this scheme. Treating `phar://` as "not a path" sent
+  // them all to the external reader, which asks the naming server for the text — and no server speaks
+  // `phar`, so each one ended at "compiled, with no source to open" with the source sitting in the archive.
+  const uri = "phar:///opt/php/phpactor.phar/vendor/jetbrains/phpstorm-stubs/date/date.php";
+  const expected = "/opt/php/phpactor.phar/vendor/jetbrains/phpstorm-stubs/date/date.php";
+  const [location] = normalizeLocationResult(
+    { uri, range: { start: { line: 968, character: 0 }, end: { line: 969, character: 9 } } },
+    "/some/project",
+  );
+  assert.ok(location, "the location survives");
+  assert.equal(location.path, expected, "the scheme is dropped and what is left is the path it always was");
+  assert.equal(location.external, undefined, "not external — nothing has to ask a server for its text");
+  assert.equal(location.library, true, "it is library code: read-only, no comments");
+  assert.equal(isKnownLibraryPath(expected), true, "and it is allowlisted, so the renderer may ask main for it");
+  assert.equal(isKnownExternalUri(uri), false, "the URI itself is not registered — one spelling reaches the renderer");
 });

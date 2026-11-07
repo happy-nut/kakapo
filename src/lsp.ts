@@ -1898,10 +1898,18 @@ export function normalizeLocationResult(result: unknown, root: string): Analysis
     // and the text filter in navigationLocations dropped the location for having no visible characters.
     // So Kotlin and Java reported "definition not found" for every stdlib and dependency symbol, while the
     // server had answered correctly every time.
-    if (!uri.startsWith("file:")) {
-      externalUris.add(uri);
+    // `phar:///…/phpactor.phar/vendor/…/date.php` IS a path, scheme notwithstanding: the archive is a real
+    // file and the rest of it names an entry inside (archive-source.ts reads those). Phpactor answers every
+    // stdlib definition with this scheme, and classifying it as "not a path" sent all of them to the
+    // external reader — which can only ask a language server for the text, and no server speaks `phar`. So
+    // they ended at "compiled, with no source to open" while the source sat in the archive. Rewritten here,
+    // once, so the rest travels the ordinary library route: allowlisted below, read in main, opened
+    // read-only. One spelling reaches the renderer, which is what isKnownLibraryPath has to match.
+    const target = uri.startsWith("phar://") ? `file://${uri.slice("phar://".length)}` : uri;
+    if (!target.startsWith("file:")) {
+      externalUris.add(target);
       out.push({
-        path: uri,
+        path: target,
         external: true as const,
         lineIndex: nonNegativeInt(range.start.line) ?? 0,
         column: nonNegativeInt(range.start.character) ?? 0,
@@ -1912,7 +1920,7 @@ export function normalizeLocationResult(result: unknown, root: string): Analysis
       continue;
     }
     let absolute: string;
-    try { absolute = fileURLToPath(uri); } catch { continue; }
+    try { absolute = fileURLToPath(target); } catch { continue; }
     // Language servers commonly canonicalize symlinks (macOS also reports /private/var for /var).
     // Compare canonical paths so an in-workspace result is reported relative to the root, and anything
     // outside it is kept as a library location — an absolute path the reviewer can read but not edit.

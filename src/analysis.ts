@@ -10,6 +10,7 @@ import {
   type AnalysisSymbol,
   externalUriSampleFile,
   isKnownExternalUri,
+  isKnownLibraryPath,
   LspClient,
   lspSymbolKindName,
   resolveBundledLanguageServer,
@@ -18,6 +19,7 @@ import {
   type LspDiagnostic,
 } from "./lsp.js";
 import { searchProject } from "./search.js";
+import { readLibrarySourceFile } from "./library-source.js";
 import { errorMessage } from "./util.js";
 import {
   buildProjectIndex,
@@ -681,8 +683,20 @@ export class ProjectAnalysis {
    * cap, absent from this revision — returns undefined, which is what the old `catch` produced too.
    */
   private async readSource(path: string): Promise<string | undefined> {
-    if (this.reviewTarget) return (await this.getIndex()).files.get(path);
-    try { return await readFile(locationFilePath(this.root, path), "utf8"); } catch { return undefined; }
+    if (this.reviewTarget) {
+      const indexed = (await this.getIndex()).files.get(path);
+      // Absent from the index means absent from the revision being reviewed — except for a library path,
+      // which is in no index in any mode. Falling back for a project file would quietly read the working
+      // tree in place of the revision.
+      if (indexed !== undefined || !isKnownLibraryPath(path)) return indexed;
+    }
+    const file = locationFilePath(this.root, path);
+    try { return await readFile(file, "utf8"); } catch { /* not a file — it can still be a path INTO one */ }
+    // A definition inside an archive (`…/phpactor.phar/vendor/jetbrains/phpstorm-stubs/date/date.php`) is a
+    // real location whose text only the library reader can produce. It matters here and not just in the
+    // source view: navigationLocations drops a location it can see no visible characters on, so without
+    // this every PHP stdlib definition came back "definition not found" — the server having answered it.
+    return readLibrarySourceFile(file)?.content;
   }
 
   private async symbolContext(path: string, line = 0, column = 0, explicit?: string): Promise<{ symbol?: string; lineIndex: number; column: number }> {
