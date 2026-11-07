@@ -2947,6 +2947,14 @@ body.cmd-link-active .source-code { cursor: pointer; }
 @keyframes cursor-blink {
   50% { opacity: 0; }
 }
+/* Out of the flow, for the same reason .code-cursor-empty above is — and for a second one. A caret moving
+   through a big file inserted this span into a cell on every keypress, which dirties the TABLE's layout, so
+   the next piece of code to read any geometry (the caret-follow scroll, the sticky header) paid a full
+   relayout of every row. At 27,000 rows that was 40 ms a keystroke; out of the flow it is 26 ms. The
+   picture does not change: with left and top auto an absolutely positioned box is painted at its static
+   position — the spot the inline span occupied — and its measured x, width and height are the same.
+   Scoped to the source view: the diff's caret hangs in a container that is not a positioning context. */
+#source-body .code-cursor { position: absolute; }
 /* Keep the caret solid while it is actively moving (held arrow key / typing); blink only when idle. */
 .caret-busy .code-cursor { animation: none; opacity: 1; }
 /* Markdown/CSV rendered rows have no inline caret span — mark the whole cursor row instead. */

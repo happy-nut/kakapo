@@ -783,3 +783,28 @@ test("every chrome control a pointer aims at clears the 24px target floor", () =
   assert.match(tools || "", /padding:\s*3px\s+8px/, "the bar's padding leaves room for 24px buttons inside 30px");
   assert.match(tools || "", /min-height:\s*30px/, "and the bar is still the height it was");
 });
+
+test("the source caret is painted out of the flow, so a caret move cannot relayout the table", () => {
+  // The bug: inserting the caret span into a cell changes the line's layout, which dirties the whole
+  // <table>. The next piece of code to read any geometry — the caret-follow scroll, the sticky header —
+  // then pays a relayout of every row: 40 ms a keystroke at 27,000 rows, 26 ms with the caret out of flow.
+  // Offsets stay auto on purpose: an absolutely positioned box with left/top auto is painted at its static
+  // position, the exact spot the inline span occupied, so the picture does not change.
+  const caret = ruleBodiesForExactSelector("#source-body .code-cursor");
+  assert.ok(caret.length, "#source-body .code-cursor rule must exist");
+  assert.ok(caret.some((body) => /position:\s*absolute\b/.test(body)), "the caret must be absolutely positioned");
+  assert.ok(
+    !caret.some((body) => /(^|;)\s*(left|top|right|bottom)\s*:/.test(body)),
+    "and must keep its offsets auto — an offset would move it off the character it marks",
+  );
+
+  // The precondition that makes the static position land inside the line rather than somewhere up the tree.
+  const cell = ruleBodiesForExactSelector(".source-code");
+  assert.ok(cell.some((body) => /position:\s*relative\b/.test(body)),
+    "precondition: .source-code is the positioning context (it already is, for the empty-line caret)");
+
+  // Scoped to the source view: the diff's caret hangs in a container that is not a positioning context,
+  // so an unscoped rule would send it up the tree.
+  assert.ok(!/(^|,)\s*\.code-cursor\s*\{[^}]*position:\s*absolute/s.test(cssRules),
+    "the rule must stay scoped to #source-body — the diff caret has no positioning context of its own");
+});
