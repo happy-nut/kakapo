@@ -172,7 +172,7 @@ function cleanSelectedSourceText(text, rows) {
 }
 
 function sourceLinesForRows(file, rows) {
-  const lines = file.content.split(/\r?\n/);
+  const lines = sourceLinesOf(file);
   return rows
     .map((row) => lines[Number(row.dataset.lineIndex || 0)] || '')
     .join('\n')
@@ -182,10 +182,22 @@ function sourceLinesForRows(file, rows) {
 // Review folding stays intentionally local and structural: imports are one default-closed header, while
 // Cmd/Ctrl+. folds the innermost multiline `{ ... }` block containing the caret. Strings and comments are
 // skipped so braces in messages/doc comments do not create phantom ranges.
+// The file's lines. Splitting a megabyte of text is not free, and the caret path did it THREE times on
+// every keypress — here, for the import range, and for a line count — so most of an arrow key in a 117 KB
+// file went into String.prototype.split. Keyed on the content it was split from, the way sourceBraceRanges
+// below caches its scan: a new body is a new string, so a stale cache cannot survive one.
+function sourceLinesOf(file) {
+  if (!file) return [];
+  if (file.__linesOf !== file.content || !Array.isArray(file.__lines)) {
+    file.__lines = String(file.content || '').split(/\r?\n/);
+    file.__linesOf = file.content;
+  }
+  return file.__lines;
+}
 function sourceBraceRanges(file) {
   if (!file || !file.embedded) return [];
   if (file.__foldBraceContent === file.content && Array.isArray(file.__foldBraceRanges)) return file.__foldBraceRanges;
-  var lines = String(file.content || '').split(/\r?\n/), stack = [], ranges = [];
+  var lines = sourceLinesOf(file), stack = [], ranges = [];
   var inBlockComment = false, quote = '', escaped = false;
   for (var li = 0; li < lines.length; li++) {
     var text = lines[li];
@@ -356,7 +368,7 @@ function sourceFoldCandidates(file) {
   if (!file || !file.embedded) return [];
   var server = sourceServerFoldRanges(file.path);
   if (!server || !server.length) return sourceBraceRanges(file);
-  var lineCount = String(file.content || '').split(/\r?\n/).length;
+  var lineCount = sourceLinesOf(file).length;
   return server
     .filter(function (r) { return r.endLine > r.startLine && r.startLine >= 0 && r.endLine < lineCount; })
     .map(function (r) { return { start: r.startLine, end: r.endLine, column: 0, kind: 'block' }; })
@@ -366,11 +378,16 @@ function sourceFoldCandidates(file) {
 function sourceFoldRanges(file) {
   if (!file || !file.embedded) return [];
   var folds = [];
-  var importRange = findImportRange(String(file.content || '').split(/\r?\n/));
+  var importRange = findImportRange(sourceLinesOf(file));
   if (importRange && !sourceImportOpenPaths[file.path] && !sourceFoldHasComment(file, importRange)) {
     folds.push({ start: importRange.start, end: importRange.end, column: 0, kind: 'imports' });
   }
   var stored = sourceManualFoldKeys[file.path] || Object.create(null);
+  // Not skippable when nothing is collapsed, however tempting: sourceFoldCandidates() is also what ASKS the
+  // server for this file's folding ranges, so an early return here leaves Cmd+. with only the brace walk
+  // until something else happens to ask. (Two tests in lsp-reading-requests.test.mjs say so, and they were
+  // right.) The scan it does is cached on the content already — what the caret path was really paying for
+  // was splitting that content into lines three times a keypress, which sourceLinesOf now does once.
   var pairs = sourceFoldCandidates(file), valid = Object.create(null);
   pairs.forEach(function (pair) { valid[pair.start + ':' + pair.end] = pair; });
   Object.keys(stored).forEach(function (key) {
@@ -594,7 +611,7 @@ function handleSourceClick(event) {
   const file = sourceByPath.get(path);
   if (!file || !file.embedded) return;
   const lineIndex = Number(row.dataset.lineIndex || 0);
-  const lines = file.content.split(/\r?\n/);
+  const lines = sourceLinesOf(file);
   const line = lines[lineIndex] || '';
   const codeCell = row.querySelector('.source-code');
   const column = estimateColumnFromClick(codeCell, event, line);
@@ -661,7 +678,7 @@ function handleSourceDoubleClick(event) {
   const file = sourceByPath.get(path);
   if (!file || !file.embedded) return;
   const lineIndex = Number(row.dataset.lineIndex || 0);
-  const line = file.content.split(/\r?\n/)[lineIndex] || '';
+  const line = sourceLinesOf(file)[lineIndex] || '';
   const column = estimateColumnFromClick(codeCell, event, line);
   if (selectCodeWord(codeCell, line, column)) event.preventDefault();
 }
@@ -726,13 +743,9 @@ function setSourceCursor(path, lineIndex, column, shouldReveal = false, targetLi
   const file = sourceByPath.get(path);
   if (!file || !file.embedded) return;
   flashReviewPanelFocus(document.getElementById('source-body'));
-  const lines = file.content.split(/\r?\n/);
+  const lines = sourceLinesOf(file);
   const boundedLine = Math.max(0, Math.min(lineIndex, Math.max(lines.length - 1, 0)));
   const boundedColumn = Math.max(0, Math.min(column, (lines[boundedLine] || '').length));
-  // A big file builds its rows as the reader reaches them, so the line a jump names may not exist yet.
-  // Every "go to this line" in the app ends up here, which makes this the one place that has to build it.
-  buildSourceRowFor(boundedLine);
-
   // Before anything decides how to repaint: opening a fold changes which rows exist, so this move cannot
   // take the two-rows-in-place fast path below.
   const unfolded = expandSourceFoldsAt(path, boundedLine);
@@ -766,7 +779,12 @@ function setSourceCursor(path, lineIndex, column, shouldReveal = false, targetLi
   // is relative to the declaration the caret is in. Defined in 16-reading-modes.js, which loads later.
   refreshFocusMode();
   scheduleStickyLines();
-  paintSourceDecorations();
+  // The decorations do NOT follow the caret, and repainting them here was most of what an arrow key cost:
+  // every inlay hint and lens thrown away and drawn again, each one finding its row by an attribute scan
+  // over the whole table — 1,307 of those per keypress in a 1,920-line file, 66 ms. updateSourceCaret
+  // inserts and removes a caret span and touches no cell's contents, and 80 caret moves with this call
+  // gone leave all 836 hints and 56 lens rows exactly where they were. Everything that DOES invalidate
+  // them repaints already: a body re-render, a toggle, new decorations from the server, rows arriving.
 }
 var sourceRevealRaf = 0, sourceRevealPrev = null;
 // Source rows are a fixed monospace height, so the caret-follow scroll can be computed from
@@ -857,7 +875,10 @@ function updateSourceCaret(prev, lines, language) {
   body.querySelectorAll('.source-row.symbol-target').forEach((r) => r.classList.remove('symbol-target'));
   if (viewerCursor.targetLine >= 0) rowFor(viewerCursor.targetLine)?.classList.add('symbol-target');
   const row = rowFor(viewerCursor.lineIndex);
-  if (!row) { if (!rendered) openSourceFile(viewerCursor.path, false); return; } // line not in the DOM — full re-render (eager source only)
+  // The line is not in the DOM: either an eager body that does not hold it, or a big file that has not
+  // built that far yet. Re-rendering puts the window around viewerCursor, so the 400 rows it paints are
+  // the ones the caret just landed in — finishing the file instead cost 1.5 s to place one caret.
+  if (!row) { if (!rendered) openSourceFile(viewerCursor.path, false); return; }
   row.classList.add('cursor-line');
   if (!rendered) insertSourceCaret(row, viewerCursor.column);
 }
@@ -1152,7 +1173,7 @@ function moveSourceCursor(dLine, dColumn, extend) {
     setSourceCursor(viewerCursor.path, Number(rows[ni].dataset.lineIndex) || 0, 0, true, -1);
     return;
   }
-  const lines = file.content.split(/\r?\n/);
+  const lines = sourceLinesOf(file);
   let line = viewerCursor.lineIndex;
   let col = viewerCursor.column;
   if (dColumn < 0) {
@@ -1204,7 +1225,7 @@ function moveSourceWord(dir, extend) {
   if (!viewerCursor) return;
   var file = sourceByPath.get(viewerCursor.path);
   if (!file || !file.embedded) return;
-  var lines = file.content.split(/\r?\n/);
+  var lines = sourceLinesOf(file);
   var line = viewerCursor.lineIndex, col = viewerCursor.column;
   var text = lines[line] || '';
   if (dir > 0) {
