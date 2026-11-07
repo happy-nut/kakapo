@@ -253,8 +253,8 @@ function paintSourceDiagnostics(path) {
   DIAGNOSTIC_TIERS.forEach(function (tier) { ranges[tier] = []; });
   var rowSeverity = new Map(); // row element -> severity; the strongest on the line wins
   items.forEach(function (d) {
-    var row = sourceFindRow(d.lineIndex);
-    if (!row) return; // line folded away or outside the rendered body
+    var row = paintedSourceRow(d.lineIndex);
+    if (!row) return; // folded away, or a row this big file has not built yet (repainted when it arrives)
     var container = row.querySelector('.source-code');
     if (!container) return;
     var textLen = (container.textContent || '').length;

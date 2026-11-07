@@ -729,6 +729,9 @@ function setSourceCursor(path, lineIndex, column, shouldReveal = false, targetLi
   const lines = file.content.split(/\r?\n/);
   const boundedLine = Math.max(0, Math.min(lineIndex, Math.max(lines.length - 1, 0)));
   const boundedColumn = Math.max(0, Math.min(column, (lines[boundedLine] || '').length));
+  // A big file builds its rows as the reader reaches them, so the line a jump names may not exist yet.
+  // Every "go to this line" in the app ends up here, which makes this the one place that has to build it.
+  buildSourceRowFor(boundedLine);
 
   // Before anything decides how to repaint: opening a fold changes which rows exist, so this move cannot
   // take the two-rows-in-place fast path below.

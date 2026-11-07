@@ -846,11 +846,12 @@ function paintUsageHighlights() {
     var mark = usageMarks[index];
     if (!mark) return;
     // Both surfaces re-resolve the row from the live DOM: a diff mark by (side, rowIndex) through its
-    // wrapper, a source mark by line — which may first have to finish painting a lazy body.
+    // wrapper, a source mark by line — among the rows that are painted, since a mark below a big file's
+    // built region is repainted when those rows arrive rather than building them to be marked.
     var inDiff = mark.side !== undefined;
     var row = inDiff
       ? diffRowAt(diffWrapperByPath(mark.path), mark.side, mark.rowIndex)
-      : sourceFindRow(mark.lineIndex);
+      : paintedSourceRow(mark.lineIndex);
     if (row) row.classList.add('usage-mark-row');
     var container = row && (inDiff ? diffCellCtn(row) : (row.querySelector('.source-code') || row));
     if (!container) return;
