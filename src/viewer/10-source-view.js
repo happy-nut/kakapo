@@ -550,10 +550,15 @@ function collapseSourceFoldRecursively() {
 function sourceVisibleLineIndex(lineIndex, direction) {
   var body = document.getElementById('source-body');
   if (!body) return lineIndex;
-  // While a big file is still filling in (renderSourceTable), the authoritative row order is the model, not
-  // the DOM — asking the DOM would step only within the painted window. It is also the cheaper answer: this
-  // runs on every arrow key, and scanning every row of a 30k-line file to move one line never made sense.
-  var model = typeof sourceFill !== 'undefined' && sourceFill ? sourceFill.rowStarts : null;
+  // The authoritative row order is the model, not the DOM — asking the DOM would step only within the
+  // painted window of a file still filling in. It is also the cheaper answer: this runs on every arrow key,
+  // and scanning every row of a 30k-line file to move one line never made sense. It used to read the model
+  // off sourceFill, which is cleared the moment the last spacer goes, so the scan it was written to avoid
+  // is exactly what a FINISHED file got — 27,089 rows through querySelectorAll per keystroke, 10% of the
+  // 137 ms one cost there. sourceRowModel survives the fill and a one-shot render has one too.
+  var model = typeof sourceRowModel !== 'undefined' && sourceRowModel && sourceRowModel.path === sourceOpenPath()
+    ? sourceRowModel.rowStarts
+    : (typeof sourceFill !== 'undefined' && sourceFill ? sourceFill.rowStarts : null);
   var indices = model || Array.prototype.map.call(body.querySelectorAll('.source-row[data-line-index]'), function (row) {
     return Number(row.dataset.lineIndex);
   }).filter(function (line) { return Number.isFinite(line); });

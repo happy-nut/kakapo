@@ -947,6 +947,11 @@ function codeInsightMaxBytes() {
 // as "no fill outstanding", which is the same thing null meant.
 var sourceFill;      // { path, rowStarts, build } while a fill is outstanding
 var sourceFillTimer; // the outstanding chunk timer, if any
+// Which LINE each visual row starts at, for the file the body is showing. It outlives sourceFill on
+// purpose: sourceVisibleLineIndex() needs it on every arrow key, and sourceFill is cleared the moment the
+// last spacer goes — so a finished file fell back to reading all 27,089 rows out of the DOM to step the
+// caret one line. A file rendered in one shot never had a fill at all and always paid that.
+var sourceRowModel;  // { path, rowStarts }
 
 function sourceRowSpacerHtml(fromRow, toRow, height) {
   // aria-hidden: this is one empty row standing in for thousands that have not been built yet. It is a
@@ -1158,6 +1163,7 @@ function renderSourceTable(file, query) {
   // one shot and leave no fill outstanding.
   const limits = sourceProgressiveLimits();
   sourceFill = undefined;
+  sourceRowModel = { path: file.path, rowStarts: rowStarts };
   if (normalizedQuery || rowStarts.length < limits.minRows) {
     return '<table class="source-table"><tbody>' + build(0, rowStarts.length) + '</tbody></table>';
   }

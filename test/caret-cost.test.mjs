@@ -71,3 +71,32 @@ test("the caret path splits the file into lines once, not once per keypress", as
     v.close();
   }
 });
+
+test("stepping the caret does not read every row out of the DOM", async () => {
+  // sourceVisibleLineIndex answers "which line is the next visual row" from the render's row model, and
+  // says so in its own comment — scanning a 30k-line file's rows to move one line never made sense. But it
+  // read that model off sourceFill, which is cleared the moment the last spacer is filled, so a FINISHED
+  // file got exactly the scan the comment was avoiding: querySelectorAll over every row, per keypress. A
+  // file small enough to render in one shot never had a sourceFill at all and always paid it.
+  const v = await loadViewer(html);
+  try {
+    v.window.openSourceFile("src/big.ts");
+    await settle(200); // let any progressive fill finish, which is when the model used to disappear
+
+    let rowScans = 0;
+    const real = v.window.Element.prototype.querySelectorAll;
+    v.window.Element.prototype.querySelectorAll = function (sel) {
+      if (String(sel).includes(".source-row[data-line-index]")) rowScans += 1;
+      return real.call(this, sel);
+    };
+    try {
+      for (let i = 0; i < 20; i++) v.window.moveSourceCursor(1, 0);
+      await settle(80);
+    } finally {
+      v.window.Element.prototype.querySelectorAll = real;
+    }
+    assert.ok(rowScans <= 2, `the caret reads the whole row list per keypress (${rowScans} scans for 20 moves)`);
+  } finally {
+    v.close();
+  }
+});
