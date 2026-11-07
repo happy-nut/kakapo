@@ -642,7 +642,7 @@ function applyDiffUpdate(u) {
       file.__loaded = true;
     }
   });
-  sourceByPath = new Map(sourceFiles.map(function (f) { return [f.path, f]; }));
+  sourceByPath = rebuildSourceByPath(sourceFiles, previousSourceByPath);
   projectIndexLoaded = true;
   projectIndexPayload = {
     signature: u.signature || '',

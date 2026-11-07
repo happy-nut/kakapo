@@ -190,3 +190,88 @@ test("a server-named file that simply would not read keeps the plain message", a
     v.close();
   }
 });
+
+// ---------------------------------------------------------------------------------------------------
+// The hang: a library file opened BEFORE the project index has landed.
+//
+// sourceByPath holds the project's files and the library records loadLibrarySourceFile() adds, and a
+// library file joins no index — so it is in no project-index payload. Both rebuild sites used to build the
+// map from the payload alone and evicted the file the reader had open, while libraryLoadPromises went on
+// answering with the evicted record: openSourceFile's retry then recursed on it without end. Measured at
+// 41 re-entries and climbing, with main and renderer at gigabytes, when a `node_modules` file was the
+// first file opened — the index lands moments later — or when a watch refresh arrived while one was open.
+const INDEX_FILE = { path: "src/app.ts", name: "app.ts", language: "typescript", content: "", size: 20,
+  changed: true, embedded: true, changedLines: [1], signature: "s1" };
+
+// Count calls INTO openSourceFile, including the function's own retries: the viewer is one concatenated
+// script, so its top-level declaration is a global property and replacing it intercepts the recursion.
+// Over the cap the wrapper stops calling through, so a runaway fails the assertion instead of hanging the
+// suite the way it hangs the app.
+function countSourceOpens(v, cap) {
+  const real = v.window.openSourceFile;
+  let calls = 0;
+  v.window.openSourceFile = function (...args) {
+    calls += 1;
+    return calls > cap ? undefined : real.apply(this, args);
+  };
+  return () => calls;
+}
+
+async function lazyViewer(bridge) {
+  const { html: lazyHtml } = await makeReviewHtml(
+    [{ path: "src/app.ts", before: "export const a = 1;\n", after: "export const a = 2;\n" }],
+    { lazyLoad: true, app: true },
+  );
+  const v = await loadViewer(lazyHtml);
+  v.window.kakapoFile = bridge(v);
+  return v;
+}
+
+test("a library tab outlives the project index that lands after it", async () => {
+  const v = await lazyViewer((view) => {
+    installLibraryBridge(view);
+    return Object.assign(view.window.kakapoFile, {
+      getIndex: () => Promise.resolve({
+        signature: view.$("#review-meta").dataset.signature || "",
+        sourceFilesMeta: [INDEX_FILE],
+        filesTree: "",
+      }),
+    });
+  });
+  try {
+    v.window.openSourceFile(LIBRARY_PATH);
+    await settle();
+    assert.match(v.$("#source-body").textContent, /at\(index: number\)/, "the library file paints first");
+
+    // Any of the Files tree, Quick Open, or the boot-time comment prune pulls the index.
+    await v.window.ensureProjectIndex();
+
+    // ...and then a repaint reopens the tab, as the caret restore, a blame refresh or a watch tick does.
+    const opens = countSourceOpens(v, 30);
+    v.window.openSourceFile(LIBRARY_PATH);
+    await settle(150);
+
+    assert.ok(opens() <= 3, `reopening the tab must settle, not retry forever (took ${opens()} calls)`);
+    assert.equal(v.$("#source-viewer").dataset.openPath, LIBRARY_PATH, "it is still the open tab");
+    assert.match(v.$("#source-body").textContent, /at\(index: number\)/, "and still painted");
+  } finally {
+    v.close();
+  }
+});
+
+test("an indexed file main has no answer for stops, instead of retrying for ever", async () => {
+  // The sibling caller of the same retry: a file the index holds but main will not serve, because it was
+  // deleted from disk between the index and this open. loadSourceFile's reject arm always marked such a
+  // file loaded; its "resolved with nothing" arm did not, so the retry had no way to make progress.
+  const v = await lazyViewer(() => ({ getSource: () => Promise.resolve(null) }));
+  try {
+    const opens = countSourceOpens(v, 30);
+    v.window.openSourceFile("src/app.ts");
+    await settle(150);
+    assert.ok(opens() <= 3, `a missing file must settle, not retry forever (took ${opens()} calls)`);
+    assert.equal(v.$("#source-viewer").dataset.openPath, "src/app.ts", "the tab is open");
+    assert.ok(!v.$("#source-body").classList.contains("is-loading"), "and not stuck on its loading state");
+  } finally {
+    v.close();
+  }
+});
