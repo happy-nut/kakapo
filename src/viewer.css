@@ -911,8 +911,10 @@ body {
   display: flex;
   align-items: center;
   gap: 4px;
-  /* 3px, not 5px, so the two 24px buttons below fit inside the bar's own 30px without growing it. */
-  padding: 3px 8px;
+  /* 3px, not 5px, so the two 24px buttons below fit inside the bar's own 30px without growing it. The 10px
+     is the sidebar's one left inset: the brand bar above and the scrolling tree between them both use it,
+     and this bar's 8px put the status line 2px left of every row it sits under. */
+  padding: 3px 10px;
   border-top: 1px solid var(--border);
   min-height: 30px;
 }
@@ -3120,9 +3122,20 @@ body.cmd-link-active .source-code { cursor: pointer; }
 /* The type glyphs are drawn INSET in their box — the code icon's ink runs 3..13 of 16 — so the same column gap
    that sits snugly under a folder name reads far wider under a file name: measured 8.8px of whitespace on a
    file row against 5.2px on the folder row right above it, in one tree. Spend only what the glyph doesn't
-   already carry, so both rows read at the same distance from their icon. */
+   already carry, so both rows read at the same distance from their icon. Re-measured when the glyph went
+   from 15px to 14px, because a folder has TWO glyphs and they do not end in the same place: ink reaches
+   13.42px into the open folder's box, 12.83px into the closed one's, and 11.38px into the file's. Against
+   a 4px folder gap that is 4.58px of whitespace under an open folder and 5.17px under a closed one, so the
+   file gap is the one that lands between them — 2px gives 4.63px and is never more than 0.54px from either
+   folder, where 3px gives 5.63px and is out by 1.04px. The name column pays for it: a file name starts 2px
+   left of a folder name at the same depth. That is the trade this gap has always been making, and it is
+   the right way round — the eye reads the whitespace after a glyph, not the glyph's box. */
 .source-link { column-gap: 2px; }
-.file-link .ftype { width: 15px; height: 15px; flex: none; display: block; }
+/* 14px, the size every other glyph in the chrome is drawn at, and the size of the folder glyph this one
+   shares a column with. At 15 it was the only odd icon size in the app: one pixel larger than the folder
+   mark directly above it in the same column, and odd inside the row's 20px content box, so all 271 of them
+   sat half a pixel low. */
+.file-link .ftype { width: 14px; height: 14px; flex: none; display: block; }
 /* IntelliJ's File Colors, which is how it says "this file is test code" in every tree it has: the ROW is
    tinted and the name is left alone. The values are its own — FileColorManagerImpl's palette, Green
    #effae7 light / #49544a dark and Yellow #ffffe4 / #4f4b41 — and which scope gets which is from the
@@ -4727,7 +4740,23 @@ button:focus-visible, input:focus-visible, select:focus-visible {
    seam into theirs at the same height. With tabs above them they simply sit below that band. */
 .diff-toolbar { min-height: var(--header-band); padding: 3px 7px; gap: 7px; }
 .source-toolbar { min-height: var(--header-band); }
-.diff-tool-button { width: 27px; height: 27px; }
+/* 26, the height .plain-button computes to from its own padding, because the two sit side by side in this
+   bar and 27 made the icon button overhang it by half a pixel top and bottom — enough that their hover
+   fills were visibly different heights. 27 was not arbitrary: the band's content box is odd (38 less its
+   1px rule), so an odd control centres on a whole pixel there and an even one does not. That trade is the
+   wrong way round. The overhang shows whenever both are lit; the half pixel they now share does not show
+   at all, and inside a 26px box the 1px border leaves 24 for a 14px glyph — 5px a side, the same whole
+   number every other icon control in the chrome already centres its glyph at. */
+.diff-tool-button { width: 26px; height: 26px; }
+/* The header band is a shared OUTER height, so that the rule under the sidebar's header and the rule under
+   the pane's toolbar land on the same y. Each band spends that height differently, though, and both of
+   these are left with an ODD content box once their own 1px rule comes out of it — 37 in the brand bar, 29
+   here — which centres every even-height control in them half a pixel low: the brand bar's 26px switch at
+   5.5, this bar's two 26px buttons at 1.5. One more pixel on the bottom edge, inside the same outer
+   height, makes the content box even again. The content shifts up half a pixel, which nothing can see; the
+   band's own height and its rule do not move, which is the part that had to stay. */
+.sidebar-brand { padding-bottom: 1px; }
+.source-toolbar { padding-bottom: 3px; }
 .plain-button { padding: 5px 9px; }
 .http-run { border-radius: 4px; }
 

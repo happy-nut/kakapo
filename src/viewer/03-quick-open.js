@@ -31,6 +31,64 @@ function syncQuickOpenEditKeys() {
 var QUICK_LAUNCHER_MODES = ['recent', 'all', 'content'];
 // hideRail: open this section on its own, with no rail beside it. ⌘E asks for that — it names the section
 // it wants, so a column of the other sections beside a short list of recent files is all frame and no list.
+// The dialog's title and its box are both written here rather than left to data-i18n, because what they
+// say depends on the mode and only this knows the mode. That is also why applyI18n calls this: the title
+// carried a data-i18n of the FILES string, so switching language with the dialog open relabelled a
+// structure search "Search files" in the new language. Idempotent, like the other repaints that list
+// calls — it reads quickMode and the strings, and writes two attributes.
+function paintQuickOpenMode() {
+  if (!quickInput || !quickModeLabel) return;
+  quickModeLabel.textContent = quickMode === 'recent'
+    ? t('quickopen.recent')
+    : quickMode === 'content'
+      ? t('quickopen.findInFiles')
+      : quickMode === 'symbol'
+        ? t(workspaceSymbolTypesOnly ? 'quickopen.goToClass' : 'quickopen.workspaceSymbols')
+        : quickMode === 'structure'
+          ? t('structure.title')
+          : quickMode === 'locations'
+            ? t('locations.title')
+            : quickMode === 'hierarchy'
+              ? t('hierarchy.title')
+              : quickMode === 'bookmarks'
+                ? t('bookmark.title')
+                : quickMode === 'usages'
+                  ? t('findusages.title').replace('{name}', usageViewName)
+                  : quickMode === 'problems'
+                    ? t('problems.title')
+                    : quickMode === 'actions'
+                      ? t('actions.title')
+                      : t('quickopen.searchFiles');
+  var quickPlaceholder = quickMode === 'symbol'
+    // The same question the title asks six lines above: ⌥O and ⌘⌥O share this mode, and the box said
+    // "워크스페이스 심볼" under a title reading "클래스로 가기".
+    ? t(workspaceSymbolTypesOnly ? 'quickopen.goToClass' : 'quickopen.workspaceSymbols')
+    : quickMode === 'content'
+      ? t('quickopen.findInFiles')
+      : quickMode === 'structure'
+        ? t('structure.placeholder')
+        : quickMode === 'locations'
+          ? t('locations.placeholder')
+          : quickMode === 'hierarchy'
+            ? t('hierarchy.placeholder')
+            : quickMode === 'bookmarks'
+              ? t('bookmark.placeholder')
+              : quickMode === 'usages'
+                ? t('findusages.placeholder')
+                : quickMode === 'problems'
+                  ? t('problems.placeholder')
+                  : quickMode === 'actions'
+                    ? t('actions.placeholder')
+                    : t('quickopen.searchFiles');
+  // Eight of these ten modes give the box a sentence of its own — "Filter this file's symbols", "Filter
+  // actions" — which is what a placeholder is for: it says what to type. Two of them named the same string
+  // the title names, so the dialog opened with "Search files" written twice, one line apart, in 12px sans
+  // and 15px mono. Decided from the two values rather than by listing those modes a third time: this list
+  // has drifted from the title's before (see the note six lines up), and a repeat is a repeat whichever
+  // mode produces it. The input keeps its name either way — the title is its aria-labelledby.
+  quickInput.setAttribute('placeholder', quickPlaceholder === quickModeLabel.textContent ? '' : quickPlaceholder);
+}
+
 function openQuickOpen(mode, hideRail) {
   if (!quickOpen || !quickInput || !quickModeLabel) return;
   // Nothing stays open underneath. KEY_OWNERS puts the compare menu and the semantic peek above this one
@@ -47,48 +105,7 @@ function openQuickOpen(mode, hideRail) {
   closeQuickDoc();
   rememberOverlayFocus(quickOpen);
   quickMode = mode;
-  quickModeLabel.textContent = mode === 'recent'
-    ? t('quickopen.recent')
-    : mode === 'content'
-      ? t('quickopen.findInFiles')
-      : mode === 'symbol'
-        ? t(workspaceSymbolTypesOnly ? 'quickopen.goToClass' : 'quickopen.workspaceSymbols')
-        : mode === 'structure'
-          ? t('structure.title')
-          : mode === 'locations'
-            ? t('locations.title')
-            : mode === 'hierarchy'
-              ? t('hierarchy.title')
-              : mode === 'bookmarks'
-                ? t('bookmark.title')
-                : mode === 'usages'
-                  ? t('findusages.title').replace('{name}', usageViewName)
-                  : mode === 'problems'
-                    ? t('problems.title')
-                    : mode === 'actions'
-                      ? t('actions.title')
-                      : t('quickopen.searchFiles');
-  quickInput.setAttribute('placeholder', mode === 'symbol'
-    // The same question the title asks six lines above: ⌥O and ⌘⌥O share this mode, and the box said
-    // "워크스페이스 심볼" under a title reading "클래스로 가기".
-    ? t(workspaceSymbolTypesOnly ? 'quickopen.goToClass' : 'quickopen.workspaceSymbols')
-    : mode === 'content'
-      ? t('quickopen.findInFiles')
-      : mode === 'structure'
-        ? t('structure.placeholder')
-        : mode === 'locations'
-          ? t('locations.placeholder')
-          : mode === 'hierarchy'
-            ? t('hierarchy.placeholder')
-            : mode === 'bookmarks'
-              ? t('bookmark.placeholder')
-              : mode === 'usages'
-                ? t('findusages.placeholder')
-                : mode === 'problems'
-                  ? t('problems.placeholder')
-                  : mode === 'actions'
-                    ? t('actions.placeholder')
-                    : t('quickopen.searchFiles'));
+  paintQuickOpenMode();
   quickOpen.classList.remove('hidden');
   // Recent files needs no search box — it's just the latest files. Hide the input and let typed letters
   // narrow the list (IntelliJ-style speed search); the global keydown routes keys to handleQuickOpenKey.

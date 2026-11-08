@@ -838,7 +838,7 @@ test("every chrome control a pointer aims at clears the 24px target floor", () =
   assert.match(pill || "", /min-height:\s*24px/, "the compare pill is a button, and is 24px tall");
   // ...without making the bar that holds them taller: its padding gave up the 4px they needed.
   const tools = ruleDeclaring(".sidebar-tools", "padding");
-  assert.match(tools || "", /padding:\s*3px\s+8px/, "the bar's padding leaves room for 24px buttons inside 30px");
+  assert.match(tools || "", /padding:\s*3px\s/, "the bar's padding leaves room for 24px buttons inside 30px");
   assert.match(tools || "", /min-height:\s*30px/, "and the bar is still the height it was");
 });
 
@@ -958,4 +958,77 @@ test("every pair of tree rows is one declared step apart", () => {
     "the folder's own grid uses the declared step");
   assert.match(cssRules, /\.tree-dir:not\(\[open\]\)\s*\{[^}]*gap:\s*0/,
     "and a closed folder reserves none: its content row is the UA slot, which exists whether or not it is open");
+});
+
+// The last value a selector declares for a property, applying its rules in source order the way the
+// cascade would. A band sets its padding in a shorthand and then overrides one edge further down.
+function finalDeclaration(selector, property) {
+  let value = null;
+  ruleBodiesForExactSelector(selector).forEach((body) => {
+    const direct = declarationIn(body, property);
+    if (direct !== null) value = direct;
+  });
+  return value;
+}
+
+function edgeFromShorthand(shorthand, edge) {
+  const parts = String(shorthand).trim().split(/\s+/);
+  if (parts.length === 1) return parts[0];
+  if (parts.length === 2) return edge === "top" || edge === "bottom" ? parts[0] : parts[1];
+  if (parts.length === 3) return edge === "top" ? parts[0] : edge === "bottom" ? parts[2] : parts[1];
+  return edge === "top" ? parts[0] : edge === "right" ? parts[1] : edge === "bottom" ? parts[2] : parts[3];
+}
+
+test("a chrome band leaves an even content box for the controls centred in it", () => {
+  // --header-band is a shared OUTER height so the rule under the sidebar's header and the rule under the
+  // pane's toolbar land on the same y. What each band has left after its own padding and its own 1px rule
+  // is not shared, and both of these came out ODD — 37 and 29 — which centres every even-height control in
+  // them on a half pixel: the brand bar's 26px switch sat at 5.5, the toolbar's two 26px buttons at 1.5.
+  const band = Number(String(declarationIn(ruleDeclaring(":root", "--header-band"), "--header-band")).match(/([\d.]+)px/)[1]);
+  assert.ok(band > 0, "--header-band is declared in px");
+
+  [[".sidebar-brand"], [".source-toolbar", ".toolbar"]].forEach(([selector, base]) => {
+    const padding = finalDeclaration(selector, "padding");
+    const padTop = Number(String(edgeFromShorthand(padding, "top")).match(/([\d.]+)/)[1]);
+    const padBottomDecl = finalDeclaration(selector, "padding-bottom");
+    const padBottom = padBottomDecl !== null
+      ? Number(String(padBottomDecl).match(/([\d.]+)/)[1])
+      : Number(String(edgeFromShorthand(padding, "bottom")).match(/([\d.]+)/)[1]);
+    // The rule may be declared on the band's base class rather than on the band — .source-toolbar takes
+    // its 1px from .toolbar — and a guard that only looked at the band read 0 and called an even box odd.
+    const rule = finalDeclaration(selector, "border-bottom") || (base ? finalDeclaration(base, "border-bottom") : null);
+    assert.ok(rule, `${selector}: the 1px rule under the band has to be found, or this arithmetic is fiction`);
+    const border = Number(String(rule).match(/([\d.]+)px/)[1]);
+    const inner = band - padTop - padBottom - border;
+    assert.equal(inner % 2, 0,
+      `${selector}: ${band} less ${padTop}+${padBottom} padding and its ${border}px rule leaves ${inner}, which centres an even control on a half pixel`);
+  });
+});
+
+test("the toolbar's icon button is the height of the text button beside it", () => {
+  // They were 27 and 26 and sit 16px apart in the same bar, so the icon button overhung the text button by
+  // half a pixel top and bottom and their hover fills were visibly different heights.
+  const icon = finalDeclaration(".diff-tool-button", "height");
+  assert.match(icon || "", /26px/, "the icon button is 26px tall");
+  assert.match(finalDeclaration(".diff-tool-button", "width") || "", /26px/, "and square");
+  // 26 less its own 1px border leaves 24 for a 14px glyph: 5px a side, whole, like every other icon control.
+  const border = finalDeclaration(".diff-tool-button", "border");
+  const bw = Number(String(border).match(/([\d.]+)px/)[1]);
+  assert.equal((26 - 2 * bw - 14) % 2, 0, "and its glyph is centred on a whole pixel");
+});
+
+test("the tree's two glyphs are one size, and the sidebar has one left inset", () => {
+  // The file glyph was 15px — the only odd icon size in the app, one pixel larger than the folder mark it
+  // shares a column with, and odd inside the row's 20px content box, so all 271 of them sat half low.
+  const file = declarationIn(ruleDeclaring(".file-link .ftype", "width"), "width");
+  const folder = declarationIn(ruleDeclaring(".folder-icon .folder-ic", "width"), "width");
+  assert.equal(file, folder, "a file glyph and a folder glyph in the same column are the same size");
+  assert.equal(Number(String(file).match(/([\d.]+)/)[1]) % 2, 0, "and an even one, so it centres whole in an even row");
+
+  const insets = [".sidebar-brand", ".sidebar-scroll", ".sidebar-tools"].map((selector) => {
+    const padding = finalDeclaration(selector, "padding");
+    return edgeFromShorthand(padding, "left");
+  });
+  assert.deepEqual(new Set(insets).size, 1,
+    "every band down the sidebar starts at the same x: " + insets.join(" / "));
 });

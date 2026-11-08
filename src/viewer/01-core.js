@@ -724,6 +724,10 @@ function applyI18n() {
   repaintUpdateStatus();
   // After the title loop above, not before: it composes on top of what that loop writes.
   paintComparePillTitle();
+  // Quick Open's title and the sentence in its box are chosen by its mode, so neither can be a data-i18n:
+  // the title's was the FILES string, which relabelled a structure search "Search files" in whatever
+  // language you switched to.
+  paintQuickOpenMode();
   // The action list caches its rows with their labels already translated, so a language switch has to drop
   // it or ⌘⇧A keeps answering in the language you just left.
   forgetFindActionItems();

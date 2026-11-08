@@ -688,8 +688,13 @@ export function renderDiffHtml(input: {
     '<div class="quick-open-side-sep" aria-hidden="true"></div>',
     '<button type="button" class="quick-open-side-item" data-section="history"' + keyHint('openHistory') + '><span data-i18n="rail.history">History</span></button>',
     '</nav>',
-    '<div class="quick-open-title"><span id="quick-open-mode" data-i18n="quickopen.searchFiles">Search files</span><span id="quick-open-filter" class="quick-open-filter"></span></div>',
-    '<input id="quick-open-input" type="search" autocomplete="off" spellcheck="false" data-i18n-ph="quickopen.searchFiles" placeholder="Search files">',
+    '<div class="quick-open-title"><span id="quick-open-mode">Search files</span><span id="quick-open-filter" class="quick-open-filter"></span></div>',
+    // Labelled BY the title above it, not by a placeholder. A placeholder is not a label — it is the first
+    // thing to go when anyone types — and this one was bound to the same i18n key as the title one line
+    // up, so the dialog opened saying "Search files" twice, in two faces and two sizes. The mode sets the
+    // placeholder on every open (03-quick-open.js) and declines it when it would only repeat the title,
+    // which is why there is no data-i18n-ph here for applyI18n to put back.
+    '<input id="quick-open-input" type="search" autocomplete="off" spellcheck="false" aria-labelledby="quick-open-mode">',
     '<div id="quick-open-search-options" class="quick-open-search-options">',
     // IntelliJ calls this the file mask (FindBundle's find.popup.filemask) and takes comma-separated globs
     // in it, `!` to exclude. So does this now; it used to reduce every entry to a bare extension.

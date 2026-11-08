@@ -586,3 +586,39 @@ test("a list still waiting on its provider says so, instead of showing an empty 
   assert.equal(v.$("#quick-open-filter")?.classList.contains("is-loading"), false, "the chip stops waiting too");
   v.close();
 });
+
+test("the dialog never says the same thing twice, and the box is named by the title", () => {
+  // The title and the placeholder were bound to the SAME i18n key, so the dialog opened with "Search
+  // files" written twice one line apart, in 12px sans above and 15px mono below. Eight of the ten modes
+  // already gave the box a sentence of its own — "Filter this file's symbols", "Filter actions" — and the
+  // two that did not just repeated the title. Decided from the two values rather than by naming those
+  // modes, so a mode added later cannot reintroduce it.
+  return loadViewer(html).then(async (v) => {
+    const input = v.$("#quick-open-input");
+    const title = v.$("#quick-open-mode");
+
+    // The box keeps a name without the placeholder: the title IS its label. A placeholder standing in for
+    // a label is the thing being removed here, so it must not be what names it afterwards.
+    assert.equal(input.getAttribute("aria-labelledby"), title.id,
+      "the visible title labels the box, rather than a placeholder standing in for one");
+    assert.ok(!input.hasAttribute("data-i18n-ph"),
+      "and no data-i18n-ph, or applyI18n would put the repeated string back on the next language switch");
+
+    const seen = [];
+    for (const mode of [undefined, "recent", "content", "structure", "actions"]) {
+      v.window.openQuickOpen(mode);
+      await v.settle(5);
+      const pair = { mode: mode || "all", title: title.textContent, placeholder: input.getAttribute("placeholder") || "" };
+      seen.push(pair);
+      assert.notEqual(pair.placeholder, pair.title,
+        `${pair.mode}: the box repeats the title word for word ("${pair.title}")`);
+    }
+
+    // ...and the modes that DO have something of their own to say still say it: blanking everything would
+    // satisfy the assertion above while throwing away eight useful sentences.
+    const informative = seen.filter((p) => p.placeholder);
+    assert.ok(informative.length >= 3,
+      "the modes with a sentence of their own kept it: " + JSON.stringify(seen));
+    v.close();
+  });
+});
