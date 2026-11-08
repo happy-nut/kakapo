@@ -184,7 +184,8 @@ else's repository behind their back is a worse thing to do than making them type
 | `⌘6` | Problems — everything the language servers found in this project, the review's own files first |
 | `⌘⇧B` | Go to the declaration of this thing's **type** |
 | `⌘F12` | This file's structure — filter, then jump |
-| `⌥↓` / `⌥↑` | Next / previous declaration in this file |
+| `⌘⌥]` / `⌘⌥[` | Next / previous declaration in this file |
+| `⌥↑` / `⌥↓` | Extend / shrink the selection to the construct around the caret |
 | `⌘P` | Search files by name (`store.ts:42` lands on the line) |
 | `⌘⇧E` | Recent locations — where the caret has been |
 | `⇧⇧` | Search Everywhere — recent files, files, symbols and actions in one list; again to widen the scope |
@@ -326,9 +327,19 @@ type (names only, as IntelliJ matches, and a query typed with a Korean layout st
 that made it). `Enter` lands on the symbol's name. The language server answers it; where there is no server
 for the language, the same declaration index that backs Find Usages does, labelled as the heuristic it is.
 
-**Stepping by declaration** (`⌥↓` / `⌥↑`) — the next or previous declaration, which is IntelliJ's
+**Extend / shrink selection** (`⌥↑` / `⌥↓`) — IntelliJ's, on the chords its own Mac keymap gives them.
+Each press grows the selection to the next construct that encloses the caret — the word, the argument,
+the call, the statement, the method, the class — and `⌥↓` walks back down; past the innermost one the
+selection clears, which is where you started. The chain comes from the language server
+(`textDocument/selectionRange`), so what counts as a construct is the language's own answer rather than a
+guess at braces: a request this app had the plumbing to send and had never sent. Where no server covers
+the file, the key does nothing rather than selecting the wrong thing.
+
+**Stepping by declaration** (`⌘⌥]` / `⌘⌥[`) — the next or previous declaration, which is IntelliJ's
 next/previous method. Not on `⌃↓`/`⌃↑`: kakapo's shortcut table spells Command and Control the same way
-(one table, both platforms), and `⌘↓` is already Go to Definition.
+(one table, both platforms), and `⌘↓` is already Go to Definition. It used to sit on `⌥↓`/`⌥↑`, which
+turned out to be Extend Selection's own chords on IntelliJ's Mac keymap; it moved into the bracket family,
+where `⌘[`/`⌘]` already walk the cursor's history and `⌥[`/`⌥]` the patch sets.
 
 A declaration, not every symbol a language server mentions. The servers that ship here answer
 `documentSymbol` with a flat list that includes each function's own local variables and each object

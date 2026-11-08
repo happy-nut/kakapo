@@ -153,28 +153,28 @@ test("a file with no structure says so instead of showing an empty list", async 
   host.v.close();
 });
 
-test("⌥↓ / ⌥↑ step between symbols, and stop at the ends", async () => {
+test("⌘⌥] / ⌘⌥[ step between symbols, and stop at the ends", async () => {
   const host = await openSource();
   // Warm the structure the way the first press does, then step.
-  await press(host, { key: "ArrowDown", code: "ArrowDown", altKey: true });
+  await press(host, { key: "}", code: "BracketRight", altKey: true, metaKey: true });
   await host.v.settle(40);
 
   host.v.window.setSourceCursor(FILE, 0, 0, true, -1);
-  await press(host, { key: "ArrowDown", code: "ArrowDown", altKey: true });
+  await press(host, { key: "}", code: "BracketRight", altKey: true, metaKey: true });
   assert.equal(caretAt(host), `${FILE}:3`, "from the top, the first symbol");
-  await press(host, { key: "ArrowDown", code: "ArrowDown", altKey: true });
+  await press(host, { key: "}", code: "BracketRight", altKey: true, metaKey: true });
   assert.equal(caretAt(host), `${FILE}:4`);
-  await press(host, { key: "ArrowUp", code: "ArrowUp", altKey: true });
+  await press(host, { key: "{", code: "BracketLeft", altKey: true, metaKey: true });
   assert.equal(caretAt(host), `${FILE}:3`, "and back again");
 
   host.v.window.setSourceCursor(FILE, 13, 0, true, -1);
-  await press(host, { key: "ArrowDown", code: "ArrowDown", altKey: true });
+  await press(host, { key: "}", code: "BracketRight", altKey: true, metaKey: true });
   assert.equal(caretAt(host), `${FILE}:14`,
     "past the last symbol the key declines rather than wrapping to the top");
   host.v.close();
 });
 
-test("⌥↓ steps over a function's own locals and an object literal's fields", async () => {
+test("⌘⌥] steps over a function's own locals and an object literal's fields", async () => {
   // documentSymbol is not a list of declarations, and the servers that ship here send the flat
   // SymbolInformation[] shape, which puts a function's local constants and an object literal's keys at the
   // same level as the function itself. Walking all of it measured 557 stops in src/shortcuts.ts — 538 of
@@ -192,13 +192,13 @@ test("⌥↓ steps over a function's own locals and an object literal's fields",
       { name: "helper", kind: "function", detail: "helper(): Store", lineIndex: 11, column: 16, endLineIndex: 13, depth: 0 },
     ],
   });
-  await press(host, { key: "ArrowDown", code: "ArrowDown", altKey: true }); // warm the structure
+  await press(host, { key: "}", code: "BracketRight", altKey: true, metaKey: true }); // warm the structure
   await host.v.settle(40);
 
   const walked = [];
   host.v.window.setSourceCursor(FILE, 0, 0, true, -1);
   for (let i = 0; i < 4; i += 1) {
-    await press(host, { key: "ArrowDown", code: "ArrowDown", altKey: true });
+    await press(host, { key: "}", code: "BracketRight", altKey: true, metaKey: true });
     walked.push(caretAt(host));
   }
   // Store (line 3), load (4), save (7), helper (12) — and then the end, which declines and leaves the caret.
@@ -219,13 +219,13 @@ test("a top-level declaration is a stop whatever kind the server calls it", asyn
       { name: "nested", kind: "constant", detail: "const nested", lineIndex: 7, column: 4, endLineIndex: 7, depth: 1 },
     ],
   });
-  await press(host, { key: "ArrowDown", code: "ArrowDown", altKey: true });
+  await press(host, { key: "}", code: "BracketRight", altKey: true, metaKey: true });
   await host.v.settle(40);
 
   const walked = [];
   host.v.window.setSourceCursor(FILE, 0, 0, true, -1);
   for (let i = 0; i < 2; i += 1) {
-    await press(host, { key: "ArrowDown", code: "ArrowDown", altKey: true });
+    await press(host, { key: "}", code: "BracketRight", altKey: true, metaKey: true });
     walked.push(caretAt(host));
   }
   assert.deepEqual(walked, [`${FILE}:3`, `${FILE}:7`],

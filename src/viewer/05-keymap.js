@@ -377,6 +377,11 @@ var SHORTCUT_ACTIONS = {
     if (treeFocusIndex >= 0 || isFloatingModalOpen()) return false;
     return goToNextSymbol(i ? -1 : 1) ? undefined : false;
   },
+  // Index 0 is ⌥↑ (grow), 1 is ⌥↓ (shrink) — the order the row spells them, which is IntelliJ's.
+  extendShrinkSelection: function (event, i) {
+    if (treeFocusIndex >= 0 || isFloatingModalOpen()) return false;
+    return extendShrinkSelection(i === 0) ? undefined : false;
+  },
   recentLocations: function () { return openRecentLocations() ? undefined : false; },
   // ⌘P is the file list on its own; ⇧⇧ is the All tab — one list merging recent files, files, symbols
   // and actions, with the tab strip beside it. That is what Search Everywhere is: the strip is a tab

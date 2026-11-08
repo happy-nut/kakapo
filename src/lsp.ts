@@ -21,6 +21,20 @@ export type AnalysisFoldingRange = {
   kind: string;
 };
 
+/**
+ * One link of the chain `textDocument/selectionRange` answers with: the constructs enclosing a position,
+ * innermost first. IntelliJ's Extend Selection walks outward along it and Shrink Selection walks back.
+ *
+ * A chain, not a set, and the order is the whole content of the answer — LSP gives it as a linked list of
+ * `parent` pointers and this is that list flattened.
+ */
+export type AnalysisSelectionRange = {
+  startLine: number;
+  startCharacter: number;
+  endLine: number;
+  endCharacter: number;
+};
+
 /** One occurrence of the symbol under the caret inside its own file, and what the file does with it. */
 export type AnalysisHighlight = {
   lineIndex: number;
@@ -932,6 +946,56 @@ export class LspClient {
       });
     }
     return { supported: true, ranges };
+  }
+
+  /**
+   * The constructs enclosing one position, innermost first — what IntelliJ's Extend Selection walks.
+   *
+   * LSP answers `SelectionRange[]`, one per position asked about, each a node whose `parent` is the next
+   * construct out. Only one position is ever asked here, and the chain is flattened on the way out: the
+   * viewer wants an array it can index with "how many times has ⌥↑ been pressed", and a linked list of
+   * parents would make that a walk at every keystroke.
+   *
+   * `seen` guards against a server returning a cycle. Nothing in the spec forbids one and a bad answer
+   * here would hang the main process rather than produce a wrong selection.
+   */
+  async selectionRanges(path: string, line: number, character: number): Promise<{ supported: boolean; chain: AnalysisSelectionRange[] }> {
+    await this.ensureDocument(path);
+    await this.waitForWorkspaceReady();
+    const uri = pathToFileURL(resolve(this.root, path)).href;
+    let result: unknown;
+    try {
+      result = await this.requestAfterWorkspaceReady("textDocument/selectionRange", {
+        textDocument: { uri },
+        positions: [{ line, character }],
+      });
+    } catch (error) {
+      if (isMethodNotFound(error)) return { supported: false, chain: [] };
+      throw error;
+    }
+    const first = Array.isArray(result) ? result[0] : undefined;
+    const chain: AnalysisSelectionRange[] = [];
+    const seen = new Set<unknown>();
+    let node = first as { range?: unknown; parent?: unknown } | undefined;
+    while (node && typeof node === "object" && !seen.has(node) && chain.length < 64) {
+      seen.add(node);
+      const range = node.range as { start?: { line?: unknown; character?: unknown }; end?: { line?: unknown; character?: unknown } } | undefined;
+      const startLine = Number(range?.start?.line);
+      const startCharacter = Number(range?.start?.character);
+      const endLine = Number(range?.end?.line);
+      const endCharacter = Number(range?.end?.character);
+      if (Number.isFinite(startLine) && Number.isFinite(startCharacter)
+        && Number.isFinite(endLine) && Number.isFinite(endCharacter)) {
+        chain.push({
+          startLine: Math.max(0, Math.trunc(startLine)),
+          startCharacter: Math.max(0, Math.trunc(startCharacter)),
+          endLine: Math.max(0, Math.trunc(endLine)),
+          endCharacter: Math.max(0, Math.trunc(endCharacter)),
+        });
+      }
+      node = node.parent as { range?: unknown; parent?: unknown } | undefined;
+    }
+    return { supported: true, chain };
   }
 
   /**

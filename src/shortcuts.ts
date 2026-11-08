@@ -204,7 +204,16 @@ export const SHORTCUTS: ShortcutDef[] = [
   // (one spelling for both platforms), so ⌃↓ and ⌘↓ are the same row — and ⌘↓ is Go to Definition.
   { id: "typeDeclaration", keys: ["⌘⇧B"], where: "code", i18n: "kbd.typeDeclaration" },
   { id: "fileStructure", keys: ["⌘F12"], where: "code", i18n: "kbd.fileStructure" },
-  { id: "nextPrevSymbol", keys: ["⌥↓", "⌥↑"], where: "code", i18n: "kbd.nextPrevSymbol" },
+  // Next/previous declaration could not keep IntelliJ's chord (⌃↓/⌃↑ folds onto ⌘↓/⌘↑, which are Go to
+  // Definition and Reveal in Tree here), so it borrowed ⌥↓/⌥↑ — which turned out to be a borrowing from
+  // the action that owns them on IntelliJ's own Mac keymap, Extend Selection. It is handed back below and
+  // this moves into the bracket family, where the table already says "step along a list": ⌘[ / ⌘] walk the
+  // cursor's history, ⌘⇧[ / ⌘⇧] the tabs, ⌥[ / ⌥] the patch sets, and these the file's declarations.
+  { id: "nextPrevSymbol", keys: ["⌘⌥]", "⌘⌥["], where: "code", i18n: "kbd.nextPrevSymbol" },
+  // IntelliJ's Extend / Shrink Selection, on the chords its Mac keymap gives them (EditorSelectWord and
+  // EditorUnSelectWord, `alt UP` / `alt DOWN`). `$default` spells them ⌃W / ⌃⇧W, which folds onto ⌘W —
+  // the menu's Close Tab — so the Mac keymap is the one to follow here.
+  { id: "extendShrinkSelection", keys: ["⌥↑", "⌥↓"], where: "code", i18n: "kbd.extendShrinkSelection" },
   { id: "recentLocations", keys: ["⌘⇧E"], where: "any", i18n: "kbd.recentLocations" },
   // ⇧⌘O (IntelliJ's Go to File) is Open in New Window here, which is a desktop-app convention worth
   // keeping; ⌘P is the other chord every editor uses for "go to a file by name".
@@ -393,7 +402,7 @@ export const SHORTCUT_GROUPS: { i18n: string; ids: string[] }[] = [
     "findInSelection", "searchChangesOnly", "findHistory",
     "searchFiles", "searchEverywhere", "seNextTab", "sePrevTab", "findAction", "goToTest",
     "defUsages", "findUsages", "highlightUsages", "nextPrevOccurrence", "goToImplementation",
-    "workspaceSymbol", "goToClass", "relatedSymbol", "customRegion", "lastChange", "goToDef", "quickDefinition", "typeDeclaration", "fileStructure", "nextPrevSymbol", "recentLocations", "typeHierarchy", "callHierarchy", "methodHierarchy", "goToSuper",
+    "workspaceSymbol", "goToClass", "relatedSymbol", "customRegion", "lastChange", "goToDef", "quickDefinition", "typeDeclaration", "fileStructure", "nextPrevSymbol", "extendShrinkSelection", "recentLocations", "typeHierarchy", "callHierarchy", "methodHierarchy", "goToSuper",
     "toggleBookmark", "showBookmarks", "assignBookmark", "jumpBookmark",
     "toggleFold", "collapseAll", "expandAll", "collapseRecursively", "diffFileStep", "prevNextTab", "cursorBackForward",
   ] },
