@@ -9,7 +9,7 @@ import { before } from "node:test";
 import { loadViewer } from "./helpers/dom.mjs";
 import { makeReviewHtml, cleanupFixtures } from "./helpers/fixture.mjs";
 
-const { SHORTCUTS } = await import("../dist/shortcuts.js");
+const { SHORTCUTS, MODAL_SURFACES } = await import("../dist/shortcuts.js");
 
 let html;
 before(async () => {
@@ -166,7 +166,12 @@ test("no two actions on the same surface want the same combination", () => {
   const allowed = (a, b) => ALLOWED.has(`${a.id}|${b.id}`);
   for (const def of SHORTCUTS) {
     for (const chord of def.keys.flatMap(physicalKeys)) {
-      for (const scope of def.where === "any" ? ["any"] : ["any", def.where]) {
+      // A row is checked against the window's chords as well as its own surface's — unless its surface
+      // is modal, where a window chord does not reach it (see MODAL_SURFACES below).
+      const scopes = def.where === "any" ? ["any"]
+        : MODAL_SURFACES.includes(def.where) ? [def.where]
+          : ["any", def.where];
+      for (const scope of scopes) {
         const holder = taken.get(`${scope} ${chord}`);
         if (holder && holder.id !== def.id && !allowed(holder, def)) {
           clashes.push(`${chord}: ${holder.id} vs ${def.id}`);
@@ -174,7 +179,15 @@ test("no two actions on the same surface want the same combination", () => {
       }
       taken.set(`${def.where} ${chord}`, def);
       if (def.where === "any") {
-        for (const surface of ["code", "tree", "merged", "history", "find"]) taken.set(`${surface} ${chord}`, def);
+        // ...into every surface a window chord can actually reach. A modal one it cannot: while the
+        // Search Everywhere dialog is up it answers every key itself and the menu accelerators are stood
+        // down, so Tab there is not a clash with the Tab that moves between sidebar and content. The
+        // list is MODAL_SURFACES in src/shortcuts.ts, read rather than restated — the same list the
+        // Settings sheet's rebind guard reads (shortcutSurfacesOverlap, 00-shortcuts.js).
+        for (const surface of ["code", "tree", "merged", "history", "find", "launcher"]) {
+          if (MODAL_SURFACES.includes(surface)) continue;
+          taken.set(`${surface} ${chord}`, def);
+        }
       }
     }
   }

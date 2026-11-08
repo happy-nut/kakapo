@@ -378,10 +378,16 @@ var SHORTCUT_ACTIONS = {
     return goToNextSymbol(i ? -1 : 1) ? undefined : false;
   },
   recentLocations: function () { return openRecentLocations() ? undefined : false; },
-  // ⌘P is the file list on its own; ⇧⇧ is the launcher with every section beside it, which is what
-  // Search Everywhere is.
-  searchFiles: function () { openQuickOpen('all', true); },
-  searchEverywhere: function () { openQuickOpen('all'); },
+  // ⌘P is the file list on its own; ⇧⇧ is the All tab — one list merging recent files, files, symbols
+  // and actions, with the tab strip beside it. That is what Search Everywhere is: the strip is a tab
+  // strip, not a menu of separate searches, so ⌘P's own list keeps it (the chord names a tab) while
+  // nothing about it is "hidden" any more.
+  searchFiles: function () { openQuickOpen('all'); },
+  // `seNextTab` / `sePrevTab` deliberately have no entry here: they only mean anything while the dialog
+  // is up, and the dialog answers every key itself (handleQuickLauncherTabKey, 24-search-everywhere.js).
+  // A dispatcher entry would also put them in the command palette, which lists the commands that work
+  // from a cold start — see the note in 19-find-action.js.
+  searchEverywhere: function () { switchQuickLauncherSection('everywhere'); },
   goToTest: function () { return goToTestCounterpart() ? undefined : false; },
   typeHierarchy: function () {
     if (treeFocusIndex >= 0) return false;

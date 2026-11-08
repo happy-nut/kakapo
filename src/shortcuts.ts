@@ -28,8 +28,15 @@ export interface ShortcutDef {
    * Files dialog, whose three modifier toggles below take letters that mean something else in the window
    * behind it. That is sound rather than lucky — the dialog consumes every key while it is open
    * (KEY_OWNERS in 05-keymap.js), so the window-level chord cannot fire underneath it.
+   *
+   * "launcher" is the Search Everywhere dialog's own frame — its tab strip. It is listed apart from
+   * "find" because it is a TRUE modal scope and "find" is not: the ⌘F bar is an inline strip with the
+   * window still live around it, so a window chord does reach the page while it is open, and a `find`
+   * row may not take one. The launcher paints a scrim, is `aria-modal`, stands the menu accelerators
+   * down and answers every key from handleQuickOpenKey — so an `any` row genuinely cannot fire inside
+   * it, and a `launcher` row may reuse that chord. MODAL_SURFACES below is where that is written down.
    */
-  where: "any" | "code" | "tree" | "merged" | "history" | "find";
+  where: "any" | "code" | "tree" | "merged" | "history" | "find" | "launcher";
   /**
    * Why this one cannot be rebound. Absent means it can be.
    *   "structural" — Esc, Tab, the arrows: conventions of the surface they act on, not preferences.
@@ -37,6 +44,19 @@ export interface ShortcutDef {
    */
   fixed?: "structural" | "menu";
 }
+
+/**
+ * Surfaces that take the whole keyboard while they are up, so a window-level (`any`) chord does not
+ * reach the page inside them.
+ *
+ * One list, read by the two checks that ask "would these two rows fight?" — the Settings sheet's rebind
+ * guard (shortcutConflict, 00-shortcuts.js) and test/shortcut-registry.test.mjs. Written here because it
+ * is a fact about the table, and because the two readers had the rule spelled into them separately: both
+ * propagated `any` into every surface, which is right for the non-modal ones and wrong for this one. A
+ * `launcher` row sharing Tab with `sidebarContent` is not a clash — the dialog answers Tab itself and
+ * `sidebarContent` cannot run while it is open.
+ */
+export const MODAL_SURFACES: string[] = ["launcher"];
 
 export const SHORTCUTS: ShortcutDef[] = [
   // ---- App ----------------------------------------------------------------------------------------
@@ -191,7 +211,16 @@ export const SHORTCUTS: ShortcutDef[] = [
   { id: "searchFiles", keys: ["⌘P"], where: "any", i18n: "kbd.searchFiles" },
   // IntelliJ's Search Everywhere, on its own chord. A double tap is spelled as a chord here and
   // recognised by the one matcher (00-shortcuts.js) — not by a second handler with its own timing.
+  //
+  // Pressing it again while the All tab is up widens the scope instead of reopening, which is what
+  // IntelliJ does: SearchEverywhereBaseAction.showInSearchEverywherePopup calls toggleEverywhereFilter()
+  // when the action's own tab is already selected. Every other tab's chord switches to that tab.
   { id: "searchEverywhere", keys: ["⇧⇧"], where: "any", i18n: "kbd.searchEverywhere" },
+  // Tab / ⇧Tab inside that dialog step its tab strip — IntelliJ's SearchEverywhere.NextTab and
+  // SearchEverywhere.PrevTab, which its $default keymap puts on exactly these two keys. `launcher`, not
+  // `find`: see the note on `where`. Structural — Tab in a tabbed dialog is a convention of the surface.
+  { id: "seNextTab", keys: ["Tab"], where: "launcher", i18n: "kbd.seNextTab", fixed: "structural" },
+  { id: "sePrevTab", keys: ["⇧Tab"], where: "launcher", i18n: "kbd.sePrevTab", fixed: "structural" },
   // IntelliJ's Find Action (⌃⇧A). Cheap here because the commands are already this table: the list is a
   // search over it and running one is the call the keypress makes.
   { id: "findAction", keys: ["⌘⇧A"], where: "any", i18n: "kbd.findAction" },
@@ -362,7 +391,7 @@ export const SHORTCUT_GROUPS: { i18n: string; ids: string[] }[] = [
     "sidebarNavigate", "sidebarContent", "findInFile", "findNextPrev", "findEnter", "findInFiles", "recentFiles",
     "searchExtensions", "excludeSearchNoise", "searchMatchCase", "searchWholeWords", "searchRegex", "searchScope",
     "findInSelection", "searchChangesOnly", "findHistory",
-    "searchFiles", "searchEverywhere", "findAction", "goToTest",
+    "searchFiles", "searchEverywhere", "seNextTab", "sePrevTab", "findAction", "goToTest",
     "defUsages", "findUsages", "highlightUsages", "nextPrevOccurrence", "goToImplementation",
     "workspaceSymbol", "goToClass", "relatedSymbol", "customRegion", "lastChange", "goToDef", "quickDefinition", "typeDeclaration", "fileStructure", "nextPrevSymbol", "recentLocations", "typeHierarchy", "callHierarchy", "methodHierarchy", "goToSuper",
     "toggleBookmark", "showBookmarks", "assignBookmark", "jumpBookmark",

@@ -3486,6 +3486,11 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
    `.problem-result` here declares a template that never applies. Measured in the running app: the rule was
    in the stylesheet and the computed value was still the two-column one. */
 .quick-open-item.problem-result { grid-template-columns: auto minmax(0, 1fr) auto; }
+/* Search Everywhere's trailing "more" row (IntelliJ's MORE_ELEMENT). Not a place — it fetches the next
+   fifteen of every group — so it is drawn as a quieter row than the results above it. Compound for the
+   same reason the line above is: `.quick-open-item` sets the row's columns far below this. */
+.quick-open-item.se-more { grid-template-columns: minmax(0, 1fr); color: var(--muted); font-size: 12px; }
+.quick-open-item.se-more.active { color: var(--chrome-selected-text); }
 .problem-mark {
   flex: none;
   width: 7px;

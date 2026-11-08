@@ -28,7 +28,11 @@ function syncQuickOpenEditKeys() {
 }
 // The sections that live INSIDE this dialog. The other entries (review comments, history) are panels of
 // their own — reachable here, not embedded — so they just open and dismiss the launcher.
-var QUICK_LAUNCHER_MODES = ['recent', 'all', 'content'];
+// IntelliJ's tab strip is All / Classes / Files / Symbols / Actions / Text (SearchEverywhereTabsShortcutsUtils),
+// so those modes all live inside this dialog now rather than taking it over one at a time; Recent files is
+// this app's own extra row. The modes NOT listed (structure, usages, problems, hierarchy, bookmarks,
+// locations) are panels of their own, reached from here and then left alone.
+var QUICK_LAUNCHER_MODES = ['everywhere', 'recent', 'all', 'content', 'symbol', 'actions'];
 // hideRail: open this section on its own, with no rail beside it. ⌘E asks for that — it names the section
 // it wants, so a column of the other sections beside a short list of recent files is all frame and no list.
 // The dialog's title and its box are both written here rather than left to data-i18n, because what they
@@ -38,7 +42,9 @@ var QUICK_LAUNCHER_MODES = ['recent', 'all', 'content'];
 // calls — it reads quickMode and the strings, and writes two attributes.
 function paintQuickOpenMode() {
   if (!quickInput || !quickModeLabel) return;
-  quickModeLabel.textContent = quickMode === 'recent'
+  quickModeLabel.textContent = quickMode === 'everywhere'
+    ? t('quickopen.everywhere')
+    : quickMode === 'recent'
     ? t('quickopen.recent')
     : quickMode === 'content'
       ? t('quickopen.findInFiles')
@@ -59,7 +65,9 @@ function paintQuickOpenMode() {
                     : quickMode === 'actions'
                       ? t('actions.title')
                       : t('quickopen.searchFiles');
-  var quickPlaceholder = quickMode === 'symbol'
+  var quickPlaceholder = quickMode === 'everywhere'
+    ? t('quickopen.everywherePlaceholder')
+    : quickMode === 'symbol'
     // The same question the title asks six lines above: ⌥O and ⌘⌥O share this mode, and the box said
     // "워크스페이스 심볼" under a title reading "클래스로 가기".
     ? t(workspaceSymbolTypesOnly ? 'quickopen.goToClass' : 'quickopen.workspaceSymbols')
@@ -135,9 +143,12 @@ function openQuickOpen(mode, hideRail) {
 }
 
 // Mark the rail entry for the section on screen. The dock entries never mark: they close this dialog.
+// Which row is current is asked of QUICK_LAUNCHER_SECTIONS (24-search-everywhere.js) rather than compared
+// against quickMode here, because Classes and Symbols are the same mode with a flag — comparing modes lit
+// both of those rows at the same time.
 function syncQuickLauncherRail() {
   document.querySelectorAll('#quick-open-side .quick-open-side-item').forEach(function (item) {
-    item.classList.toggle('active', item.dataset.section === quickMode);
+    item.classList.toggle('active', quickLauncherSectionActive(item.dataset.section));
   });
 }
 
@@ -147,10 +158,7 @@ document.getElementById('quick-open-side')?.addEventListener('click', function (
   var button = event.target.closest && event.target.closest('.quick-open-side-item');
   if (!button) return;
   var section = button.dataset.section;
-  if (QUICK_LAUNCHER_MODES.indexOf(section) >= 0) {
-    openQuickOpen(section);
-    return;
-  }
+  if (switchQuickLauncherSection(section)) return;
   closeQuickOpen(true); // handing over to another panel, which takes the keyboard itself
   // Every other row owns a panel of its own. These used to be dispatched by clicking the matching activity-rail
   // button; the rail is gone, so the row calls the panel directly — a row that quietly opened nothing is worse
@@ -220,6 +228,10 @@ document.addEventListener('mousedown', function (event) {
 // come back. The keyboard has to be held wherever the pointer is.
 quickOpen?.addEventListener('keydown', function (event) {
   if (quickOpen.classList.contains('hidden')) return;
+  // Asked before the trap, because this listener runs before the document one (the event bubbles through
+  // #quick-open on its way there): the trap answers Tab with "keep the focus inside", so the tab strip
+  // would never have seen the key. Tab cannot escape either way — it switches tabs instead.
+  if (handleQuickLauncherTabKey(event)) return;
   trapTabWithin(quickOpen, event);
 });
 
@@ -237,7 +249,10 @@ function handleQuickOpenKey(event) {
   if (handleHierarchyKey(event)) return true;
   if (handleUsageViewKey(event)) return true;
   if (handleProblemsKey(event)) return true;
-  if (quickMode === 'actions' && isShortcut(event, 'findAction')) { event.preventDefault(); closeQuickOpen(); return true; }
+  // Tab / ⇧Tab step the tab strip. Asked here as well as in the panel's own keydown listener because the
+  // two cover different moments: the listener only sees keys that reach an element inside the dialog, and
+  // Recent files leaves nothing focused at all.
+  if (handleQuickLauncherTabKey(event)) return true;
   // The section rail prints a chord beside each row — data-keyhint-id, resolved by applyKeyHints — and this
   // handler owns every key while the dialog is up, so those chords reached nothing at all. ⌘E and ⌘9 were
   // drawn on screen next to "Recent files" and "History" while Find in Files was open, and pressing either
@@ -245,16 +260,21 @@ function handleQuickOpenKey(event) {
   //
   // Asked of the rail itself, so a row's key does exactly what its click does and the two cannot drift —
   // including the rows whose click closes this dialog and opens a panel of their own. The row already on
-  // screen closes, which is the toggle ⌘E spelled for 'recent' before this covered it (and ⌘⇧A and ⌘6
-  // still spell for the two modes that have no row). The modes that own one of these keys — hierarchy,
-  // usages, problems — answer above and never reach here.
+  // screen closes, which is the toggle ⌘E spelled for 'recent' before this covered it (and ⌘6 still spells
+  // for the one mode that has no row). The modes that own one of these keys — hierarchy, usages, problems
+  // — answer above and never reach here.
+  //
+  // Except on the All tab, where the chord that opened it widens the scope rather than closing: that is
+  // SearchEverywhereBaseAction.showInSearchEverywherePopup, which calls toggleEverywhereFilter() when its
+  // own tab is already up and switches tabs otherwise. So ⇧⇧ then ⇧⇧ again means "look in the whole
+  // project, not just the change", which is what the gesture means in IntelliJ.
   var railItems = quickSideItems();
   for (var ri = 0; ri < railItems.length; ri += 1) {
     var railId = (railItems[ri].getAttribute('data-keyhint-id') || '').split(':')[0];
     if (!railId || !isShortcut(event, railId)) continue;
     event.preventDefault();
-    if (railItems[ri].dataset.section === quickMode) closeQuickOpen();
-    else railItems[ri].click();
+    if (!quickLauncherSectionActive(railItems[ri].dataset.section)) railItems[ri].click();
+    else if (!toggleSeEverywhere()) closeQuickOpen();
     return true;
   }
   var sideItem = focusedQuickSideItem();
@@ -402,6 +422,7 @@ function renderQuickOpenResults() {
   // Recent mode filters its own list by the typed speed-search string; other modes use the search box.
   const isRecent = quickMode === 'recent';
   const rawQuery = (isRecent ? recentFilter : (quickInput?.value || '')).trim();
+  if (quickMode === 'everywhere') { renderEverywhereResults(rawQuery); return; }
   if (quickMode === 'content') { renderContentSearchResults(rawQuery); return; }
   if (quickMode === 'symbol') { renderWorkspaceSymbolResults(rawQuery); return; }
   if (quickMode === 'structure') { renderFileStructureResults(rawQuery); return; }
@@ -426,9 +447,13 @@ function renderQuickOpenResults() {
   // `app.ts:42` — the line to land on, written after the file name, as IntelliJ's Go to File accepts it.
   // Stripped before matching (nothing is named "app.ts:42") and carried on a COPY of the item, so the
   // shared index entry does not keep a line number from an earlier search.
-  const lineSuffix = /^(.*\S)\s*:(\d+)(?::\d+)?$/.exec(rawQuery);
-  const gotoLine = lineSuffix ? Math.max(1, Number(lineSuffix[2])) : 0;
-  const query = (lineSuffix ? lineSuffix[1] : rawQuery).toLowerCase();
+  //
+  // Which separators count is IntelliJ's own answer, read from its pattern once in quickLineAndColumn
+  // (24-search-everywhere.js) — this used to accept only `:`, so `app.ts 42` and `app.ts#L42`, both of
+  // which work there, searched for a file with a space and a number in its name.
+  const parsedQuery = quickLineAndColumn(rawQuery);
+  const gotoLine = parsedQuery.lineIndex >= 0 ? parsedQuery.lineIndex + 1 : 0;
+  const query = (gotoLine ? parsedQuery.name : rawQuery).toLowerCase();
   const queries = queryVariants(query);
   const candidates = isRecent ? recentItems() : allQuickItems();
   quickItems = candidates
@@ -443,7 +468,9 @@ function renderQuickOpenResults() {
     })
     .sort((a, b) => scoreQuickItem(a, matchedQuery(a, queries)) - scoreQuickItem(b, matchedQuery(b, queries)) || a.path.localeCompare(b.path))
     .slice(0, 80)
-    .map((item) => (gotoLine ? Object.assign({}, item, { kind: 'symbol', lineIndex: gotoLine - 1, column: 0 }) : item));
+    .map((item) => (gotoLine
+      ? Object.assign({}, item, { kind: 'symbol', lineIndex: gotoLine - 1, column: Math.max(0, parsedQuery.column) })
+      : item));
   clampQuickActive();
   if (quickItems.length === 0) {
     showQuickEmpty(t('quickopen.noFiles'));
@@ -627,11 +654,20 @@ function contentSearchScopeAllows(path, scope) {
     var module = projectCurrentModule();
     return !module || projectModuleName(path) === module;
   }
-  if (scope === 'changed') {
-    var file = sourceByPath.get(path);
-    return Boolean(file && file.changed);
-  }
+  if (scope === 'changed') return pathIsChanged(path);
   return true;
+}
+
+/**
+ * Did this path move in the review?
+ *
+ * One reader, because two searches scope by it: Find in Files' "Changed files" scope above, and Search
+ * Everywhere's narrow scope (seItemIsChanged, 24-search-everywhere.js). They had the lookup written out
+ * separately, which is two places to go wrong about what "changed" means in a review.
+ */
+function pathIsChanged(path) {
+  var file = sourceByPath.get(path);
+  return Boolean(file && file.changed);
 }
 
 function contentSearchLineIsComment(item) {
@@ -947,7 +983,10 @@ function renderQuickPreview(item) {
   if (!preview) return;
   const previewSeq = ++quickPreviewSeq;
   quickPreviewState = null;
-  if (!item) { preview.innerHTML = ''; return; }
+  // A row with no file behind it — a command, the merged list's "more" — has nothing to preview. Said
+  // here rather than left to each caller: without it the lookup missed, and the pane drew an empty grey
+  // box where an action row's preview would be, which reads as "this file could not be read".
+  if (!item || !item.path) { preview.innerHTML = ''; return; }
   const file = sourceByPath.get(item.path);
   if (!file || !file.embedded) {
     preview.innerHTML = item.kind === 'search'
@@ -1067,6 +1106,8 @@ function openQuickItem(item) {
   if (!item) return;
   // An action is not a place: running it is the whole point, and it has no path to open.
   if (runFindActionItem(item)) return;
+  // The merged list's trailing "more" row is not a place either: it raises the per-group limit.
+  if (expandEverywhereMore(item)) return;
   // A recent location is a position (which pane, which side, which line), not a file — restoring it is a
   // different act from opening its path.
   if (openRecentLocationItem(item)) return;

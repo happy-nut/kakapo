@@ -57,7 +57,10 @@ function forgetFindActionItems() {
 /** ⌘⇧A. */
 function openFindAction() {
   findActionItems();
-  openQuickOpen('actions', true);
+  // With the rail, not on its own: Actions is one of IntelliJ's Search Everywhere tabs
+  // (SearchEverywhereTabsShortcutsUtils maps ActionSearchEverywhereContributor to GotoAction), so the
+  // strip has to be there to switch away from it — Tab out of the command list and you are in Files.
+  openQuickOpen('actions');
   return true;
 }
 

@@ -388,8 +388,9 @@ class Viewer {
     const link = this.$("#changes-panel .file-link.active");
     return link ? link.dataset.file || null : null;
   }
-  /** Open the quick-open dialog at one of its sections, the way a user reaches it now: ⌘⇧F, then the rail
-   *  row for the section. ⌘E and double-Shift are gone; the rail is the only door to the other sections. */
+  /** Open the quick-open dialog at one of its sections, the way a user reaches it: ⌘⇧F, then the row for
+   *  the section in the tab strip. Each row also has its own chord (⇧⇧ for All, ⌘P for Files…), but one
+   *  door keeps a test about a section from depending on that section's chord too. */
   async openQuickOpenSection(section) {
     this.key("f", { metaKey: true, shiftKey: true, code: "KeyF" });
     await this.settle(20);
