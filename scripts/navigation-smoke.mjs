@@ -305,15 +305,17 @@ async function run() {
     const afterJump = await page.evaluate(`caretLocation()`);
     check("Enter on a structure row jumps there", /store\.ts:\d+$/.test(afterJump), afterJump);
 
-    // ---- ⌥↓ / ⌥↑: step by symbol ------------------------------------------------------------------
+    // ---- ⌘⌥] / ⌘⌥[: step by symbol ----------------------------------------------------------------
+    // Not ⌥↓ / ⌥↑ any more: those are Extend / Shrink Selection, which owns them on IntelliJ's own Mac
+    // keymap, and stepping by declaration moved into the bracket family (src/shortcuts.ts).
     await page.evaluate(`(() => { setSourceCursor('src/store.ts', 0, 0, true, -1); return true; })()`);
-    await page.key("ArrowDown", "ArrowDown", 40, 1);
+    await page.key("}", "BracketRight", 221, 4 + 1);
     const downOnce = await page.evaluate(`caretLocation()`);
-    await page.key("ArrowDown", "ArrowDown", 40, 1);
+    await page.key("}", "BracketRight", 221, 4 + 1);
     const downTwice = await page.evaluate(`caretLocation()`);
-    await page.key("ArrowUp", "ArrowUp", 38, 1);
+    await page.key("{", "BracketLeft", 219, 4 + 1);
     const backUp = await page.evaluate(`caretLocation()`);
-    check("⌥↓ steps to the next symbol, ⌥↑ back", downOnce !== downTwice && backUp === downOnce,
+    check("⌘⌥] steps to the next symbol, ⌘⌥[ back", downOnce !== downTwice && backUp === downOnce,
       `${downOnce} -> ${downTwice} -> ${backUp}`);
 
     // ---- ⇧⇧: search everywhere --------------------------------------------------------------------
@@ -378,11 +380,14 @@ async function run() {
     const counterpart = await page.evaluate(`document.getElementById('source-viewer').dataset.openPath`);
     check("⌘⇧T opens this file's test", counterpart === "src/store.test.ts", String(counterpart));
 
-    // ---- ⌘⌥H: the call hierarchy, from the real server -------------------------------------------
+    // ---- ⌘⇧Y: the call hierarchy, from the real server -------------------------------------------
+    // This pressed ⌘⌥H for a long time and could never have passed: macOS's own Hide Others holds that
+    // chord (MENU_OWNED_CHORDS_MAC), which is exactly why src/shortcuts.ts moved the row to ⌘⇧Y. A check
+    // that cannot pass is a feature nobody is checking.
     await page.evaluate(`(() => { openSourceFile('src/store.ts'); return true; })()`);
     await sleep(400);
     await page.evaluate(`(() => { setSourceCursor('src/store.ts', 7, 2, true, -1); return true; })()`); // on `bump`
-    await page.key("h", "KeyH", 72, 4 + 1);
+    await page.key("y", "KeyY", 89, 4 + 8);
     await sleep(1500);
     const hierarchy = await page.evaluate(`(() => {
       const rows = Array.from(document.querySelectorAll('#quick-open-results .structure-result'))
@@ -390,7 +395,7 @@ async function run() {
       return { rows, label: document.getElementById('quick-open-filter').textContent, text: document.getElementById('quick-open-results').textContent.slice(0, 120) };
     })()`);
     await page.shot("hierarchy");
-    check("⌘⌥H lists the real callers", hierarchy.rows.length > 0, `${hierarchy.label} | ${JSON.stringify(hierarchy.rows)}`);
+    check("⌘⇧Y lists the real callers", hierarchy.rows.length > 0, `${hierarchy.label} | ${JSON.stringify(hierarchy.rows)}`);
 
     // ---- ⌥F7: the usage view, from the real server ----------------------------------------------
     await page.key("Escape", "Escape", 27, 0);
@@ -681,12 +686,18 @@ async function run() {
       };
     })()`);
     await page.shot("tree-modules");
-    const FILE_COLOR_TEST = ["rgb(73, 84, 74)", "rgb(239, 250, 231)"]; // #49544a dark, #effae7 light
-    check("the tree paints IntelliJ's test File Color and its folder marks, and badges the module root",
-      layoutMarks.test && FILE_COLOR_TEST.includes(layoutMarks.tint)
+    // The CLAIM, not a colour literal. This asserted the two flat File Colors (#49544a / #effae7) until
+    // the accessibility pass made the tint a ground that chrome ink lands on — mixed, and serialized as
+    // `color(srgb …)` — at which point it could not pass and stopped guarding the marks beside it. What
+    // the feature actually promises is that a test file is tinted and an ordinary one is not.
+    //
+    // The module badge is gone too, and on purpose: render-tree.ts makes the module its own node labelled
+    // with the module's name, so a badge beside it printed that name twice (14-project-layout.js).
+    const tinted = (value) => Boolean(value) && !/^(transparent|rgba\(0, 0, 0, 0\))$/.test(value);
+    check("the tree paints a test File Color an ordinary file does not have, and IntelliJ's folder marks",
+      layoutMarks.test && tinted(layoutMarks.tint) && !tinted(layoutMarks.plainTint)
       && layoutMarks.tint !== layoutMarks.plainTint
-      && layoutMarks.testMark && layoutMarks.moduleMark
-      && layoutMarks.badge === "@smoke/ui" && layoutMarks.badgeShown && layoutMarks.inline,
+      && layoutMarks.testMark && layoutMarks.moduleMark,
       JSON.stringify(layoutMarks));
 
     // ⌥S: the Find in Files scope, cycled from inside the dialog that owns the keyboard.
