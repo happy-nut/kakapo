@@ -2057,7 +2057,7 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
   text-align: center;
   font: 10.5px/1.2 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
-.file-find-count.is-empty { color: var(--warning, #c69026); }
+.file-find-count.is-empty { color: var(--diag-warning); }
 /* IntelliJ's Cc / W / .* / In Selection, the same square glyph group the Find in Files strip uses — one
    control group, one line, and the pressed state is the accent both strips already speak. */
 .file-find-options { display: inline-flex; align-items: center; gap: 3px; flex: none; }
@@ -3469,10 +3469,10 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
    here with the word, because this list has no icons and "Test" is two glyphs wider than one. */
 .usage-result-tag {
   margin-left: 7px;
-  border: 1px solid color-mix(in srgb, var(--ok, #5aa469) 55%, transparent);
+  border: 1px solid color-mix(in srgb, var(--chrome-vcs-staged) 55%, transparent);
   border-radius: 999px;
   padding: 0 5px;
-  color: color-mix(in srgb, var(--ok, #5aa469) 85%, var(--text));
+  color: color-mix(in srgb, var(--chrome-vcs-staged) 85%, var(--text));
   font-size: 9.5px;
   letter-spacing: .03em;
 }
@@ -4126,8 +4126,8 @@ body.dock-maximized .dock-panel { inset: 0; width: auto; max-height: none; trans
   white-space: nowrap;
 }
 .row-tag.is-test {
-  border-color: color-mix(in srgb, var(--ok, #5aa469) 55%, transparent);
-  color: color-mix(in srgb, var(--ok, #5aa469) 85%, var(--text));
+  border-color: color-mix(in srgb, var(--chrome-vcs-staged) 55%, transparent);
+  color: color-mix(in srgb, var(--chrome-vcs-staged) 85%, var(--text));
 }
 .quick-open-item.active .row-tag { border-color: color-mix(in srgb, var(--chrome-selected-text, #fff) 45%, transparent); color: var(--chrome-selected-text, #fff); }
 .quick-open-path { flex: 1 1 auto; }
@@ -4611,9 +4611,26 @@ body.dock-maximized .dock-panel { inset: 0; width: auto; max-height: none; trans
 /* ===== Compact high-contrast review chrome =====
    The diff remains visually quiet; interactive chrome gets clearer contrast, consistent radii, and one
    focus language. Motion is reserved for state changes that can otherwise look like a stalled renderer. */
-button, input, select, .sidebar, .dock-panel {
+/* The list is what a control IS, not which element it happens to be built from. It used to be `button,
+   input, select` and two panels, so a sidebar row animated when it was a <button> and snapped when it was
+   an <a> or a <summary> — and nobody chose either. Measured in the running app before this line changed:
+   .source-link (<button>) 120ms, .change-row (<a>) 0s, .tree-dir summary (<summary>) 0s, .file-link (<a>)
+   0s. Two trees in one sidebar, behaving differently because of their markup.
+   The code canvas is deliberately absent and must stay absent: a .source-row or a .code-cursor that
+   transitions pays for every caret move, which is the cost three of this week's fixes went to remove. */
+button, input, select, .sidebar, .dock-panel,
+.change-row, .file-link, .tree-dir summary, .viewed-box {
   transition: color 120ms ease, background-color 120ms ease, border-color 120ms ease,
     box-shadow 120ms ease, opacity 140ms ease, transform 160ms cubic-bezier(.2, .8, .2, 1);
+}
+/* A press answers at once; the release settles at the shared 160ms above. Without it a control that opens
+   a menu looks the same whether or not the click registered.
+   The exclusions are rows and attached surfaces, which already answer a press by BECOMING the selection:
+   a full-width list row that shrinks 3% reads as a glitch, and a file tab is joined to the content below
+   it, so scaling one detaches it from the surface it is supposed to be part of. */
+button:active:not(:disabled):not(.quick-open-item):not(.source-link):not(.compare-menu-row):not(.settings-cat):not(.source-tab) {
+  transform: scale(.97);
+  transition-duration: 90ms;
 }
 button:focus-visible, input:focus-visible, select:focus-visible {
   outline: 2px solid var(--active);
@@ -5040,13 +5057,6 @@ summary.tree-focus,
      row reflows through dozens of intermediate widths and the animation appears to stutter. */
   .sidebar-brand, .sidebar-scroll { width: var(--sidebar-width, 300px); }
   body.sidebar-collapsed { grid-template-columns: var(--rail-width) 0 minmax(0, 1fr); }
-  /* While the workspace rail slides open/closed the shell resizes this whole view every frame. The sidebar's
-     children are already width-pinned above, but the diff (content) column is 1fr, so it re-wraps through dozens
-     of intermediate widths and the MAIN panel judders. For the duration, pin the content column to its settled
-     width and let the sidebar column (minmax) absorb the view's width change — the tree just clips, the diff
-     never reflows. The pinned width equals the settled width in both states, so lifting the pin is seamless.
-     Must follow body.sidebar-collapsed so it wins the grid-template-columns when both classes are set. */
-  body.rail-pinning { transition: none; grid-template-columns: var(--rail-width) minmax(0, 1fr) var(--rail-pin-content, minmax(0, 1fr)); }
   body.sidebar-collapsed .sidebar {
     opacity: 0;
     transform: translateX(-10px);
@@ -5099,7 +5109,19 @@ summary.tree-focus,
 .http-response.loading { display: flex; align-items: center; gap: 8px; }
 .http-loading-copy { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .quick-open-filter.is-loading { display: inline-flex; align-items: center; gap: 5px; }
-.dock-panel, .semantic-peek:not(.hidden) { animation: mc-surface-in 150ms cubic-bezier(.2, .8, .2, 1); }
+/* Everything that OPENS over the app rises the same way. The dock and the peek already did; the three
+   surfaces the keyboard opens most — the launcher, Settings and the menus — cut in with no entrance at
+   all, which is the one place a 150ms difference reads as a different program. Each is hidden with
+   `display: none` (.hidden), and that is what restarts the animation on every open; nothing in JS. */
+.dock-panel,
+.semantic-peek:not(.hidden),
+.quick-open:not(.hidden) .quick-open-panel,
+.settings-panel,
+.mc-dropdown,
+.compare-menu:not(.hidden) .compare-menu-main,
+.compare-menu:not(.hidden) .compare-menu-branches { animation: mc-surface-in 150ms cubic-bezier(.2, .8, .2, 1); }
+/* The dim behind the launcher fades with it rather than cutting in over a blurred page. */
+.quick-open:not(.hidden):not(.anchored) { animation: dock-backdrop-in 150ms ease; }
 @keyframes mc-loading-sweep { 0% { transform: translateX(-75%); opacity: .25; } 50% { opacity: 1; } 100% { transform: translateX(75%); opacity: .25; } }
 @keyframes mc-surface-in { from { opacity: 0; transform: translateY(5px) scale(.995); } to { opacity: 1; transform: none; } }
 
@@ -5303,7 +5325,7 @@ html[data-indent-guides="on"][data-show-whitespace="on"] .ws-lead[data-ws="space
   cursor: pointer;
 }
 .sticky-lines .source-table { width: 100%; }
-.sticky-lines .source-row:hover { background: color-mix(in srgb, var(--accent, #4a9eff) 12%, transparent); }
+.sticky-lines .source-row:hover { background: color-mix(in srgb, var(--active) 12%, transparent); }
 html[data-sticky-lines="off"] .sticky-lines { display: none; }
 
 /* Focus mode dims, never hides: the shape of the file stays scrollable past the declaration being read. */

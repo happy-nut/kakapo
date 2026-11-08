@@ -395,6 +395,51 @@ test("modern chrome uses one compact radius and elevation system without roundin
   assert.match(css, /\.settings-cat\.active\s*\{[^}]*box-shadow:\s*none/, "settings navigation follows the same full-surface selection language");
 });
 
+// Prose is not a selector. The rules below are read with comments stripped, because the comment ABOVE the
+// transition rule names .source-row and .code-cursor to say they must stay out of it — swept raw, that
+// sentence would read as the rule listing them.
+const cssBare = css.replace(/\/\*[\s\S]*?\*\//g, "");
+function selectorOfRuleContaining(declaration) {
+  const i = cssBare.indexOf(declaration);
+  if (i < 0) return null;
+  return cssBare.slice(0, cssBare.lastIndexOf("{", i)).split(/[{}]/).pop().trim().replace(/\s+/g, " ");
+}
+
+// Motion here is a language, and the rule that speaks it was written in HTML tags: `button, input, select`
+// plus two panels. Whether a sidebar row answered the pointer therefore depended on which element it was
+// built from. Measured in the running app before this changed: .source-link, a <button>, faded over 120ms,
+// while .change-row (<a>) and .tree-dir summary (<summary>) directly beside it in the same sidebar changed
+// instantly. Neither was a decision — one tree glided and the other snapped because of their markup.
+//
+// The second half is the one that costs something if it is lost: the code canvas stays OUT of the rule. A
+// transition on .source-row or .code-cursor is paid on every caret move, and deleting exactly that kind of
+// per-move work is what PRs #137 and #138 were.
+test("the shared transition names every interactive chrome row, and no code row", () => {
+  const selector = selectorOfRuleContaining("transition: color 120ms ease, background-color 120ms");
+  assert.ok(selector, "the shared chrome transition rule still exists");
+  for (const row of [".change-row", ".file-link", ".tree-dir summary", ".viewed-box"]) {
+    assert.ok(selector.includes(row), `${row} is a row the pointer lands on — it shares the one transition: ${selector}`);
+  }
+  for (const code of [".source-row", ".code-cursor", ".d2h-code-line", ".source-code"]) {
+    assert.ok(!selector.includes(code), `${code} is the code canvas: a transition there is paid per caret move`);
+  }
+});
+
+// Seven surfaces open over the app. The dock and the peek rose into place; the three the keyboard opens
+// most — the launcher, Settings and the menus — cut in with no entrance at all, which is where a 150ms
+// difference stops reading as a style and starts reading as a different program. Each is hidden with
+// `display: none`, and that is what restarts the animation on every open; no JS is involved.
+test("every surface that opens over the app shares one entrance", () => {
+  const selector = selectorOfRuleContaining("animation: mc-surface-in");
+  assert.ok(selector, "the shared entrance rule still exists");
+  for (const surface of [".dock-panel", ".semantic-peek", ".quick-open-panel", ".settings-panel", ".mc-dropdown",
+    ".compare-menu-main", ".compare-menu-branches"]) {
+    assert.ok(selector.includes(surface), `${surface} opens over the app — it uses the shared entrance: ${selector}`);
+  }
+  assert.match(css, /\.quick-open:not\(\.hidden\):not\(\.anchored\)\s*\{\s*animation:\s*dock-backdrop-in/,
+    "the dim behind the launcher fades in rather than cutting over an already-blurred page");
+});
+
 test("panel focus is a brief shared flash instead of a persistent native outline", () => {
   assert.match(css, /\[data-mc-focus-panel\]:focus\s*\{[^}]*outline:\s*none/, "a stale DOM-focused scroller cannot keep a permanent blue rectangle");
   assert.match(css, /\.mc-panel-focus-flash\s*\{[^}]*animation:\s*mc-panel-focus-flash\s+520ms/, "every panel uses the same roughly half-second focus flash");
@@ -579,14 +624,27 @@ test("the Changes tree writes an added file's name in ink, not in a diff fill", 
 // dropped and the property inherits, so the rule looks present and does nothing. That is how a whole
 // block of new shortcut-sheet styling came to reference `--accent` and `--danger`, neither of which this
 // stylesheet has ever defined (the accent token is `--active`), and look merely subtle on screen.
+// The fallback half of this used to be exempt, and a missing token with a fallback is the worse of the two:
+// `var(--x)` with no --x paints nothing, which someone notices, while `var(--accent, #4a9eff)` paints the
+// literal and looks deliberate. Three such names were live when this was widened — --accent, --ok and
+// --warning, none of them declared anywhere — so the sticky-lines hover, the Test tag and the no-matches
+// count were painted by one hardcoded colour each, identically in all twelve themes, while every rule
+// around them followed the palette. A guard that only swept the un-fallbacked form reported zero.
 test("every custom property a rule reads is one this stylesheet declares", () => {
   const declared = new Set([...css.matchAll(/(--[a-z0-9-]+)\s*:/gi)].map((m) => m[1]));
-  const read = [...css.matchAll(/var\(\s*(--[a-z0-9-]+)\s*\)/gi)].map((m) => m[1]); // no fallback = must exist
-  // Two tokens are legitimately absent here: they are written as an inline style by the renderer
-  // (render-tree.ts sets --depth per row, brand.ts sets --kakapo-ui-icon on the page).
-  const setInMarkup = new Set(["--depth", "--kakapo-ui-icon"]);
+  const read = [...css.matchAll(/var\(\s*(--[a-z0-9-]+)\s*[,)]/gi)].map((m) => m[1]);
+  // Written as an inline style rather than declared here, so the fallback IS the default and the name
+  // genuinely has nowhere to live in this file. Each one is set in the source named beside it.
+  const setInMarkup = new Set([
+    "--depth",            // render-tree.ts, 04-source-tree.js, 17-find-usages.js — per-row indent
+    "--kakapo-ui-icon",   // brand.ts / render.ts / app-main.ts — the page's icon
+    "--structure-depth",  // 16-structure.js
+    "--sidebar-width",    // 05-keymap.js
+    "--hgraph-w",         // 12-history.js
+    "--bookmark-mark",    // 11-render-http.js, 16-structure.js
+  ]);
   const undeclared = [...new Set(read.filter((name) => !declared.has(name) && !setInMarkup.has(name)))];
-  assert.deepEqual(undeclared, [], "a var() with no fallback must name a token that exists");
+  assert.deepEqual(undeclared, [], "a var() must name a token this file declares, or one the markup sets");
 });
 
 
