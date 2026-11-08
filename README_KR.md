@@ -410,6 +410,13 @@ rust-analyzer는 Rust에 대해 무엇이든 — 정의로 점프하는 것 하�
 프로젝트/전체 구분을 이 앱으로 옮긴 답입니다. 변경된 파일에서 아무것도 못 찾으면 스스로 넓히고 그 사실을
 칩에 적습니다 — "없습니다"로 답하지 않습니다.
 
+**질의가 매치되는 방식**은 IntelliJ 의 `MinusculeMatcher` 를 같은 방법으로 — 설치본을 실제로 돌려 맞춰 가며
+— 옮긴 것입니다: `SEC` 로 `SearchEverywhereContributor` 에, `qop` 로 `quick-open.js` 에 닿고, `*` 는 어디든,
+공백은 "그다음, 뒤에, 또 한 단어"(`se cont`)를 뜻하며, 답한 글자는 행에 굵게 표시돼 왜 걸렸는지 보입니다.
+순위도 같은 매처가 정합니다 — IntelliJ 의 `matchingDegree` 로, 단어 머리에서 맞은 쪽이 단어 중간에서 맞은
+쪽을 이깁니다. 그래서 `quick` 은 `quickOpen` 을 `aQuickOpenThing` 위에 둡니다(이전에는 둘을 같다고 봤습니다).
+앱의 모든 목록이 이 규칙 하나를 씁니다 — 퀵오픈·구조·계층·사용처 찾기·문제 목록·명령 팔레트 전부.
+
 이름 뒤의 줄 번호는 IntelliJ 가 받는 표기 전부로 쓸 수 있습니다 — `store.ts:42`, `store.ts:42:7`,
 `store.ts 42`, `store.ts#L42`, `store.ts(42,7)`. 그걸 읽는 정규식이 IntelliJ 의 것을 그대로 옮긴 것이기
 때문입니다. 두 번 누르기 자체는 [src/shortcuts.ts](src/shortcuts.ts) 의 그 표에 코드로 적혀 있고 하나의

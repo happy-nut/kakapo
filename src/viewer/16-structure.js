@@ -109,14 +109,14 @@ function renderFileStructureResults(query) {
       renderFileStructureResults(query);
     });
   }
-  var queries = queryVariants(String(query || '').toLowerCase());
+  var queries = queryVariants(String(query || ''));
   var needle = String(query || '').trim().toLowerCase();
   // NAMES only, as IntelliJ's structure search matches. Including the signature in the haystack looked
   // like a bonus and was a surprise: typing "store" in a class listing then also returned every member
   // whose return type happened to be Store. The signature stays visible on the row.
   quickItems = needle
     ? structureItems.filter(function (item) {
-      var hay = item.name.toLowerCase();
+      var hay = [item.name];
       return matchesQueryVariants(hay, queries);
     })
     : structureItems;
@@ -135,7 +135,7 @@ function renderFileStructureResults(query) {
     return '<button type="button" class="quick-open-item symbol-result structure-result'
       + (index === quickActive ? ' active' : '') + '" data-index="' + index + '"'
       + ' style="--structure-depth:' + Math.min(item.depth, 6) + '">'
-      + '<span class="quick-open-main"><span class="quick-open-name">' + escapeHtml(item.name) + '</span>'
+      + '<span class="quick-open-main"><span class="quick-open-name">' + quickNameHtml(item.name) + '</span>'
       + '<span class="quick-open-path">' + escapeHtml(item.summary || (item.path + ':' + (item.lineIndex + 1))) + '</span></span>'
       + '<span class="quick-open-badge">' + escapeHtml(item.detail) + '</span></button>';
   }).join('');
@@ -306,12 +306,12 @@ function recentLocationItems() {
 }
 
 function renderRecentLocationResults(query) {
-  var queries = queryVariants(String(query || '').toLowerCase());
+  var queries = queryVariants(String(query || ''));
   var needle = String(query || '').trim().toLowerCase();
   var all = recentLocationItems();
   quickItems = needle
     ? all.filter(function (item) {
-      var hay = (item.path + ' ' + item.name).toLowerCase();
+      var hay = [item.name, item.path];
       return matchesQueryVariants(hay, queries);
     })
     : all;
@@ -324,7 +324,7 @@ function renderRecentLocationResults(query) {
   quickResults.innerHTML = quickItems.map(function (item, index) {
     return '<button type="button" class="quick-open-item symbol-result' + (index === quickActive ? ' active' : '')
       + (item.current ? ' is-current' : '') + '" data-index="' + index + '">'
-      + '<span class="quick-open-main"><span class="quick-open-name">' + escapeHtml(item.name) + '</span>'
+      + '<span class="quick-open-main"><span class="quick-open-name">' + quickNameHtml(item.name) + '</span>'
       + '<span class="quick-open-path">' + escapeHtml(item.path + ':' + (item.lineIndex + 1)) + '</span>'
       + projectRowTagsHtml(item.path) + '</span>'
       + '<span class="quick-open-badge">' + escapeHtml(item.detail) + '</span></button>';
@@ -645,10 +645,12 @@ function toggleHierarchyRow(index) {
 
 function renderHierarchyResults(query) {
   var needle = String(query || '').trim().toLowerCase();
-  var queries = queryVariants(needle);
+  // The matcher gets the query AS TYPED — `needle` stays lower-cased for this list's own
+  // substring work, because camel humps are case and a lower-cased pattern has none.
+  var queries = queryVariants(String(query || '').trim());
   var visible = needle
     ? hierarchyRows.filter(function (row) {
-      var hay = String(row.location.name || row.location.path || '').toLowerCase();
+      var hay = [String(row.location.name || ''), String(row.location.path || '')];
       return matchesQueryVariants(hay, queries);
     })
     : hierarchyRows;
@@ -684,7 +686,7 @@ function renderHierarchyResults(query) {
       + ' style="--structure-depth:' + Math.min(row.depth, 8) + '">'
       + '<span class="hierarchy-twisty" aria-hidden="true">' + marker + '</span>'
       + '<span class="quick-open-main"><span class="quick-open-name">'
-      + escapeHtml(String(row.location.name || sourceTabLabel(row.location.path))) + '</span>'
+      + quickNameHtml(String(row.location.name || sourceTabLabel(row.location.path))) + '</span>'
       + '<span class="quick-open-path">' + escapeHtml(semanticFileLabel(row.location.path, row.location.lineIndex)) + '</span>'
       + projectRowTagsHtml(row.location.path) + '</span>'
       + '<span class="quick-open-badge">' + escapeHtml(t('hierarchy.badge.' + hierarchyKind)) + '</span></button>';
@@ -982,7 +984,9 @@ function openBookmarks() {
 
 function renderBookmarkResults(query) {
   var needle = String(query || '').trim().toLowerCase();
-  var queries = queryVariants(needle);
+  // The matcher gets the query AS TYPED — `needle` stays lower-cased for this list's own
+  // substring work, because camel humps are case and a lower-cased pattern has none.
+  var queries = queryVariants(String(query || '').trim());
   var all = bookmarks().slice().reverse().map(function (mark) {
     return {
       path: mark.path,
@@ -998,7 +1002,7 @@ function renderBookmarkResults(query) {
   });
   quickItems = needle
     ? all.filter(function (item) {
-      var hay = (item.path + ' ' + item.name).toLowerCase();
+      var hay = [item.name, item.path];
       return matchesQueryVariants(hay, queries);
     })
     : all;
@@ -1012,7 +1016,7 @@ function renderBookmarkResults(query) {
     return '<button type="button" class="quick-open-item symbol-result' + (index === quickActive ? ' active' : '')
       + '" data-index="' + index + '">'
       + '<span class="bookmark-mark" aria-hidden="true">' + escapeHtml(item.mnemonic || '\u2691') + '</span>'
-      + '<span class="quick-open-main"><span class="quick-open-name">' + escapeHtml(item.name) + '</span>'
+      + '<span class="quick-open-main"><span class="quick-open-name">' + quickNameHtml(item.name) + '</span>'
       + '<span class="quick-open-path">' + escapeHtml(item.detail) + '</span>'
       + projectRowTagsHtml(item.path) + '</span></button>';
   }).join('');

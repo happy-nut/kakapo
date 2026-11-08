@@ -443,6 +443,15 @@ carry what you have typed across, and a tab's own chord switches to it rather th
 moved and the wide one is the whole project, which is this app's reading of IntelliJ's project / everywhere
 line. A query that finds nothing in the change widens by itself and says so, rather than answering "no".
 
+**How a query matches** is IntelliJ's `MinusculeMatcher`, ported the same way and checked by running the
+shipped one: `SEC` reaches `SearchEverywhereContributor`, `qop` reaches `quick-open.js`, `*` matches
+anywhere, a space means "then, later, another word" (`se cont`), and the characters that answered are
+marked in the row so you can see why it did. The same matcher ranks the list — IntelliJ's
+`matchingDegree`, where a match at a word start outranks one in the middle of a word, so `quick` puts
+`quickOpen` above `aQuickOpenThing` instead of calling them equal. It is one rule for every list in the
+app: Quick Open, the structure and hierarchy views, Find Usages, the problems list and the command
+palette all filter and rank through it.
+
 A line can be written after a name in any of the spellings IntelliJ accepts — `store.ts:42`,
 `store.ts:42:7`, `store.ts 42`, `store.ts#L42`, `store.ts(42,7)` — because the pattern that reads them is
 its own, copied across. The double tap itself is spelled as a chord in

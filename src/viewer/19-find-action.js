@@ -67,14 +67,30 @@ function openFindAction() {
 function renderFindActionResults(query) {
   if (!quickResults) return;
   var needle = String(query || '').trim().toLowerCase();
-  var queries = queryVariants(needle);
-  var rows = findActionItems().filter(function (item) {
+  // The matcher gets the query AS TYPED — `needle` stays lower-cased for this list's own
+  // substring work, because camel humps are case and a lower-cased pattern has none.
+  var queries = queryVariants(String(query || '').trim());
+  let rows = findActionItems().filter(function (item) {
     if (!needle) return true;
     // The chord is part of the haystack on purpose: "what was ⌘⇧E again" is the other half of why this
     // list is opened, and typing the chord finds the action it belongs to.
-    var hay = (item.name + ' ' + item.actionId + ' ' + item.chords.join(' ')).toLowerCase();
+    var hay = [item.name, item.actionId, item.chords.join(' ')];
     return matchesQueryVariants(hay, queries);
   });
+  // Ranked by how well each answers, which this list did not do at all — it kept the alphabetical order
+  // the commands are declared in. It mattered little while the rule was `includes` and every row matched
+  // the same way; it matters now, because a hump match and an accident score an order of magnitude
+  // apart: `SE` is "Search Everywhere" at 1091 and "Collapse all" — the `se` inside "Collapse" — at 1.
+  // IntelliJ's Find Action ranks the same way. The ties keep their declared order, which is what a
+  // stable sort on an equal key gives.
+  if (needle) {
+    rows = rows
+      .map(function (item) {
+        return { item: item, rank: minusculeQueryScore([item.name, item.actionId, item.chords.join(' ')], queries) };
+      })
+      .sort(function (a, b) { return b.rank - a.rank; })
+      .map(function (scored) { return scored.item; });
+  }
   quickItems = rows.map(function (item) {
     return { path: '', name: item.name, detail: item.chords.join(' / '), kind: 'action', recent: false, lineIndex: 0, column: 0, text: '', actionId: item.actionId };
   });
@@ -87,7 +103,7 @@ function renderFindActionResults(query) {
   quickResults.innerHTML = rows.map(function (item, index) {
     return '<button type="button" class="quick-open-item action-result' + (index === quickActive ? ' active' : '')
       + '" data-index="' + index + '" data-action="' + escapeHtml(item.actionId) + '">'
-      + '<span class="quick-open-main"><span class="quick-open-name">' + escapeHtml(item.name) + '</span></span>'
+      + '<span class="quick-open-main"><span class="quick-open-name">' + quickNameHtml(item.name) + '</span></span>'
       + (item.chords.length
         ? '<span class="action-chords">' + item.chords.map(function (chord) {
           return '<kbd class="action-chord">' + escapeHtml(chord) + '</kbd>';

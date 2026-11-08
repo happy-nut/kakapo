@@ -112,16 +112,14 @@ function quickLineAndColumn(raw) {
  * file list's own `scoreQuickItem` runs to -3000 and a symbol would never be seen next to it. Higher wins
  * here (IntelliJ's priorities are "bigger is better" and the comparator is reversed).
  */
+// SearchEverywhereFoundElementInfo's priority — the element's OWN match weight, which the comparator
+// reads before the contributor's. The 1000/800/600/400/200 ladder here was a stand-in for
+// MinusculeMatcher.matchingDegree until the matcher was ported (00-minuscule.js); it is now the real
+// number, so `SEC` reaches `SearchEverywhereContributor` and a word-start match outranks a middle one.
 function sePriority(name, path, query) {
   if (!query) return 0;
-  var n = String(name || '').toLowerCase();
-  var p = String(path || '').toLowerCase();
-  if (n === query) return 1000;
-  if (n.indexOf(query) === 0) return 800;
-  if (n.indexOf(query) >= 0) return 600;
-  if (p.indexOf('/' + query) >= 0) return 400;
-  if (p.indexOf(query) >= 0) return 200;
-  return 0;
+  var degree = minusculeQueryScore([name, path], [query]);
+  return degree > -Infinity ? degree : 0;
 }
 
 /**
@@ -172,7 +170,7 @@ function seFileGroup(query, queries) {
 function seActionGroup(query, queries) {
   if (!query) return []; // an unprompted list of every command is not an answer to an empty box
   return findActionItems().filter(function (item) {
-    return matchesQueryVariants((item.name + ' ' + item.actionId + ' ' + item.chords.join(' ')).toLowerCase(), queries);
+    return matchesQueryVariants([item.name, item.actionId, item.chords.join(' ')], queries);
   }).map(function (item) {
     return {
       path: '', name: item.name, detail: item.chords.join(' / '), kind: 'action', recent: false,
@@ -246,7 +244,8 @@ function expandEverywhereMore(item) {
 function renderEverywhereResults(rawQuery) {
   if (!quickResults) return;
   var parsed = quickLineAndColumn(rawQuery);
-  var query = String(parsed.name || '').trim().toLowerCase();
+  // As typed: see quickItemHaystack (03-quick-open.js) on why the case has to survive.
+  var query = String(parsed.name || '').trim();
   var queries = queryVariants(query);
   if (rawQuery !== everywhereQuery) {
     everywhereQuery = rawQuery;
@@ -345,12 +344,12 @@ function seRowHtml(item, index) {
   var active = index === quickActive ? ' active' : '';
   if (item.kind === 'more') {
     return '<button type="button" class="quick-open-item se-more' + active + '" data-index="' + index + '">'
-      + '<span class="quick-open-main"><span class="quick-open-name">' + escapeHtml(item.name) + '</span></span></button>';
+      + '<span class="quick-open-main"><span class="quick-open-name">' + quickNameHtml(item.name) + '</span></span></button>';
   }
   if (item.kind === 'action') {
     return '<button type="button" class="quick-open-item action-result' + active + '" data-index="' + index + '"'
       + ' data-action="' + escapeHtml(item.actionId) + '">'
-      + '<span class="quick-open-main"><span class="quick-open-name">' + escapeHtml(item.name) + '</span></span>'
+      + '<span class="quick-open-main"><span class="quick-open-name">' + quickNameHtml(item.name) + '</span></span>'
       + ((item.chords || []).length
         ? '<span class="action-chords">' + item.chords.map(function (chord) {
           return '<kbd class="action-chord">' + escapeHtml(chord) + '</kbd>';
@@ -360,13 +359,13 @@ function seRowHtml(item, index) {
   }
   if (item.seGroup === 'symbol') {
     return '<button type="button" class="quick-open-item symbol-result' + active + '" data-index="' + index + '">'
-      + '<span class="quick-open-main"><span class="quick-open-name">' + escapeHtml(item.name) + '</span>'
+      + '<span class="quick-open-main"><span class="quick-open-name">' + quickNameHtml(item.name) + '</span>'
       + '<span class="quick-open-path">' + escapeHtml(item.path + ':' + (item.lineIndex + 1)) + '</span>'
       + projectRowTagsHtml(item.path) + '</span>'
       + '<span class="quick-open-badge">' + escapeHtml(item.detail) + '</span></button>';
   }
   return '<button type="button" class="quick-open-item' + active + '" data-index="' + index + '">'
-    + '<span class="quick-open-main"><span class="quick-open-name">' + escapeHtml(item.name) + '</span>'
+    + '<span class="quick-open-main"><span class="quick-open-name">' + quickNameHtml(item.name) + '</span>'
     + '<span class="quick-open-path">' + escapeHtml(item.path) + '</span>'
     + projectRowTagsHtml(item.path) + '</span>'
     + '<span class="quick-open-badge' + (item.kind === 'change' ? ' is-changed' : '')

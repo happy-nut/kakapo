@@ -178,8 +178,12 @@ test("a fact the whole viewer asks about has exactly one reader", () => {
 
   // How a typed query matches. Eight lists build their own haystack, which is right; the rule that decides
   // a match is one, and each list used to spell it out.
+  //
+  // The pattern this looks for has to be the CURRENT implementation's, not the one it replaced: the rule
+  // used to be `queries.some(hay.includes(variant))` and is now a MinusculeMatcher run, so a guard still
+  // asking for `queries.some(` would find nothing and pass for the wrong reason.
   only("the speed-search match rule", "matchesQueryVariants()",
-    sitesOf(/queries\.some\(/));
+    sitesOf(/minusculeMatchesQuery\(/, [/^function minusculeMatchesQuery/]));
 
   assert.deepEqual(problems, [], "a fact grew a second reader:\n  " + problems.join("\n  "));
 });

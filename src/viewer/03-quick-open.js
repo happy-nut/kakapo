@@ -400,21 +400,71 @@ function queryVariants(query) {
   var latin = qwertyFromHangul(query);
   return latin === query ? [query] : [query, latin];
 }
+// NOT lower-cased, and that is the point: camel humps ARE case, so `SEC` can only find
+// `SearchEverywhereContributor` if the case survives to the matcher. Case-insensitivity has moved
+// inside it (minusculeMatchesQuery), where it belongs — the matcher ignores case when deciding whether
+// a character matches and uses it when deciding how WELL, which a lower-cased haystack cannot express.
+// The row's text in order of importance, NOT joined: see minusculeQueryScore (00-minuscule.js) on why
+// the fields are matched one at a time. Name first because that is what a reader types.
 function quickItemHaystack(item) {
-  return (item.path + '\n' + item.name + '\n' + item.detail).toLowerCase();
+  return [item.name, item.path, item.detail];
 }
 // The other half of queryVariants: does this haystack hold any variant of what was typed. Eight lists match
 // their own haystack — a symbol's name only, a file's path and name, a usage's path and line text, an
 // action's name and chords — but the RULE is one, and it was written out eight times. Changing how a query
 // matches (a fuzzy pass, a word-boundary bonus) is one edit here instead of eight that drift apart.
+//
+// It was `hay.includes(variant)` until IntelliJ's MinusculeMatcher was ported (00-minuscule.js), which is
+// the one edit this comment was written in anticipation of.
 function matchesQueryVariants(hay, queries) {
-  return queries.some(function (variant) { return hay.includes(variant); });
+  return minusculeMatchesQuery(hay, queries);
 }
-// Rank on the variant that actually matched, so a Korean-typed query is scored like the English one it means.
-function matchedQuery(item, queries) {
-  var hay = quickItemHaystack(item);
-  for (var i = 0; i < queries.length; i += 1) if (hay.indexOf(queries[i]) >= 0) return queries[i];
-  return queries[0];
+// (matchedQuery() lived here: it picked the variant that matched so the ranker could score on it. The
+// ranker now takes the whole variant list and keeps the best score itself, so choosing one up front was
+// a matcher run spent on a decision made again downstream.)
+
+/**
+ * What is being typed, right now — the one reader of the search box's text.
+ *
+ * Eleven row renderers across five slices draw a name, and every one of them needs this to mark the
+ * characters that answered. Threading it through eleven signatures would have been eleven chances to
+ * pass the wrong thing; the box is one place, so this asks it.
+ */
+function quickTypedQuery() {
+  var raw = quickMode === 'recent' ? recentFilter : ((quickInput && quickInput.value) || '');
+  return String(raw || '').trim();
+}
+
+/**
+ * A row's name, escaped, with the characters the query matched marked.
+ *
+ * IntelliJ bolds these in every list it has, and with camel-hump matching that stops being decoration:
+ * `SEC` reaching `SearchEverywhereContributor` looks like a guess until the S, E and C are lit, and a
+ * reader who cannot see why a row answered stops trusting the list. One function because the mark has
+ * to survive escaping — marking first and escaping after would escape the markup, and escaping first
+ * moves every offset the matcher gave us.
+ */
+function quickNameHtml(name) {
+  var text = String(name == null ? '' : name);
+  var query = quickTypedQuery();
+  if (!text || !query) return escapeHtml(text);
+  // The line suffix a query may carry (`app.ts:42`) is not part of any name, so it is stripped here for
+  // the same reason the filter strips it — quickLineAndColumn is the one reader of that shape.
+  var ranges = minusculeQueryRanges(text, queryVariants(quickLineAndColumn(query).name));
+  if (!ranges.length) return escapeHtml(text);
+  var out = '';
+  var at = 0;
+  for (var i = 0; i < ranges.length; i += 1) {
+    var range = ranges[i];
+    if (range.start < at) continue;
+    out += escapeHtml(text.slice(at, range.start));
+    // `usage-hit` rather than a class of its own: the app already has one expression for "these are the
+    // characters that matched" (viewer.css) and it is already bold-not-background for the right reason —
+    // every row in a filtered list matches, so a highlight on all of them says nothing.
+    out += '<b class="usage-hit">' + escapeHtml(text.slice(range.start, range.end)) + '</b>';
+    at = range.end;
+  }
+  return out + escapeHtml(text.slice(at));
 }
 
 function renderQuickOpenResults() {
@@ -453,7 +503,10 @@ function renderQuickOpenResults() {
   // which work there, searched for a file with a space and a number in its name.
   const parsedQuery = quickLineAndColumn(rawQuery);
   const gotoLine = parsedQuery.lineIndex >= 0 ? parsedQuery.lineIndex + 1 : 0;
-  const query = (gotoLine ? parsedQuery.name : rawQuery).toLowerCase();
+  // As typed, not lower-cased: the matcher wants the case (see quickItemHaystack). `lowerQuery` below
+  // is for the plain substring searches that are not the matcher — an embedded file's contents.
+  const query = gotoLine ? parsedQuery.name : rawQuery;
+  const lowerQuery = query.toLowerCase();
   const queries = queryVariants(query);
   const candidates = isRecent ? recentItems() : allQuickItems();
   quickItems = candidates
@@ -461,12 +514,18 @@ function renderQuickOpenResults() {
       if (query.length === 0) return true;
       if (quickMode === 'content') {
         const file = sourceByPath.get(item.path);
-        return Boolean(file && file.embedded && file.content.toLowerCase().includes(query));
+        return Boolean(file && file.embedded && file.content.toLowerCase().includes(lowerQuery));
       }
       const hay = quickItemHaystack(item);
       return matchesQueryVariants(hay, queries);
     })
-    .sort((a, b) => scoreQuickItem(a, matchedQuery(a, queries)) - scoreQuickItem(b, matchedQuery(b, queries)) || a.path.localeCompare(b.path))
+    // Scored once per item, then sorted on the stored number. The comparator used to call the scorer —
+    // and therefore the matcher — on both sides of every comparison, which is O(n log n) matcher runs
+    // over a list that only needed n: cheap enough when the rule was `includes`, and not cheap at all
+    // now that it is a backtracking matcher over every path in the repository.
+    .map((item) => ({ item, rank: scoreQuickItem(item, queries) }))
+    .sort((a, b) => a.rank - b.rank || a.item.path.localeCompare(b.item.path))
+    .map((scored) => scored.item)
     .slice(0, 80)
     .map((item) => (gotoLine
       ? Object.assign({}, item, { kind: 'symbol', lineIndex: gotoLine - 1, column: Math.max(0, parsedQuery.column) })
@@ -479,7 +538,7 @@ function renderQuickOpenResults() {
   quickResults.innerHTML = quickItems.map((item, index) => [
     '<button type="button" class="quick-open-item' + (index === quickActive ? ' active' : '') + '" data-index="' + index + '">',
     '<span class="quick-open-main">',
-    '<span class="quick-open-name">' + escapeHtml(item.name) + '</span>',
+    '<span class="quick-open-name">' + quickNameHtml(item.name) + '</span>',
     '<span class="quick-open-path">' + escapeHtml(item.path) + '</span>',
     // Which module, and whether it is test code — the two things IntelliJ's own Go to File row says
     // besides the name (14-project-layout.js). Inside the main column, where the path it qualifies is.
@@ -530,7 +589,7 @@ function renderWorkspaceSymbolResults(query) {
   }
   quickResults.innerHTML = quickItems.map(function (item, index) {
     return '<button type="button" class="quick-open-item symbol-result' + (index === quickActive ? ' active' : '') + '" data-index="' + index + '">'
-      + '<span class="quick-open-main"><span class="quick-open-name">' + escapeHtml(item.name) + '</span>'
+      + '<span class="quick-open-main"><span class="quick-open-name">' + quickNameHtml(item.name) + '</span>'
       + '<span class="quick-open-path">' + escapeHtml(item.path + ':' + (item.lineIndex + 1)) + '</span>'
       + projectRowTagsHtml(item.path) + '</span>'
       + '<span class="quick-open-badge">' + escapeHtml(item.detail) + '</span></button>';
@@ -1180,15 +1239,17 @@ function recentItems() {
   return items;
 }
 
-function scoreQuickItem(item, query) {
+// Lower sorts first here, which is why the matcher's degree is subtracted rather than added: the two
+// scales run in opposite directions. The hand-made 3000/2000/1000/500 ladder this replaces could not
+// tell `quickOpen` from `aQuickOpenThing` for `quick`, because `includes` answers the same for both.
+// Takes the whole variant list rather than one chosen variant: the scorer already tries each and keeps
+// the best, so asking matchedQuery() which one matched first was a third run of the matcher to pick an
+// answer this function would have found anyway.
+function scoreQuickItem(item, queries) {
   let score = item.recentRank ?? 9999;
-  if (!query) return score;
-  const path = item.path.toLowerCase();
-  const name = item.name.toLowerCase();
-  if (name === query) score -= 3000;
-  else if (name.startsWith(query)) score -= 2000;
-  else if (path.includes('/' + query)) score -= 1000;
-  else if (path.includes(query)) score -= 500;
+  if (!queries.length || !queries.some(Boolean)) return score;
+  const degree = minusculeQueryScore(quickItemHaystack(item), queries);
+  if (degree > -Infinity) score -= degree;
   if (item.recent) score -= 100;
   return score;
 }

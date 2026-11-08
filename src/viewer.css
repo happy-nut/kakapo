@@ -3589,7 +3589,9 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
    popup's .usage-loc / .usage-code. */
 .usage-result .quick-open-path { flex: none; color: var(--muted); font-variant-numeric: tabular-nums; }
 /* The occurrence itself, picked out of the line it sits on — IntelliJ bolds it. Not a search-hit
-   background: every row here matches, so a highlight on all of them would say nothing. */
+   background: every row here matches, so a highlight on all of them would say nothing.
+   The app's one mark for "these are the characters that matched", so quickNameHtml() (03-quick-open.js)
+   draws the camel-hump match in every other list with it rather than declaring a twin of this rule. */
 .usage-hit { padding: 0; color: var(--text); background: transparent; font-weight: 700; }
 .quick-open-item.active .usage-hit { color: inherit; }
 .usage-result .usage-result-code { flex: 1 1 auto; min-width: 0; }

@@ -243,11 +243,13 @@ function usageRowVisible(row) {
 
 function visibleUsageRows(query) {
   var needle = String(query || '').trim().toLowerCase();
-  var queries = queryVariants(needle);
+  // The matcher gets the query AS TYPED — `needle` stays lower-cased for this list's own
+  // substring work, because camel humps are case and a lower-cased pattern has none.
+  var queries = queryVariants(String(query || '').trim());
   return usageViewRows.filter(function (row) {
     if (!usageRowVisible(row)) return false;
     if (!needle) return true;
-    var hay = (row.path + ' ' + row.text).toLowerCase();
+    var hay = [row.text, row.path];
     return matchesQueryVariants(hay, queries);
   });
 }
