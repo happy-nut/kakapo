@@ -195,12 +195,7 @@ function insertInlayHint(cell, column, text, kind, paddingLeft, paddingRight) {
   // descended INTO the previous label so the next one nested inside it. `(who: any): string` rendered as
   // `(who  : string: any)`, and on a minified line with 1200 hints the drift ran to hundreds of
   // characters and cut words in half — `fu :  : number: any anynction f1(`.
-  var walker = document.createTreeWalker(cell, 4 /* NodeFilter.SHOW_TEXT */, {
-    acceptNode: function (node) {
-      var parent = node.parentNode;
-      return parent && parent.closest && parent.closest('.inlay-hint') ? 2 /* REJECT */ : 1 /* ACCEPT */;
-    },
-  });
+  var walker = sourceTextWalker(cell);
   var seen = 0;
   var node = null;
   while ((node = walker.nextNode())) {

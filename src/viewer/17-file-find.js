@@ -98,22 +98,42 @@ function clearFileFindHighlights() {
   } catch (e) {}
 }
 
-function fileFindDomPoint(container, offset) {
+// Offsets here are columns in the FILE, so the walk has to be the one that ignores the labels the app
+// drew into the line (sourceTextWalker, 10-source-view.js). Walking every text node put a match on a
+// hinted line at whatever characters happened to sit that far along the painted text — column 21 of
+// `return cache.get(cache.key);` resolved to 32 once `key: ` was in front of it.
+function fileFindDomPoint(container, offset, preferAfter) {
   if (!container) return null;
   var remaining = Math.max(0, Number(offset) || 0);
-  var walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+  var walker = sourceTextWalker(container);
   var node;
+  var boundary = null;
   while ((node = walker.nextNode())) {
     var length = (node.textContent || '').length;
-    if (remaining <= length) return { node: node, offset: remaining };
+    // Strictly inside this node: there is only one answer.
+    if (remaining < length) return { node: node, offset: remaining };
+    if (remaining === length) {
+      // On the seam between two nodes. Both ends of the seam are the same column, and which one to take
+      // depends on which end of a RANGE is being placed: a label drawn at this column sits between them,
+      // so a start taken before it paints over the label and an end taken after it does the same. The
+      // text selection does not have this problem — `user-select: none` keeps a label out of it — but a
+      // CSS custom highlight ignores that and paints whatever its range covers, which is how ⌘F7 came to
+      // mark `x: startLine` instead of `startLine`.
+      boundary = { node: node, offset: remaining };
+      if (!preferAfter) return boundary;
+      remaining = 0;
+      continue;
+    }
     remaining -= length;
   }
-  return null;
+  return boundary;
 }
 
 function fileFindRange(container, start, length) {
-  var from = fileFindDomPoint(container, start);
-  var to = fileFindDomPoint(container, start + length);
+  // The start prefers the far side of a seam and the end the near side, so a range never swallows a
+  // label that merely sits at one of its edges.
+  var from = fileFindDomPoint(container, start, true);
+  var to = fileFindDomPoint(container, start + length, false);
   if (!from || !to) return null;
   try {
     var range = document.createRange();
@@ -174,7 +194,10 @@ function applyFileFindHighlights() {
     }
     if (index === fileFindActive && row) row.classList.add('file-find-row-active');
     if (!container) return;
-    var shown = container.textContent || '';
+    // The cell's OWN text, for the same reason: this is compared against a match found in the file, and
+    // the labels are not in the file. Read with textContent it disagreed on every hinted line and sent
+    // every one of them down the fallback below.
+    var shown = sourceCellText(container);
     var start = result.column;
     // The painted cell is not always the string the match was found in — a rendered markdown or CSV row, a
     // diff cell carrying its own prefix column. Look for the matched text where the offset does not hold it.

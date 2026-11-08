@@ -257,7 +257,10 @@ function paintSourceDiagnostics(path) {
     if (!row) return; // folded away, or a row this big file has not built yet (repainted when it arrives)
     var container = row.querySelector('.source-code');
     if (!container) return;
-    var textLen = (container.textContent || '').length;
+    // The line's own length, not the painted cell's: with an inlay label in the row, textContent is
+    // longer than the line, so a multi-line diagnostic clamped its end PAST the last column and
+    // fileFindRange — which walks the line, labels excluded — ran off the end and drew no squiggle.
+    var textLen = sourceCellText(container).length;
     var start = Math.max(0, Math.min(d.column, textLen));
     // Underline the diagnostic span on its start line; a multi-line range extends to end of that line so the
     // squiggle stays inside one row container (each source line is its own cell). Zero-width ranges get 1 char.
