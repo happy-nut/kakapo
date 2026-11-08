@@ -4623,15 +4623,6 @@ button, input, select, .sidebar, .dock-panel,
   transition: color 120ms ease, background-color 120ms ease, border-color 120ms ease,
     box-shadow 120ms ease, opacity 140ms ease, transform 160ms cubic-bezier(.2, .8, .2, 1);
 }
-/* A press answers at once; the release settles at the shared 160ms above. Without it a control that opens
-   a menu looks the same whether or not the click registered.
-   The exclusions are rows and attached surfaces, which already answer a press by BECOMING the selection:
-   a full-width list row that shrinks 3% reads as a glitch, and a file tab is joined to the content below
-   it, so scaling one detaches it from the surface it is supposed to be part of. */
-button:active:not(:disabled):not(.quick-open-item):not(.source-link):not(.compare-menu-row):not(.settings-cat):not(.source-tab) {
-  transform: scale(.97);
-  transition-duration: 90ms;
-}
 button:focus-visible, input:focus-visible, select:focus-visible {
   outline: 2px solid var(--active);
   outline-offset: 1px;
@@ -4916,7 +4907,6 @@ body {
 .rail-btn { border-radius: var(--ui-radius-md); }
 .rail-btn > svg { width: 16px; height: 16px; }
 .rail-btn:hover { transform: translateY(-1px); }
-.rail-btn:active { transform: translateY(0) scale(.96); }
 .rail-tip,
 .mc-button-hint { border-radius: var(--ui-radius-md); box-shadow: var(--ui-shadow-popup); }
 .rail-tip kbd,
@@ -4964,9 +4954,13 @@ summary.tree-focus,
 .diff-tool-button:hover,
 .plain-button:hover,
 .dock-btn:hover { transform: translateY(-1px); }
+/* One press, stated once. The rail already answered a press by settling AND dipping; the three button
+   classes beside it only settled, so the same click felt different depending on which strip it landed in.
+   The dip is what says "that registered" on a control whose hover lift is already gone by then. */
+.rail-btn:active,
 .diff-tool-button:active,
 .plain-button:active,
-.dock-btn:active { transform: translateY(0); }
+.dock-btn:active { transform: translateY(0) scale(.96); }
 .source-tabs {
   align-items: flex-end;
   gap: 1px;
@@ -5366,3 +5360,73 @@ html[data-inlay-hints="off"] .inlay-hint { display: none; }
   text-align: left; cursor: pointer;
 }
 .mc-file-collapsed:hover, .mc-file-collapsed:focus-visible { color: var(--text); border-style: solid; }
+
+/* ===== Scroll-driven reading cues ==========================================================
+   Two questions a reader of a long file keeps asking that this canvas never answered: how far through
+   this file am I, and is there anything above the header I am looking at.
+
+   Both are answered by the scroller itself. `scroll-timeline` publishes a scroller's position as a
+   timeline, and the cues below are animations wound by that timeline instead of by the clock — so there
+   is no scroll listener, no rAF, and nothing on the main thread at all: a scroll-driven animation is
+   evaluated on the compositor. That is the whole reason this is CSS and not four lines of JS. The main
+   thread is exactly what #136-#138 went to clear, and a scroll handler on a 27,000-row file would have
+   put the cost straight back in the place it was taken out of.
+
+   When the content does not overflow its scroller the timeline is INACTIVE, and an animation attached to
+   an inactive timeline simply does not apply. A short diff therefore shows no progress bar at all rather
+   than a full one, and no state is tracked anywhere to make that happen. */
+#diff-view { timeline-scope: --diff-read; }
+#diff2html-container { scroll-timeline: --diff-read block; }
+#source-viewer { timeline-scope: --source-read; }
+#source-body { scroll-timeline: --source-read block; }
+
+#diff-view > .diff-pane-header,
+#source-viewer > .source-toolbar {
+  position: relative;
+  /* The header lifts off the content the moment anything has scrolled under it. 64px is about two rows:
+     far enough that one wheel notch does not flash it, short enough that it is already there by the time
+     the eye comes back up. */
+  animation: header-over-content linear both;
+  animation-range: 0 64px;
+}
+#diff-view > .diff-pane-header { animation-timeline: --diff-read; }
+#source-viewer > .source-toolbar { animation-timeline: --source-read; }
+@keyframes header-over-content {
+  from { box-shadow: 0 0 0 transparent; }
+  to { box-shadow: 0 7px 16px -10px var(--shadow); }
+}
+
+/* The progress hairline sits ON the header's own bottom rule, so it reads as that rule filling in rather
+   than as a second bar competing with it for the same edge. */
+#diff-view > .diff-pane-header::after,
+#source-viewer > .source-toolbar::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  transform: scaleX(0);
+  transform-origin: 0 50%;
+  background: var(--active);
+  opacity: .72;
+  pointer-events: none;
+  animation: read-progress linear both;
+}
+#diff-view > .diff-pane-header::after { animation-timeline: --diff-read; }
+#source-viewer > .source-toolbar::after { animation-timeline: --source-read; }
+@keyframes read-progress { to { transform: scaleX(1); } }
+
+/* Where this file's changes end. Half the canvas is empty whenever a diff is short, and empty reads as
+   unfinished rather than as finished: nothing said the content had ENDED rather than stopped at the
+   bottom of what was rendered. A centred hairline that fades out at both ends is that full stop. It
+   carries no text, so it needs no translation and cannot go stale, and it is drawn on the one file the
+   canvas is showing — a collapsed file has no body to end. */
+#diff2html-container .d2h-file-wrapper.mc-active-diff:not(.file-collapsed)::after {
+  content: "";
+  display: block;
+  height: 1px;
+  width: min(380px, 34%);
+  margin: 30px auto 0;
+  background: linear-gradient(90deg, transparent, var(--border), transparent);
+}
