@@ -1859,12 +1859,27 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
    the default width. Proportional type at a larger size fits more of the name in less room. */
 .tree {
   display: grid;
-  gap: 1px;
+  gap: var(--tree-row-gap);
   font-size: 12.5px;
   font-family: inherit;
   /* One step per nesting level, spelled once. At 14px a file three levels down started past a third of the
      panel; 11px still reads as a level and gives those characters back to the name. */
   --tree-indent: 11px;
+  /* Where level 0's leading mark sits, measured from the row's BORDER edge — the one number both row kinds
+     start from, so a folder and a file at the same depth begin on the same line. They did not: the folder
+     row (<summary>) had 7px and no border, the file row (.file-link) had 8px and a 1px transparent border
+     it was carrying for the focus ring, which put every file icon 2px right of the folder icon above it at
+     the same depth. Three quantities, each off by one, nearly cancelling — which is why it read as a wobble
+     rather than as an indent. The gap from icon to name is deliberately NOT shared; see the measured note
+     on .source-link's column-gap. */
+  --tree-pad: 7px;
+  /* One step of air between rows, and the same step wherever two rows meet. See the note on .tree-dir. */
+  --tree-row-gap: 1px;
+  /* The height of a row. Named because the indent guide has to begin one row below the top of the folder
+     it belongs to, and a guide that started at a different number than the rows are laid out at would
+     drift the first time anyone changed either. Rows are single-line (nowrap + ellipsis), so this is the
+     height, not a minimum that something might exceed. */
+  --tree-row: 24px;
 }
 .tree .path { font-size: inherit; }
 /* Only a LEAF name is split into two boxes, so only a leaf row becomes a flex container. A directory's
@@ -1901,14 +1916,29 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
    Both, then: at least a dozen characters for the type however narrow the row, and half the row when half
    the row is more than that. */
 .tree .path-tail { flex: 0 0 auto; min-width: 0; max-width: max(12ch, 50%); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tree-dir { display: grid; gap: 1px; }
+/* `margin-block: 1px` on the rows themselves (below, with the selection surfaces) produced three different
+   distances from one declaration, because what the step came out to depended on the layout mode of
+   whatever contained the row: 3px between two folders — a grid parent, where margins do not collapse, plus
+   its own 1px gap — 1px between two files, a block parent where they do collapse, and 2px where one kind
+   met the other. A folder row therefore sat 3px below the row above it and 2px above the row below: not
+   grouping air, just a row dropped a pixel inside its own slot. The step is declared once on .tree and
+   applied by the containers, so it no longer matters which of them is a grid — and the rows carry no
+   margin at all, which is why there is nothing here to override. */
+.tree-dir { display: grid; gap: var(--tree-row-gap); }
+.tree .mc-virtual-root > * + *,
+.tree .mc-virtual-children > * + * { margin-top: var(--tree-row-gap); }
+/* A closed folder still reserved the gap under its summary, leaving it 2px from its neighbour where every
+   other pair is 1px. Hiding the empty children box does not help: the grid item is the UA content slot
+   <details> puts around it, which exists whether or not anything is in it. A closed folder has no content
+   row, so it needs no row gap. */
+.tree-dir:not([open]) { gap: 0; }
 .tree-dir summary {
   display: grid;
   grid-template-columns: 14px minmax(0, 1fr);
   align-items: center;
   gap: 4px;
-  min-height: 24px;
-  padding: 1px 5px 1px calc(7px + (var(--depth) * var(--tree-indent)));
+  min-height: var(--tree-row, 24px);
+  padding: 1px 5px 1px calc(var(--tree-base) + (var(--depth) * var(--tree-indent)));
   /* `cursor: default` is the UA default for <summary> and it was simply never overridden, so in one list of
      identically sized 280x24 rows the file rows said "clickable" and the folder rows above them said
      "inert" — while clicking a folder row is the only way to open it. */
@@ -1931,7 +1961,41 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
 .tree-dir > summary .fi-open { display: none; }
 .tree-dir[open] > summary .fi-closed { display: none; }
 .tree-dir[open] > summary .fi-open { display: block; }
-.file-link.tree-file { padding-left: calc(8px + (var(--depth) * var(--tree-indent))); }
+/* An absolutely-positioned box is laid out against its PADDING box, and .file-link's 1px border means that
+   box starts 1px further in than <summary>'s. Each kind therefore names its own base in padding-box terms,
+   and everything that has to line up across the two — the leading mark, and the guides below — is written
+   once against --tree-base instead of being hand-tuned twice. */
+.tree-dir > summary { --tree-base: var(--tree-pad); }
+.tree .file-link { --tree-base: calc(var(--tree-pad) - 1px); }
+.file-link.tree-file { padding-left: calc(var(--tree-base) + (var(--depth) * var(--tree-indent))); }
+/* The tree's own indent guides. Depth here is carried by exactly one thing — how far the row starts in —
+   and past two levels the eye has to measure that distance rather than see it. The code view already draws
+   a hairline per indent level; a tree is the surface where indentation IS the structure, so it gets the
+   same hairline from the same token (--indent-guide, declared with the whitespace tokens below) on the
+   same ladder. Deliberately not tied to the Shift+Alt+I toggle: that row is declared `where: "code"` in
+   shortcuts.ts and gated on isCodeSurfaceVisible(), so it governs code text, not chrome — and it is off by
+   default, which would have meant no tree guides for anyone who never found it.
+
+   Drawn on <details>, which is the one box both trees agree on. The source tree wraps a folder's contents
+   in .mc-virtual-children and the changes tree hangs them straight off the <details>, so a guide hung on
+   that wrapper is a guide the changes tree never gets — the same way a rule written against one tree's
+   markup has diverged here before. <details> spans exactly one folder and its whole subtree in both, so
+   one line down it from below its own summary is continuous by construction: nothing to bridge between
+   rows, and nothing for a hovered or selected row's `background:` shorthand to blank out. A closed folder
+   is one row tall, so its line has no height and never paints. */
+.tree-dir { position: relative; }
+.tree-dir::before {
+  content: "";
+  position: absolute;
+  top: var(--tree-row);
+  bottom: 0;
+  /* +7px: half the 14px icon column, so the line descends through the centre of the folder glyph it
+     belongs to rather than grazing its edge. */
+  left: calc(var(--tree-pad) + (var(--depth, 0) * var(--tree-indent)) + 7px);
+  width: 1px;
+  background: var(--indent-guide);
+  pointer-events: none;
+}
 /* Arrow-key focus in the tree (changes/files) matches the active-file highlight, so navigating the file tree
    reads the same as the diff-side selection. The fill and border are one shared rule with every other
    selection surface — see "selection is one complete neutral surface" in the chrome section below. */
@@ -1951,7 +2015,7 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
      WCAG 2.5.8's floor. The spacing exception does not rescue a stack of full-width rows — vertically
      adjacent centres 18px apart put the 24px circles through each other. It costs 6px of density per row
      on the app's densest surface, which is the trade the floor asks for. */
-  min-height: 24px;
+  min-height: var(--tree-row, 24px);
   padding: 1px 6px;
   text-decoration: none;
   border: 1px solid transparent;
@@ -4921,10 +4985,6 @@ body {
 .settings-cat,
 .quick-open-item,
 .mc-dropdown-item { border-radius: var(--ui-radius-sm); }
-.tree-dir summary,
-.file-link,
-.change-row,
-.source-link { margin-block: 1px; }
 .tree-focus,
 summary.tree-focus,
 .file-link.active,

@@ -866,3 +866,96 @@ test("the source caret is painted out of the flow, so a caret move cannot relayo
   assert.ok(!/(^|,)\s*\.code-cursor\s*\{[^}]*position:\s*absolute/s.test(cssRules),
     "the rule must stay scoped to #source-body — the diff caret has no positioning context of its own");
 });
+
+// A px-only calc() evaluator. The tree's two row kinds reach the same x by different arithmetic, and the
+// only way to guard that they still agree is to do the arithmetic.
+function resolvePx(expr, vars) {
+  let e = String(expr).trim();
+  for (let i = 0; i < 8 && /var\(/.test(e); i += 1) {
+    e = e.replace(/var\(\s*(--[a-z0-9-]+)\s*(?:,[^()]*)?\)/gi, (_, name) => {
+      assert.ok(name in vars, "the ladder may only be built from values this guard knows: " + name);
+      return "(" + vars[name] + ")";
+    });
+  }
+  e = e.replace(/calc\(/g, "(").replace(/px/g, "");
+  assert.match(e, /^[-+*/(). \d]+$/, "the ladder must stay plain arithmetic, not " + e);
+  return Function("return " + e)();
+}
+
+function declarationIn(body, property) {
+  const m = String(body || "").match(new RegExp("(?:^|;)\\s*" + property + "\\s*:\\s*([^;]+)"));
+  return m ? m[1].trim() : null;
+}
+
+test("a folder and a file at the same depth begin on the same line", () => {
+  // They did not. <summary> started at 7px with no border; .file-link started at 8px and carried a 1px
+  // transparent border for its focus ring that nothing subtracted back out, so at every depth a file's
+  // icon sat 2px right of the folder icon above it — close enough to read as a wobble rather than as an
+  // indent, and small enough that three separate off-by-ones hid inside it. Both bases now come off one
+  // declared --tree-pad, and the difference between them is exactly the border, which is the whole claim.
+  const tree = ruleDeclaring(".tree", "--tree-pad");
+  assert.ok(tree, ".tree must declare the ladder");
+  const vars = {
+    "--tree-pad": declarationIn(tree, "--tree-pad"),
+    "--tree-indent": declarationIn(tree, "--tree-indent"),
+  };
+  assert.ok(vars["--tree-pad"] && vars["--tree-indent"], "both halves of the ladder are declared on .tree");
+
+  const dirBase = declarationIn(ruleDeclaring(".tree-dir > summary", "--tree-base"), "--tree-base");
+  const fileBase = declarationIn(ruleDeclaring(".tree .file-link", "--tree-base"), "--tree-base");
+  assert.ok(dirBase && fileBase, "each row kind names its own base in padding-box terms");
+
+  const fileBorder = declarationIn(ruleDeclaring(".file-link", "border:"), "border");
+  assert.ok(fileBorder, ".file-link's border is what the two bases have to differ by");
+  const borderPx = Number(String(fileBorder).match(/([\d.]+)px/)[1]);
+
+  // An absolutely positioned box and a padding edge are both measured from the padding box, so the file
+  // row's base has to give back the border its box already spent.
+  assert.equal(
+    resolvePx(dirBase, vars) - resolvePx(fileBase, vars), borderPx,
+    "the file row's base must be the folder's less its own border, or the two ladders drift apart",
+  );
+
+  // And the step itself is one number, so the ladders cannot diverge further down.
+  for (const depth of [0, 1, 2, 5]) {
+    const at = (base, border) => border + resolvePx(base, { ...vars, "--depth": String(depth) }) + depth * resolvePx(vars["--tree-indent"], vars);
+    assert.equal(at(dirBase, 0), at(fileBase, borderPx), `depth ${depth}: both row kinds start at the same x`);
+  }
+});
+
+test("the tree's indent guide rides the same ladder the rows do", () => {
+  // A guide drawn from its own numbers is a guide that is right until someone moves the rows. It also has
+  // to hang on <details>: the source tree wraps a folder's contents in .mc-virtual-children and the
+  // changes tree does not, so a guide on that wrapper is a guide only one of the two trees ever gets.
+  const guide = ruleDeclaring(".tree-dir::before", "left");
+  assert.ok(guide, "the guide hangs on .tree-dir, the one box both trees have");
+  const left = declarationIn(guide, "left");
+  assert.match(left, /var\(\s*--tree-pad\s*\)/, "it starts from the rows' own base");
+  assert.match(left, /var\(\s*--depth[^)]*\)\s*\*\s*var\(\s*--tree-indent\s*\)/, "and steps by the rows' own step");
+
+  // It begins one row down, from the same number the rows are laid out at — not a copy of it.
+  assert.match(declarationIn(guide, "top") || "", /var\(\s*--tree-row\s*\)/, "the guide starts one declared row down");
+  const rows = [".tree-dir summary", ".file-link"].map((sel) => declarationIn(ruleDeclaring(sel, "min-height"), "min-height"));
+  rows.forEach((value, i) => assert.match(value || "", /var\(\s*--tree-row\b/,
+    `row kind ${i} is laid out at the same declared height the guide starts below`));
+
+  // Painted from the code view's token, so the twelve themes keep one answer for what a guide looks like.
+  assert.match(declarationIn(guide, "background") || "", /var\(\s*--indent-guide\s*\)/,
+    "the tree guide and the code guide are the same ink");
+});
+
+test("every pair of tree rows is one declared step apart", () => {
+  // `margin-block: 1px` on the rows produced three different distances from one declaration, because what
+  // it came out to depended on the layout mode of whatever held the row: 3px between two folders (grid
+  // parent, margins do not collapse, plus its own gap), 1px between two files (block parent, they do), and
+  // 2px where the kinds met. The containers own the step now, so the rows must not carry one.
+  const rowSelectors = /(^|[,}])\s*[^{}]*(\.tree-dir\s*(>\s*)?summary|\.file-link|\.change-row|\.source-link)[^{}]*\{([^}]*)\}/g;
+  const withMargin = Array.from(cssRules.matchAll(rowSelectors))
+    .filter((m) => /(^|;)\s*margin(-block|-top|-bottom)?\s*:\s*(?!0)/.test(m[4]))
+    .map((m) => m[0].slice(0, 90).replace(/\s+/g, " "));
+  assert.deepEqual(withMargin, [], "no tree row may carry vertical margin of its own:\n  " + withMargin.join("\n  "));
+  assert.match(ruleDeclaring(".tree-dir", "gap") || "", /gap:\s*var\(\s*--tree-row-gap\s*\)/,
+    "the folder's own grid uses the declared step");
+  assert.match(cssRules, /\.tree-dir:not\(\[open\]\)\s*\{[^}]*gap:\s*0/,
+    "and a closed folder reserves none: its content row is the UA slot, which exists whether or not it is open");
+});
