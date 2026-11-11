@@ -726,9 +726,71 @@ async function goToSuperDeclaration() {
   var response = await queryProjectAnalysis('supertypes', name, loc);
   if (declinedForRevision(response, name)) return;
   var items = (response && response.locations) || [];
-  if (!items.length) { showSemanticNavigationFailure('supertypes', name, response); return; }
+  // A type hierarchy is about TYPES, and ⌘U is not only about types: IntelliJ's Go to Super answers for
+  // the member under the caret as readily as for the class around it, and a reader standing on an
+  // override is the common case. Asked at a method's position every server here answers nothing, so the
+  // key said "no supertypes" on exactly the line it is most often pressed. Ask the question the server
+  // CAN answer — the owning type's supertypes — and then find the member of that name inside them.
+  if (!items.length) {
+    var inherited = await inheritedMemberLocations(name, loc);
+    if (inherited.length === 1) { openSourceAt(inherited[0].path, inherited[0].lineIndex, inherited[0].column); return; }
+    if (inherited.length > 1) { openAnalysisUsages(name, inherited, response, 'supertypes'); return; }
+    showSemanticNavigationFailure('supertypes', name, response);
+    return;
+  }
   if (items.length === 1) { openSourceAt(items[0].path, items[0].lineIndex, items[0].column); return; }
   openAnalysisUsages(name, items, response, 'supertypes');
+}
+
+/**
+ * The declarations of `name` in the supertypes of whatever declares it here.
+ *
+ * Three steps, each of which the servers do answer: which declaration encloses the caret (the file's own
+ * structure), what that declaration extends (the type hierarchy, asked at the TYPE's position), and where
+ * the same name is declared inside each of those (their structure). Empty whenever any step has nothing,
+ * which is what a free function or a class that extends nothing should produce.
+ */
+async function inheritedMemberLocations(name, loc) {
+  var own = await fileStructureSymbols(loc.path);
+  var line = Number(loc.lineIndex) || 0;
+  var covering = (own.symbols || []).filter(function (one) {
+    var from = Number(one.lineIndex) || 0;
+    var to = Number(one.endLineIndex) || from;
+    return from <= line && line <= to;
+  }).sort(function (a, b) { return (Number(a.depth) || 0) - (Number(b.depth) || 0); });
+  // The member is the innermost declaration over the caret, and its owner is the one outside it. One
+  // entry means the caret is on a top-level declaration, which has no owning type to ask about — and the
+  // type hierarchy has already answered for that case above.
+  if (covering.length < 2) return [];
+  var owner = covering[covering.length - 2];
+  if (!owner || !owner.name) return [];
+  var supers = await queryProjectAnalysis('supertypes', owner.name, {
+    path: loc.path, lineIndex: Number(owner.lineIndex) || 0, column: Number(owner.column) || 0,
+  });
+  var found = [];
+  for (var i = 0; i < ((supers && supers.locations) || []).length && found.length < 8; i += 1) {
+    var base = supers.locations[i];
+    var structure = await fileStructureSymbols(base.path);
+    var baseLine = Number(base.lineIndex) || 0;
+    // The supertype's own extent, read from its file's structure. Bounding by its START alone is not
+    // enough and the fixture says so: one file holding `interface Shape` and two classes implementing it
+    // has three declarations of `area` below Shape's line, and all three came back — including the one
+    // the caret is standing on.
+    var owner = (structure.symbols || []).filter(function (one) {
+      return (Number(one.lineIndex) || 0) <= baseLine && baseLine <= (Number(one.endLineIndex) || Number(one.lineIndex) || 0);
+    }).sort(function (a, b) { return (Number(b.depth) || 0) - (Number(a.depth) || 0); })[0];
+    var from = owner ? Number(owner.lineIndex) || 0 : baseLine;
+    var to = owner ? (Number(owner.endLineIndex) || from) : Infinity;
+    (structure.symbols || []).forEach(function (one) {
+      if (String(one.name || '') !== String(name)) return;
+      var at = Number(one.lineIndex) || 0;
+      if (at <= from || at > to) return;
+      if (!(Number(one.depth) || 0)) return;
+      found.push({ path: base.path, lineIndex: at, column: Number(one.column) || 0,
+        text: String(one.detail || one.name || '') });
+    });
+  }
+  return found;
 }
 
 // ---- the smaller jumps IntelliJ's Navigate menu has ---------------------------------------------------
