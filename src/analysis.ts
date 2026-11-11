@@ -892,23 +892,6 @@ export class ProjectAnalysis {
     });
   }
 
-  // Is this line, in this file, something the regex index also calls a declaration of this symbol?
-  //
-  // That is the test for "the server sent me the real thing" — and its opposite is the test for an
-  // indirection worth following. No declaration pattern in analysis-index.ts matches an `import`, so an
-  // import binding can never answer true here, including the one shape no single-line pattern can see: a
-  // name on its own inside a multi-line `import { … }`.
-  //
-  // An index with no record of the symbol ANYWHERE has no opinion and says yes, so a language the regex
-  // patterns do not cover keeps the server's answer untouched instead of paying a follow-up on every jump.
-  private async isIndexedDeclaration(location: AnalysisLocation, symbol: string): Promise<boolean> {
-    if (!symbol) return true;
-    const index = await this.getIndex();
-    const records = index.definitions.get(symbol) ?? [];
-    if (!records.length) return true;
-    return records.some((record) => record.path === location.path && record.lineIndex === location.lineIndex);
-  }
-
   /**
    * What the caret is on, in prose.
    *
@@ -1040,6 +1023,27 @@ export class ProjectAnalysis {
         // Following a location that really was the declaration is harmless by construction: the server
         // sends back the same place, the filter below drops it, and the original answer stands. The bound
         // is there so a server returning a long list cannot turn one keystroke into a dozen round trips.
+        //
+        // Two things this is NOT allowed to do, both of which it used to:
+        //
+        //   - Ask tsserver for the SOURCE definition. `_typescript.goToSourceDefinition` answers a
+        //     different question — "where is the JavaScript behind this typing" — and for a package that
+        //     ships typings and no readable implementation it answers with the package's entry file,
+        //     line 1. So ⌘B on `app` from `import { app } from "electron"` landed on
+        //     node_modules/electron/index.js:1, a CommonJS launcher shim, while the server had already
+        //     named node_modules/electron/electron.d.ts:26341 — `const app: App;` — correctly. IntelliJ
+        //     has no such step: Go to Declaration goes to the declaration (GtdKt.fromTargetData in
+        //     app-client.jar), and the JS implementation is a different action there too.
+        //
+        //   - Decide whether a target "is a declaration" by looking its NAME up in the project index.
+        //     A library target is in no index, so that test fell through to whether the project happens
+        //     to declare the same name somewhere — and this project has a `const app` in a test file, so
+        //     electron's `app` was thrown away and electron's `BrowserWindow`, which nothing here
+        //     declares, was kept. Navigation that works or not depending on an unrelated file's local
+        //     variable name is not navigation.
+        //
+        // What is left is the case the follow-up was written for, and only that: the binding lives in
+        // the file the question was asked from, so that is the only place worth asking again.
         if (method === "textDocument/definition" && locations.length && locations.length <= 4) {
           const resolved: AnalysisLocation[] = [];
           for (const candidate of locations) {
@@ -1052,14 +1056,10 @@ export class ProjectAnalysis {
             // produce it, and the reader was told the definition could not be found. It is also already
             // the declaration by construction: a class file holds no import binding to follow.
             if (candidate.external) { resolved.push(candidate); continue; }
-            if (await this.isIndexedDeclaration(candidate, symbol)) { resolved.push(candidate); continue; }
-            let followed: AnalysisLocation[] = [];
-            if (client.server.family === "typescript") {
-              try { followed = uniqueLocations(await client.sourceDefinitions(path, line, column)); } catch { /* standard LSP below */ }
-            }
-            if (!followed.length) {
-              followed = uniqueLocations(await client.locations(method, candidate.path, candidate.lineIndex, candidate.column));
-            }
+            if (candidate.path !== path) { resolved.push(candidate); continue; }
+            let followed = uniqueLocations(
+              await client.locations(method, candidate.path, candidate.lineIndex, candidate.column),
+            );
             followed = followed.filter((item) => item.path !== candidate.path || item.lineIndex !== candidate.lineIndex || item.column !== candidate.column);
             resolved.push(...(followed.length ? followed : [candidate]));
           }

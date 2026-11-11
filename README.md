@@ -154,7 +154,7 @@ else's repository behind their back is a worse thing to do than making them type
 | `⌘E` | Recent files — the list on its own, press again to close. Type to filter (Korean typing is read as the QWERTY keys that made it) |
 | `⌥A` / `⌥U` | All changes on the branch / only what is not committed yet |
 | `⌥C` | Choose the branch "all changes" is measured against |
-| `⌘B` or `⌘⌥F7` | Who uses this — the flat list at the caret (IntelliJ's Show Usages) |
+| `⌘⌥F7` | Who uses this — the flat list at the caret (IntelliJ's Show Usages) |
 | `⌥F7` | Find usages — the same answer, grouped by what each usage *is* |
 | `⌘F7` / `⌘⇧F7` | Highlight this symbol everywhere in the open file, writes apart from reads |
 | `⌘⌥↓` / `⌘⌥↑` | Next / previous occurrence of the symbol under the caret |
@@ -198,7 +198,7 @@ else's repository behind their back is a worse thing to do than making them type
 | `⌘U` | Go to the supertype |
 | `F3` / `⌘F3` | Bookmark this line / show every bookmark |
 | `⇧⌥1`…`⇧⌥9` / `⌥1`…`⌥9` | Number this line / go to that number |
-| `⌘↓` / `⌘`-click | Go to definition — including into library code (a dependency, a stdlib module, a bundled type stub, an entry inside a `.phar`, a class a server can decompile for itself), which opens read-only. A definition the server publishes only on the web — Sorbet answers its stdlib with a github.com link — opens in your browser instead. A class in a JDK image reports where it is: reading one needs a decompiler kakapo does not ship, and only Java has a server that decompiles on its own |
+| `⌘B` / `⌘↓` / `⌘`-click | Go to declaration, or its usages when the caret is already on it (IntelliJ's Go to Declaration is one key for both) — including into library code (a dependency, a stdlib module, a bundled type stub, an entry inside a `.phar`, a class a server can decompile for itself), which opens read-only. A definition the server publishes only on the web — Sorbet answers its stdlib with a github.com link — opens in your browser instead. A class in a JDK image reports where it is: reading one needs a decompiler kakapo does not ship, and only Java has a server that decompiles on its own |
 | `⌥F1` | Reveal the open file in the sidebar |
 | `F2` / `⇧F2` | Next / previous problem the language server found |
 | `⌥Enter` | On a flagged line: draft the change request that asks an agent to fix it |
@@ -212,14 +212,14 @@ Settings ▸ Shortcuts lists the rest.
 
 ## Getting around
 
-Most of this is IntelliJ's keymap, because most of it was already: `⌘B` usages, `⌥F7` find usages,
+Most of this is IntelliJ's keymap, because most of it was already: `⌘B` declaration or usages, `⌥F7` find usages,
 `⌘⌥B` implementations, `⌘⌥O` workspace symbols, `⌘E` recent files, `⌘⇧F` find in path, `⌘L` go to line,
 `⌥F1` reveal in the sidebar, `F2`/`⇧F2` next problem, `⌘[`/`⌘]` back and forward, `⌘↓` or `⌘`-click for a
 definition.
 
 What this adds:
 
-**Find usages** (`⌥F7`) — the same answer `⌘B` gives, grouped by what each usage *is*: the imports
+**Find usages** (`⌥F7`) — the same answer `⌘⌥F7` gives, grouped by what each usage *is*: the imports
 together, the writes together, the `extends` clause, the `new`, the type parameters, the lines that only
 mention the name in a comment or a string. Forty references to one symbol is a list you scroll; the same
 forty under eight headings is a list you read, and "which of these forty write to it" is usually the

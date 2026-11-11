@@ -142,9 +142,16 @@ export const SHORTCUTS: ShortcutDef[] = [
   // with the code surface's next/previous symbol and only answers here while the find FIELD has the
   // keyboard — which is the same thing that stops IntelliJ's editor from seeing it.
   { id: "findHistory", keys: ["⌥↓", "⌥↑"], where: "find", i18n: "kbd.findHistory" },
-  // IntelliJ's Show Usages is ⌃⌥F7 and its Declaration or Usages is ⌘B; this popup is the answer to both,
-  // so it answers to both chords rather than being reached by only one of them.
-  { id: "defUsages", keys: ["⌘B", "⌘⌥F7"], where: "code", i18n: "kbd.defUsages" },
+  // IntelliJ's Show Usages (⌃⌥F7, folded to ⌘⌥F7 here): the flat popup of usages at the caret, asked
+  // for outright.
+  //
+  // It used to answer to ⌘B as well, on the reading that "Show Usages" and "Declaration or Usages" are
+  // the same popup under two names. They are not, and the decompiled handler says so outright
+  // (GotoDeclarationOrUsageHandler2 / GtduKt.fromTargetData in app-client.jar): ⌘B shows usages ONLY
+  // when the caret is on a declaration, or on a reference that resolves to nothing. On an ordinary
+  // reference — which is where a reader presses it — it navigates to the declaration. Wiring the usages
+  // popup to ⌘B made the most-used navigation key in the app never navigate.
+  { id: "defUsages", keys: ["⌘⌥F7"], where: "code", i18n: "kbd.defUsages" },
   // IntelliJ's Find Usages: the same answer grouped by what each usage IS, which is the question ⌘B's flat
   // popup cannot take. Its own chord, ⌥F7.
   { id: "findUsages", keys: ["⌥F7"], where: "code", i18n: "kbd.findUsages" },
@@ -199,7 +206,11 @@ export const SHORTCUTS: ShortcutDef[] = [
   // type hierarchy here, because IntelliJ's ⌃H folds onto ⌘H and macOS owns that one (Hide). The whole
   // family is therefore shifted by one, and this is the chord left over.
   { id: "methodHierarchy", keys: ["⌘⇧M"], where: "code", i18n: "kbd.methodHierarchy" },
-  { id: "goToDef", keys: ["⌘↓"], where: "code", i18n: "kbd.goToDef" },
+  // IntelliJ's Go to Declaration, on IntelliJ's own chord — and it is the whole action, not half of it:
+  // on a reference it navigates to the declaration, on the declaration itself it shows the usages, and
+  // several targets open the chooser. ⌘↓ stays as a second key: it is this app's older spelling, and
+  // IntelliJ's own ⌘↓ (EditSource) is a tool-window action with nothing to collide with here.
+  { id: "goToDef", keys: ["⌘B", "⌘↓"], where: "code", i18n: "kbd.goToDef" },
   // IntelliJ's Quick Definition, on both of the chords it answers to there: the definition's own code
   // without going to it, which is the difference from ⌘↓.
   { id: "quickDefinition", keys: ["⌥Space", "⌘Y"], where: "code", i18n: "kbd.quickDefinition" },

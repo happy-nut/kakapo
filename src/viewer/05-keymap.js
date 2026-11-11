@@ -275,7 +275,14 @@ var SHORTCUT_ACTIONS = {
   openPullRequest: function () { return openPullRequestPrompt() ? undefined : false; },
   patchSetStep: function (event, i) { return stepPatchSet(i ? -1 : 1) ? undefined : false; },
   compareRef: function () { openCompareBranchPicker(); },
-  goToDef: function () { if (isSourceViewerVisible()) goToDefinitionUnderCursor(); else openDiffFileAtCaret(); },
+  // ⌘B is IntelliJ's chord and keeps IntelliJ's meaning wherever the caret is, the diff included: the
+  // symbol under it, resolved. ⌘↓ is this app's own second key for the same row and keeps the answer it
+  // has always given in a diff — open the file this row belongs to — which is what a reader wants from a
+  // diff row more often than a jump, and which ⌘-click does not take away because it is semantic too.
+  goToDef: function (event, i) {
+    if (isSourceViewerVisible() || i === 0) goToDefinitionUnderCursor();
+    else openDiffFileAtCaret();
+  },
   quickDefinition: function () {
     if (treeFocusIndex >= 0 || !quickDocPanel()) return false;
     openQuickDefinition();
