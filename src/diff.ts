@@ -651,6 +651,38 @@ function diffStatusVcsMap(diffFiles: DiffFile[]): Map<string, "new" | "edited" |
   return map;
 }
 
+/**
+ * Does `target` still name a commit in this repository?
+ *
+ * Asked only when a blob read has already FAILED, so the happy path pays nothing for it. The two failures
+ * look identical to `git show` and are not the same thing at all: a file that is not in the revision, and
+ * a revision that is not there. Reported as one, every file in the review says "not in the revision being
+ * read" and the review blames each file in turn for something none of them did.
+ *
+ * It happens after a build, not during one — a build against a revision that does not resolve throws and
+ * is reported as a build error. The ref goes away afterwards: a branch deleted or renamed, a
+ * `fetch --prune`, a rebase, or a session restored onto a compare target that has since gone. The diff is
+ * already drawn by then, so the review looks healthy and only the source previews are dead, for good,
+ * with nothing on screen naming the cause.
+ */
+// The revision this review is pinned to is gone. Named, because "a revision" is not something the reader
+// can act on and `origin/feature-x` is: the compare picker (⌥C) is where it gets changed.
+function missingTargetSource(file: SourceFile, target: string): SourceFile {
+  const skippedReason = `revision ${target} is no longer in this repository`;
+  return {
+    ...file, content: "", embedded: false, deferred: false, skippedReason,
+    skippedKind: "missingTarget", skippedDetail: target,
+    signature: hashText(`${file.path}\0missing-revision\0${target}`),
+  };
+}
+
+function revisionExists(root: string, target: string): boolean {
+  const out = spawnSync("git", [...RAW_PATHS, "rev-parse", "--verify", "--quiet", `${target}^{commit}`], {
+    cwd: root, encoding: "utf8",
+  });
+  return out.status === 0;
+}
+
 // Read one file's content from commit `target` (A→B compare) instead of the working tree. Returns a fully
 // materialized SourceFile: image data URI, text content, or a skipped record (absent-in-B / binary / large).
 function readTargetBlobSource(root: string, file: SourceFile, target: string): SourceFile {
@@ -660,6 +692,7 @@ function readTargetBlobSource(root: string, file: SourceFile, target: string): S
   if (previewMime) {
     const out = spawnSync("git", [...RAW_PATHS, "show", "--no-textconv", spec], { cwd: root, encoding: "buffer", maxBuffer: 1024 * 1024 * 50 });
     if (out.status !== 0) {
+      if (!revisionExists(root, target)) return missingTargetSource(file, target);
       const skippedReason = "file is not present in this revision";
       return { ...file, content: "", embedded: false, deferred: false, skippedReason, skippedKind: "missingRevision", signature: hashText(`${file.path}\0missing-target\0${target}`) };
     }
@@ -672,6 +705,7 @@ function readTargetBlobSource(root: string, file: SourceFile, target: string): S
   }
   const out = spawnSync("git", [...RAW_PATHS, "show", "--no-textconv", spec], { cwd: root, encoding: "buffer", maxBuffer: 1024 * 1024 * 50 });
   if (out.status !== 0) {
+    if (!revisionExists(root, target)) return missingTargetSource(file, target);
     const skippedReason = "file is not present in this revision";
     return { ...file, content: "", embedded: false, deferred: false, skippedReason, skippedKind: "missingRevision", signature: hashText(`${file.path}\0missing-target\0${target}`) };
   }
