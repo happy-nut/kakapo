@@ -128,6 +128,24 @@ for (const pair of PAIRS) {
   test(`${pair.name} leaves nothing behind when it closes`, async () => {
     const v = await loadViewer(html);
     try {
+      // The page has to be done arriving before anything is counted.
+      //
+      // The boot overlay takes itself down on a TIMER, not on anything this test does: two rAFs after
+      // first paint it fades, and 240ms after that `ov.remove()` takes `#boot-overlay` and the two nodes
+      // inside it off the document (05-keymap.js). loadViewer returns well before that, so those three
+      // nodes were present when a pair read `before` and gone when it read `after` — and the overlay
+      // under test was blamed for them.
+      //
+      // That is the whole of the flake this file had: `nodes 1570→1567 (-3 over 5 cycles)`, always
+      // exactly -3, on whichever pair happened to be cycling as the timer fired, so a different test
+      // failed on every run and a run where the timer landed outside every window passed completely.
+      // Measured directly rather than guessed: counting the document with no overlay touched at all
+      // showed 1570→1567 at ~200ms, losing `DIV#boot-overlay.hide`, `SPAN.kakapo-loader` and
+      // `SPAN.kakapo-mark`.
+      await v.until(() => !v.window.document.getElementById("boot-overlay"));
+      assert.equal(v.window.document.getElementById("boot-overlay"), null,
+        "the boot overlay is down before the first count — otherwise its three nodes land on this overlay");
+
       const read = instrument(v.window);
 
       // Warm-up cycle: absorbs whatever this overlay builds once and keeps.
