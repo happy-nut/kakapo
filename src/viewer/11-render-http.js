@@ -8,7 +8,15 @@
 // not know, because an English explanation beats no explanation.
 function skippedReasonText(file) {
   var kind = file && file.skippedKind;
-  if (kind) return t('source.skipped.' + kind);
+  if (kind) {
+    // One kind carries a detail: the revision that went away. A reason naming it is the difference
+    // between something the reader can act on and a sentence about "a revision". `{detail}` is
+    // substituted here rather than in the string, so a translation that drops the placeholder still
+    // reads as a sentence instead of printing it.
+    var text = t('source.skipped.' + kind);
+    var detail = file && file.skippedDetail;
+    return detail ? text.replace('{detail}', detail) : text.replace(/\s*\(\{detail\}\)/, '');
+  }
   return String((file && file.skippedReason) || '') || t('source.skipped.notEmbedded');
 }
 function openSourceFile(path, shouldSwitch = true, options) {

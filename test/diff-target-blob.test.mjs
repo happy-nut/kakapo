@@ -58,3 +58,40 @@ test("the A→B read reports a size in bytes, as the budget it is checked agains
     assert.equal(fromB.size, Buffer.byteLength(text, "utf8"), "bytes, not characters");
   } finally { r.cleanup(); }
 });
+
+// "The file is not in this revision" and "that revision is not here any more" look identical to
+// `git show`, and reporting them as one blamed every file in the review for something none of them did:
+// every source preview read "not in the revision being read", for good, with nothing naming the cause.
+//
+// It is reachable because the check happens at two different times. A BUILD against a revision that does
+// not resolve throws and is reported as a build error; the reads happen later, one per file the reader
+// opens. Between the two, the ref can go: a branch deleted or renamed, a `fetch --prune`, a rebase, or a
+// session restored onto a compare target that has since disappeared. The diff is already drawn by then,
+// so the review looks healthy and only the previews are dead.
+test("a revision that has gone is reported as that, not as every file being absent", () => {
+  const { root, git, cleanup } = repo();
+  try {
+    writeFileSync(join(root, "kept.ts"), "export const kept = 1;\n");
+    git("add", "-A");
+    git("commit", "-qm", "first");
+
+    // Both halves of the distinction, against the SAME file.
+    const present = materializeDeferredSourceFile(root, deferred("kept.ts"), "HEAD");
+    assert.equal(present.embedded, true, "a file that is in the revision still reads");
+
+    const absent = materializeDeferredSourceFile(root, deferred("never-existed.ts"), "HEAD");
+    assert.equal(absent.skippedKind, "missingRevision",
+      "a file genuinely not in a revision that EXISTS still says so");
+
+    const gone = materializeDeferredSourceFile(root, deferred("kept.ts"), "origin/branch-that-is-gone");
+    assert.equal(gone.skippedKind, "missingTarget", "a revision that does not resolve is its own answer");
+    assert.equal(gone.skippedDetail, "origin/branch-that-is-gone",
+      "…and names the revision, because that is the part the reader can act on");
+
+    // A sha that is well-formed and simply not here takes the same path as a named ref.
+    const deadSha = materializeDeferredSourceFile(root, deferred("kept.ts"), "0".repeat(40));
+    assert.equal(deadSha.skippedKind, "missingTarget");
+  } finally {
+    cleanup();
+  }
+});
