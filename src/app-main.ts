@@ -107,6 +107,11 @@ type WinState = Omit<CommentsIpcState, "win" | "options"> & {
   bootStarted: boolean;
   perf: ReviewPerformanceTrace; // local startup/analysis evidence under this workspace's app-data mirror
   lastDiffSig: string; // watch fast-path: hash of the last git diff, to skip rebuilds when unchanged
+  // When this workspace was last in front. `isVisibleWorkspace` only asks whether a window is
+  // MINIMIZED, and on macOS almost nobody minimizes — they put another window over the top. So four
+  // workspaces left open all count as visible for ever, never idle-suspend, and each keeps a fleet.
+  // This is the honest notion of cold, and the global budget below spends it.
+  lastFocusedAt: number;
   compareTip: boolean; // compare against compareRef's TIP rather than its merge-base with HEAD (⌥T)
   reviewBase?: string; // exact base used by the latest build (may be an automatic upstream merge-base)
   reviewTarget?: string; // exact right/new side revision for an A→B compare (undefined = working tree)
@@ -1055,29 +1060,88 @@ function buildApplicationMenu(): void {
 // the machine paying a gigabyte. JVM families are exempt — the Kotlin server is 1.3 GB when HEALTHY, and
 // trading its restart for memory is a known bad deal (75s startup grace in lsp.ts).
 const LSP_FLEET_BUDGET_MB = 900;
+// ...and a ceiling on ALL of them together. The per-window budget bounds one runaway fleet and nothing
+// bounds their sum: every workspace gets its own allowance, so N windows may hold N × 900 MB and the
+// machine-wide figure is whatever the reader happens to have open. Measured on this machine, one warm
+// TypeScript workspace costs ~1.0 GB of physical footprint all in (GPU 358, fleet 453, renderer 88, main
+// 114); a Python one reaches 1-2 GB of pyright alone and a Kotlin one 1.75 GB of JVM. Four of those is
+// the ten gigabytes this was reported at.
+//
+// Spent on the COLDEST workspaces first and never on the one in front: the worst this can do is make the
+// reader wait for a warmup when they return to a window they left, which is what the 30-minute idle
+// suspend already does — this just triggers on pressure instead of on time.
+const LSP_TOTAL_BUDGET_MB = 2400;
 const LSP_WATCHDOG_MS = 5 * 60_000;
 const LSP_WEIGHT_EXEMPT_FAMILIES = new Set(["kotlin"]);
+
+// Give a window's language servers back. Visible windows get a fresh fleet immediately so the next hover
+// pays a warmup rather than the machine paying a gigabyte; a hidden one is simply suspended, and the
+// restore path rebuilds it exactly as the idle suspend's does.
+function recycleFleet(state: WinState, why: string): void {
+  console.log(`kakapo: language servers for ${state.options.root} ${why} — recycling the fleet`);
+  state.analysis.dispose();
+  if (isVisibleWorkspace(state)) {
+    state.analysis = makeAnalysis(state.options.root, () => state);
+    scheduleAnalysisPrewarm(state);
+  } else {
+    state.analysisSuspended = true;
+  }
+}
+
 function watchLspWeight(): void {
+  const fleets: { state: WinState; pids: number[]; weighed: number[] }[] = [];
   for (const state of states.values()) {
     if (state.win.isDestroyed() || state.analysisSuspended) continue;
-    const pids = state.analysis.serverPids()
-      .filter(({ family }) => !LSP_WEIGHT_EXEMPT_FAMILIES.has(family))
-      .map(({ pid }) => pid);
-    if (!pids.length) continue;
-    execFile("ps", ["-o", "rss=", "-p", pids.join(",")], { encoding: "utf8" }, (error, stdout) => {
-      if (error && !stdout) return; // ps exits non-zero when some pids are already gone; partial output still counts
-      const mb = String(stdout ?? "").split("\n").reduce((sum, line) => sum + (Number(line.trim()) || 0), 0) / 1024;
-      if (mb < LSP_FLEET_BUDGET_MB) return;
-      console.log(`kakapo: language servers for ${state.options.root} hit ${Math.round(mb)}MB — recycling the fleet`);
-      state.analysis.dispose();
-      if (isVisibleWorkspace(state)) {
-        state.analysis = makeAnalysis(state.options.root, () => state);
-        scheduleAnalysisPrewarm(state);
-      } else {
-        state.analysisSuspended = true; // the next restore rebuilds it, exactly like the idle suspend
-      }
+    const servers = state.analysis.serverPids();
+    if (!servers.length) continue;
+    fleets.push({
+      state,
+      pids: servers.map(({ pid }) => pid),
+      // A JVM server is 1.3 GB when it is perfectly healthy, and trading its restart for memory is a known
+      // bad deal (75s startup grace in lsp.ts) — so it stays out of the PER-WINDOW check. It is still part
+      // of what the machine is carrying, so it counts towards the total below, where only a workspace the
+      // reader has left can be spent.
+      weighed: servers.filter(({ family }) => !LSP_WEIGHT_EXEMPT_FAMILIES.has(family)).map(({ pid }) => pid),
     });
   }
+  if (!fleets.length) return;
+  const everyPid = [...new Set(fleets.flatMap((fleet) => fleet.pids))];
+  // One `ps` for every fleet rather than one per window: this runs every five minutes forever, and the
+  // decision below needs them measured together anyway.
+  execFile("ps", ["-o", "pid=,rss=", "-p", everyPid.join(",")], { encoding: "utf8" }, (error, stdout) => {
+    if (error && !stdout) return; // ps exits non-zero when some pids are already gone; partial output still counts
+    const mbByPid = new Map<number, number>();
+    for (const line of String(stdout ?? "").split("\n")) {
+      const [pid, rss] = line.trim().split(/\s+/).map(Number);
+      if (Number.isFinite(pid) && Number.isFinite(rss)) mbByPid.set(pid, rss / 1024);
+    }
+    const sum = (pids: number[]) => pids.reduce((total, pid) => total + (mbByPid.get(pid) ?? 0), 0);
+    const live = fleets.filter((fleet) => !fleet.state.win.isDestroyed() && !fleet.state.analysisSuspended);
+
+    // One runaway fleet, as before.
+    const remaining: typeof live = [];
+    for (const fleet of live) {
+      if (sum(fleet.weighed) >= LSP_FLEET_BUDGET_MB) recycleFleet(fleet.state, `hit ${Math.round(sum(fleet.weighed))}MB`);
+      else remaining.push(fleet);
+    }
+
+    // ...then the sum of what is left. Coldest first, and never the one most recently in front — read from
+    // lastFocusedAt rather than asking the window, because ReviewSurface is the narrow contract the tests
+    // fake and widening it would make every fake implement a method only this line wants.
+    let total = remaining.reduce((mb, fleet) => mb + sum(fleet.pids), 0);
+    if (total < LSP_TOTAL_BUDGET_MB) return;
+    const inFront = remaining.reduce<typeof remaining[number] | undefined>(
+      (newest, fleet) => (!newest || fleet.state.lastFocusedAt > newest.state.lastFocusedAt ? fleet : newest), undefined);
+    const coldestFirst = remaining
+      .filter((fleet) => fleet !== inFront)
+      .sort((a, b) => a.state.lastFocusedAt - b.state.lastFocusedAt);
+    for (const fleet of coldestFirst) {
+      if (total < LSP_TOTAL_BUDGET_MB) break;
+      const mb = sum(fleet.pids);
+      recycleFleet(fleet.state, `cold, and all fleets together held ${Math.round(total)}MB`);
+      total -= mb;
+    }
+  });
 }
 
 // A window's project analysis relays LSP status to that window's renderer (the analysis-status indicator) and
@@ -1155,6 +1219,7 @@ function createWindow(root: string, explicitRoot = true): WinState {
     buildSeq: 0,
     perf,
     lastDiffSig: "",
+    lastFocusedAt: Date.now(), // a window opens in front; the focus handler keeps it current
     compareTip: false,
     reviewBase: undefined,
     reviewUpstream: undefined,
@@ -1219,6 +1284,7 @@ function createWindow(root: string, explicitRoot = true): WinState {
     win.maximize();
     win.show();
   });
+  win.on("focus", () => { state.lastFocusedAt = Date.now(); });
   win.on("closed", () => {
     clearWatchTimers(state);
     if (state.analysisWarmTimer) clearTimeout(state.analysisWarmTimer);
