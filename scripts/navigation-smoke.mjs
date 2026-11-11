@@ -397,6 +397,39 @@ async function run() {
     await page.shot("hierarchy");
     check("⌘⇧Y lists the real callers", hierarchy.rows.length > 0, `${hierarchy.label} | ${JSON.stringify(hierarchy.rows)}`);
 
+    // ---- ⌘B: Go to Declaration, or its usages when the caret is on it ---------------------------
+    // IntelliJ's one key, and the whole of it. It used to be wired to the usages popup outright, so on a
+    // reference — which is where a reader presses it — it never navigated: it offered the list of places
+    // the symbol is used and left the caret where it was. The decompiled handler
+    // (GotoDeclarationOrUsageHandler2 → GtduKt.fromTargetData) picks between the two by what is under the
+    // caret, so both halves are checked here, with a real server answering.
+    await page.key("Escape", "Escape", 27, 0);
+    await page.evaluate(`(() => { openSourceFile('src/store.ts'); return true; })()`);
+    await sleep(400);
+    await page.evaluate(`(() => { setSourceCursor('src/store.ts', 13, 29, true, -1); return true; })()`); // `Store` in makeStore's return type
+    await page.key("b", "KeyB", 66, 4);
+    await sleep(1500);
+    const declarationJump = await page.evaluate(`caretLocation()`);
+    check("⌘B on a reference goes to the declaration", declarationJump === "src/store.ts:1", declarationJump);
+
+    await page.key("Escape", "Escape", 27, 0);
+    await page.evaluate(`(() => { setSourceCursor('src/store.ts', 0, 13, true, -1); return true; })()`); // on `Store` itself
+    await page.key("b", "KeyB", 66, 4);
+    await sleep(1800);
+    const onDeclaration = await page.evaluate(`(() => {
+      const panel = document.getElementById('semantic-peek');
+      return {
+        open: Boolean(panel) && getComputedStyle(panel).display !== 'none' && !panel.classList.contains('hidden'),
+        rows: Array.from(document.querySelectorAll('#semantic-peek-results .semantic-peek-item')).filter((r) => r.getBoundingClientRect().height > 0).length,
+        title: String((document.getElementById('semantic-peek-title') || {}).textContent || ''),
+        caret: caretLocation(),
+      };
+    })()`);
+    await page.shot("declaration-or-usages");
+    check("⌘B on the declaration shows its usages instead",
+      onDeclaration.open === true && onDeclaration.rows > 0 && onDeclaration.caret === "src/store.ts:1",
+      JSON.stringify(onDeclaration));
+
     // ---- ⌥F7: the usage view, from the real server ----------------------------------------------
     await page.key("Escape", "Escape", 27, 0);
     await page.evaluate(`(() => { openSourceFile('src/store.ts'); return true; })()`);

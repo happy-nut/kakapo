@@ -112,17 +112,17 @@ test("one row and all rows can be put back", async () => {
 
   // Any combination the table does not already hold will do — ⌘⌥J is one (⌘⌥B and ⌘⌥O are not).
   rebind(v, "openHistory", 0, { key: "j", code: "KeyJ", metaKey: true, altKey: true });
-  rebind(v, "defUsages", 0, { key: "u", code: "KeyU", metaKey: true, altKey: true });
+  rebind(v, "goToDef", 0, { key: "u", code: "KeyU", metaKey: true, altKey: true });
   assert.deepEqual(chipsOf(rowFor(v, "openHistory")), ["⌘⌥J"]);
-  // defUsages answers to two chords (⌘B and IntelliJ's ⌘⌥F7), and only the one that was rebound moves.
-  assert.deepEqual(chipsOf(rowFor(v, "defUsages")), ["⌘⌥U", "⌘⌥F7"]);
+  // goToDef answers to two chords (IntelliJ's ⌘B and this app's older ⌘↓), and only the rebound one moves.
+  assert.deepEqual(chipsOf(rowFor(v, "goToDef")), ["⌘⌥U", "⌘↓"]);
 
   v.click(rowFor(v, "openHistory").querySelector(".keys-reset"));
   assert.deepEqual(chipsOf(rowFor(v, "openHistory")), ["⌘9"], "that row is back to the default");
-  assert.deepEqual(chipsOf(rowFor(v, "defUsages")), ["⌘⌥U", "⌘⌥F7"], "the other one is untouched");
+  assert.deepEqual(chipsOf(rowFor(v, "goToDef")), ["⌘⌥U", "⌘↓"], "the other one is untouched");
 
   v.click(v.$("#settings-kbd-reset-all"));
-  assert.deepEqual(chipsOf(rowFor(v, "defUsages")), ["⌘B", "⌘⌥F7"], "and reset-all puts every row back");
+  assert.deepEqual(chipsOf(rowFor(v, "goToDef")), ["⌘B", "⌘↓"], "and reset-all puts every row back");
   assert.equal(v.$(".keys-row-custom"), null, "nothing is marked as changed any more");
   v.close();
 });

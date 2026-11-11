@@ -1302,16 +1302,6 @@ export class LspClient {
     return normalizeHoverResult(result);
   }
 
-  async sourceDefinitions(path: string, lineIndex: number, column: number): Promise<AnalysisLocation[]> {
-    await this.ensureDocument(path);
-    const uri = pathToFileURL(resolve(this.root, path)).href;
-    const result = await this.request("workspace/executeCommand", {
-      command: "_typescript.goToSourceDefinition",
-      arguments: [uri, { line: Math.max(0, lineIndex), character: Math.max(0, column) }],
-    });
-    return normalizeLocationResult(result, this.root);
-  }
-
   /**
    * The text behind a non-file definition target — a class in a dependency jar, a class in the JDK image.
    *

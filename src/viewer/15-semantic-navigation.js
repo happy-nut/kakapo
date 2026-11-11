@@ -23,14 +23,21 @@ function wordAtCursor() {
 function symbolUnderCursor() {
   return isSourceViewerVisible() ? wordAtCursor() : symbolAtDiffCaret();
 }
-// ⌘↓ and ⌘-click: go to the definition. Landing on the declaration itself is the one case where the
-// definition is not the answer, so that shows who uses it instead (same as IntelliJ).
+// ⌘B, ⌘↓ and ⌘-click: IntelliJ's Go to Declaration, which is one action with two outcomes rather than
+// two actions. On a reference it navigates to the declaration; standing on the declaration itself it
+// shows who uses it, because there is nowhere to go. The decompiled handler picks between them exactly
+// here — GtduKt.fromTargetData: a resolvable REFERENCE gives GTD (navigate), a DECLARATION gives SU
+// (show usages) — and several targets open the chooser instead of guessing.
+//
+// ⌘B was wired to the usages popup until this was read rather than assumed, so the key a reader reaches
+// for first never navigated at all.
 function goToDefinitionUnderCursor() {
   const symbol = symbolUnderCursor();
   if (symbol) goToDefOrUsages(symbol.name, symbol);
   else showSemanticNavigationFailure('symbol');
 }
-// ⌘B: who uses this, always — never a jump to the declaration.
+// ⌘⌥F7: IntelliJ's Show Usages — who uses this, always, asked for outright. Not ⌘B, which answers this
+// only when there is nowhere to go (above).
 function findUsagesUnderCursor() {
   const symbol = symbolUnderCursor();
   if (symbol) findUsagesOf(symbol.name, symbol);
