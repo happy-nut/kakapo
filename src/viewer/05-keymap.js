@@ -382,6 +382,10 @@ var SHORTCUT_ACTIONS = {
     if (treeFocusIndex >= 0 || isFloatingModalOpen()) return false;
     return extendShrinkSelection(i === 0) ? undefined : false;
   },
+  endpointsView: function () {
+    if (treeFocusIndex >= 0) return false;
+    return openEndpoints() ? undefined : false;
+  },
   recentLocations: function () { return openRecentLocations() ? undefined : false; },
   // ⌘P is the file list on its own; ⇧⇧ is the All tab — one list merging recent files, files, symbols
   // and actions, with the tab strip beside it. That is what Search Everywhere is: the strip is a tab

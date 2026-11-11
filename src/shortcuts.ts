@@ -92,6 +92,10 @@ export const SHORTCUTS: ShortcutDef[] = [
   // IntelliJ's Problems tool window, on its own chord. The diagnostics were always here; what was missing
   // was asking about more than the one file on screen.
   { id: "problemsView", keys: ["⌘6"], where: "any", i18n: "kbd.problemsView" },
+  // IntelliJ Ultimate's Endpoints tool window, which has no chord of its own there — it is opened from
+  // View ▸ Tool Windows, or by name. So this digit is this app's choice, and it is the next one along in
+  // the tool-window family the table already keeps: ⌘1 Files, ⌘2 Changes, ⌘6 Problems, ⌘9 History.
+  { id: "endpointsView", keys: ["⌘7"], where: "any", i18n: "kbd.endpointsView" },
   // Quick Documentation (F1 on IntelliJ's own Mac keymap) and Expression Type (⌃⇧P). One `textDocument/
   // hover` answers both — this app asked the server eight questions and none of them was "what IS this".
   { id: "quickDoc", keys: ["F1"], where: "code", i18n: "kbd.quickDoc" },
@@ -396,7 +400,7 @@ export const SHORTCUT_GROUPS: { i18n: string; ids: string[] }[] = [
   ] },
   { i18n: "settings.kbd.cat.nav", ids: [
     "nextChange", "prevChange", "nextComment", "gotoDiagnostic", "errorDescription", "problemsView",
-    "quickDoc", "expressionType", "filesChangesTab",
+    "quickDoc", "expressionType", "endpointsView", "filesChangesTab",
     "sidebarNavigate", "sidebarContent", "findInFile", "findNextPrev", "findEnter", "findInFiles", "recentFiles",
     "searchExtensions", "excludeSearchNoise", "searchMatchCase", "searchWholeWords", "searchRegex", "searchScope",
     "findInSelection", "searchChangesOnly", "findHistory",

@@ -651,6 +651,9 @@ function applyDiffUpdate(u) {
     sourceFilesMeta: sourceFiles,
   };
   pruneCommentsForMissingFiles();
+  // The endpoint list was read off the index that was just replaced: a route added, moved or deleted in
+  // this build would otherwise keep showing at its old address until the window was reopened.
+  resetEndpoints();
   if (filesPanel && filesPanel.dataset.projectIndex === 'loaded' && REVIEW_LAZY_LOAD) renderDeferredSourceTree(sourceFiles);
   httpEnvironments = u.httpEnvironments || {};
   httpEnvNames = Object.keys(httpEnvironments);
