@@ -195,7 +195,7 @@ else's repository behind their back is a worse thing to do than making them type
 | `⌥Space` / `⌘Y` | Quick definition — the code, without going there |
 | `⌘⇧T` | This file's test, or back to what it tests |
 | `⌘⇧Y` / `⌘⇧H` / `⌘⇧M` | Call / type / method hierarchy — press again for the other direction |
-| `⌘U` | Go to the supertype |
+| `⌘U` | Go to the supertype — or, on a member, to the one it overrides |
 | `F3` / `⌘F3` | Bookmark this line / show every bookmark |
 | `⇧⌥1`…`⇧⌥9` / `⌥1`…`⌥9` | Number this line / go to that number |
 | `⌘B` / `⌘↓` / `⌘`-click | Go to declaration, or its usages when the caret is already on it (IntelliJ's Go to Declaration is one key for both) — including into library code (a dependency, a stdlib module, a bundled type stub, an entry inside a `.phar`, a class a server can decompile for itself), which opens read-only. A definition the server publishes only on the web — Sorbet answers its stdlib with a github.com link — opens in your browser instead. A class in a JDK image reports where it is: reading one needs a decompiler kakapo does not ship, and only Java has a server that decompiles on its own |
