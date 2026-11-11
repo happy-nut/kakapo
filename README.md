@@ -181,6 +181,7 @@ else's repository behind their back is a worse thing to do than making them type
 | `F1` | Quick documentation for the symbol under the caret |
 | `⌘⇧P` | The type of the expression under the caret |
 | `⌘F1` | The full message of the problem on this line |
+| `⌘7` | Endpoints — every HTTP route this project declares |
 | `⌘6` | Problems — everything the language servers found in this project, the review's own files first |
 | `⌘⇧B` | Go to the declaration of this thing's **type** |
 | `⌘F12` | This file's structure — filter, then jump |
@@ -326,6 +327,21 @@ modifiers in the page.
 type (names only, as IntelliJ matches, and a query typed with a Korean layout still on is read as the keys
 that made it). `Enter` lands on the symbol's name. The language server answers it; where there is no server
 for the language, the same declaration index that backs Find Usages does, labelled as the heuristic it is.
+
+**Endpoints** (`⌘7`) — every HTTP route the project declares, with the method, the full address and the
+framework that declares it; type to filter by any of those or by file, `Enter` to jump to the declaration,
+`⌘C` to copy it as a request. This is IntelliJ **Ultimate's** Endpoints tool window, and it is sourced
+differently from the rest of the ports here: Ultimate is closed and the behaviour comes from JetBrains'
+documentation, while the detection comes from each framework's own API — Express, FastAPI, Flask, Django, Spring, JAX-RS, Micronaut, Ktor, NestJS, Next.js, SvelteKit, Remix, Go, Rails, ASP.NET and gRPC.
+Three of those declare the address in the PATH OF THE FILE rather than in a call inside it (Next.js,
+SvelteKit, Remix), which no line pattern can see, so those are read from the file's own place in the tree. A controller's base path is part of the address, so a `@PostMapping` under
+`@RequestMapping("/transfers")` reads as `POST /transfers` rather than as half of one, and a deprecated
+endpoint is struck through as Ultimate draws it.
+
+It is a heuristic and says so: no language server reports routes, so this reads the same indexed lines
+that answer Go to Definition when no server does. Every row carries the file and line it was read from,
+which is the thing that makes a heuristic checkable. The request `⌘C` writes pairs with the HTTP client
+already here — paste it into a `.http` file and `⌘Enter` runs it.
 
 **Extend / shrink selection** (`⌥↑` / `⌥↓`) — IntelliJ's, on the chords its own Mac keymap gives them.
 Each press grows the selection to the next construct that encloses the caret — the word, the argument,

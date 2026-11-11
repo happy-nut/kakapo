@@ -149,7 +149,7 @@ export function languageForPath(path: string): string {
   return extra ?? "text";
 }
 
-function extensionOf(lowerPath: string): string {
+export function extensionOf(lowerPath: string): string {
   const base = lowerPath.slice(lowerPath.lastIndexOf("/") + 1);
   const dot = base.lastIndexOf(".");
   return dot > 0 ? base.slice(dot + 1) : "";

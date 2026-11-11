@@ -37,6 +37,8 @@ import {
   type SymbolRecord,
 } from "./analysis-index.js";
 export { buildRegexSymbolIndex } from "./analysis-index.js";
+import { collectEndpoints, type Endpoint } from "./endpoints.js";
+export type { Endpoint } from "./endpoints.js";
 export type AnalysisKind =
   | "definition"
   | "references"
@@ -72,6 +74,10 @@ export type AnalysisKind =
   // along and Shrink Selection (⌥↓) walks back down. A position question like the four above, but its
   // answer is a CHAIN rather than a place to go, so it is answered in `selection`.
   | "selectionRange"
+  // Every HTTP endpoint the project declares — IntelliJ Ultimate's Endpoints tool window. Answered in
+  // `endpoints`, off the same regex index that answers workspace symbols when no server does, because no
+  // language server reports routes: what declares one is a framework's own API, not the language's.
+  | "endpoints"
   // What the server would write above a declaration and inside a line — IntelliJ's Code Vision and its
   // inlay hints. Decoration, not navigation: answered in `lenses` / `hints`.
   | "codeLens"
@@ -124,6 +130,8 @@ export type AnalysisResponse = {
   folds?: AnalysisFoldingRange[];
   /** Only for kind "selectionRange": the constructs around the caret, innermost first. */
   selection?: AnalysisSelectionRange[];
+  /** Only for kind "endpoints": every route the project declares, in reading order. */
+  endpoints?: Endpoint[];
   /** Only for kind "documentHighlight", each occurrence labelled read / write / neither. */
   highlights?: AnalysisHighlight[];
   /** Only for kind "codeLens": one entry per declaration the server has something to say about. */
@@ -569,6 +577,9 @@ export class ProjectAnalysis {
     }
     try {
       if (request.kind === "workspaceSymbol") return await this.workspaceSymbols(path, request.query ?? request.symbol ?? "", request.limit, request.types === true);
+      // Project-wide, like workspaceSymbol — it needs no path, and asking for one would make the list
+      // unavailable until a file happened to be open.
+      if (request.kind === "endpoints") return await this.projectEndpoints();
       if (!path) return { ok: false, engine: "index", confidence: "heuristic", locations: [], revision, error: "A project-relative source path is required" };
       // A file's structure is about the file, not about a position in it, so it skips symbolContext (which
       // exists to work out what the caret is on) and has its own index fallback.
@@ -1281,6 +1292,24 @@ export class ProjectAnalysis {
       if (this.transportFailure(error)) this.quarantine(client, error);
       return { ok: true, engine: "index", confidence: "heuristic", locations: [], fallbackReason: errorMessage(error) };
     }
+  }
+
+  /**
+   * Every endpoint the project declares.
+   *
+   * Read off the regex index, which already holds each file's text and its masked form — so this costs a
+   * scan of what is in memory and never touches the disk. Heuristic by construction and labelled as such:
+   * no language server reports routes, and the frameworks' own shapes are what a reader would grep for.
+   */
+  private async projectEndpoints(): Promise<AnalysisResult> {
+    const index = await this.getIndex();
+    const files = [...index.files].map(([path, content]) => ({
+      path, content, codeLines: index.codeLines.get(path),
+    }));
+    return {
+      ok: true, engine: "index", confidence: "heuristic", locations: [],
+      endpoints: collectEndpoints(files),
+    };
   }
 
   private async documentSymbols(path: string, onRevision: boolean): Promise<AnalysisResult> {
