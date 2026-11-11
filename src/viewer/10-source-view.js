@@ -152,7 +152,11 @@ function selectedSourceRows(selection) {
 function stripLineNumberGutter(line, row) {
   if (!row) return line;
   const cell = row.querySelector('.source-code');
-  const code = cell ? cell.textContent.replace(/\u200b/g, '') : '';
+  // The cell's OWN text. Read with textContent it also carried the inlay labels, and a label sits INSIDE
+  // the line \u2014 so `code.includes(line.trim())` was false on every hinted line and the guard this function
+  // exists to be fell through to the regex below. On the very line the comment names, `3 4 5` with a hint
+  // on it, copying gave `4 5`: the wrong answer this was written to prevent, reached by another door.
+  const code = sourceCellText(cell).replace(/\u200b/g, '');
   // Whatever the row's own code cell already accounts for IS code, gutter or no gutter.
   if (code && code.includes(line.trim())) return line;
   // Otherwise there is something in front of the code, and the code is the part to keep \u2014 taking it
@@ -701,10 +705,10 @@ function estimateColumnFromClick(codeCell, event, line) {
     }
     if (point && codeCell.contains(point.offsetNode)) {
       try {
-        var prefix = document.createRange();
-        prefix.selectNodeContents(codeCell);
-        prefix.setEnd(point.offsetNode, point.offset);
-        return Math.max(0, Math.min(line.length, prefix.toString().length));
+        // Measured through the shared walk, not with a Range over the cell: a Range's text includes the
+        // inlay labels drawn into the line, so a click past one reported a column that far too large.
+        return Math.max(0, Math.min(line.length,
+          sourceTextLengthBefore(codeCell, point.offsetNode, point.offset)));
       } catch (e) {}
     }
   }
@@ -1262,11 +1266,55 @@ function applySourceSelection() {
   }
 }
 
+/**
+ * A walk over a code cell's OWN text — the line as it is on disk — skipping what the app drew into it.
+ *
+ * An inlay hint is a span of text the SERVER suggested, sitting inside the line's markup; it is not part
+ * of the line, and anything converting between a column and a DOM point has to agree about that or it
+ * drifts by the length of every label before the point. `insertInlayHint` (16-reading-modes.js) knew
+ * this and filtered; `caretDomPosition` and the wrapped-line click did not, so on a line carrying
+ * `...values: ` every selection and every click past it landed eleven characters early — ⌥↑ on
+ * `startLine` selected `Math.trun`. One rule, read by all three, rather than the fact living in the one
+ * place that happened to be written first.
+ */
+function sourceTextWalker(cell) {
+  return document.createTreeWalker(cell, NodeFilter.SHOW_TEXT, {
+    acceptNode: function (node) {
+      var parent = node.parentNode;
+      return parent && parent.closest && parent.closest('.inlay-hint')
+        ? NodeFilter.FILTER_REJECT
+        : NodeFilter.FILTER_ACCEPT;
+    },
+  });
+}
+
+/** A code cell's own text — what `textContent` would say if the drawn-in labels were not there. */
+function sourceCellText(cell) {
+  if (!cell) return '';
+  const walker = sourceTextWalker(cell);
+  let out = '';
+  let node;
+  while ((node = walker.nextNode())) out += node.textContent;
+  return out;
+}
+
+/** The length of a code cell's own text up to `point`, with the drawn-in labels left out. */
+function sourceTextLengthBefore(cell, node, offset) {
+  const walker = sourceTextWalker(cell);
+  let seen = 0;
+  let current;
+  while ((current = walker.nextNode())) {
+    if (current === node) return seen + offset;
+    seen += current.textContent.length;
+  }
+  return seen;
+}
+
 function caretDomPosition(lineIndex, column) {
   const cell = document.querySelector('.source-row[data-line-index="' + lineIndex + '"] .source-code');
   if (!cell) return null;
   let remaining = column;
-  const walker = document.createTreeWalker(cell, NodeFilter.SHOW_TEXT);
+  const walker = sourceTextWalker(cell);
   let node;
   while ((node = walker.nextNode())) {
     const len = node.textContent.length;

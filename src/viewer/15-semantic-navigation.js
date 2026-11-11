@@ -629,3 +629,115 @@ function definitionMatchers(name) {
 function escapeRegExp(value) {
   return String(value).replace(/[|\\{}()[\]^$+*?.]/g, '\\$&');
 }
+
+// ===== Extend / Shrink Selection ==================================================================
+// IntelliJ's ⌥↑ and ⌥↓ (EditorSelectWord / EditorUnSelectWord on its own Mac keymap): grow the selection
+// to the next construct that encloses the caret — word, expression, statement, block, declaration — and
+// walk back down. The chain comes from `textDocument/selectionRange`, which is the request this app had
+// never sent: the plumbing to ask it existed, nothing asked.
+//
+// Server-only, and deliberately so. What encloses a position is a question about the grammar; a brace or
+// indentation heuristic would answer it most of the time, and the rest of the time it would select the
+// wrong thing — which is worse than the key doing nothing, because a reader would copy it.
+
+// The chain the caret is currently walking: where it was asked from, the ranges the server gave, and how
+// far out we are. `applied` is the caret this walk last left behind — the test for whether the walk is
+// still the reader's, because anything else that moves the caret (a click, an arrow, a jump) means the
+// next ⌥↑ is a new question rather than one more step along the old answer.
+var selectionChain = null;
+
+function selectionChainIsLive() {
+  return Boolean(selectionChain && viewerCursor
+    && selectionChain.path === viewerCursor.path
+    && selectionChain.applied
+    && selectionChain.applied.lineIndex === viewerCursor.lineIndex
+    && selectionChain.applied.column === viewerCursor.column);
+}
+
+/**
+ * One step along the chain: set the selection to `ranges[index]`.
+ *
+ * The anchor goes to the range's start and the CARET to its end, because that is the pair
+ * applySourceSelection() paints from — the app has one selection model and this is it, rather than a
+ * second one that would have to be kept in agreement with ⇧-arrow.
+ *
+ * setSourceCursor does the work that makes a far end possible at all: it opens any fold the line is
+ * inside and re-renders the window around the caret, so a range reaching past what is painted brings its
+ * own rows with it. navSuppress is held across it because growing a selection is not navigation — without
+ * it, ⌥↑ out to a declaration hundreds of lines up would leave a stop in ⌘[ / ⌘] history.
+ */
+function applySelectionChainStep(index) {
+  var range = selectionChain.ranges[index];
+  selectionChain.index = index;
+  selectionAnchor = { lineIndex: range.startLine, column: range.startCharacter };
+  // reveal=false ON PURPOSE, and then the scroll by hand. With reveal the caret repaint is deferred to a
+  // frame (scheduleSourceReveal), and the repaint is what re-splits the line's text nodes around the
+  // caret span — so a selection applied before it resolves its offsets against a DOM that is about to
+  // change underneath it, lands short, and silently falls back to selecting to the end of the line. The
+  // same ordering sits under ⇧-arrow and never showed, because a one-character step stays inside the
+  // text node the stale split left behind.
+  navSuppress = true;
+  try { setSourceCursor(selectionChain.path, range.endLine, range.endCharacter, false); }
+  finally { navSuppress = false; }
+  selectionChain.applied = { lineIndex: viewerCursor.lineIndex, column: viewerCursor.column };
+  // The far end may still be standing in a spacer on a file big enough to be painted progressively. That
+  // is rare — the window is 400 rows and the rest arrives 2,000 at a time — and it is also the one case
+  // where the selection would silently be shorter than it claims, so finish the file and paint again.
+  // Once, on a key the reader pressed, rather than for every file on open (which is what flushing used
+  // to do, and what made a large file cost a gigabyte).
+  applySourceSelection();
+  if (!sourceSelectionIsWhole(range)) {
+    flushSourceRows();
+    applySourceSelection();
+  }
+  scheduleScrollIntoView(document.querySelector('.source-row.cursor-line'), document.getElementById('source-body'), 0.15);
+}
+
+// Did the painted selection actually reach both ends of the range we asked for? The DOM is the only honest
+// witness: caretDomPosition answers null for a line that is still a spacer, and applySourceSelection
+// quietly draws nothing at all in that case.
+function sourceSelectionIsWhole(range) {
+  return Boolean(caretDomPosition(range.startLine, range.startCharacter)
+    && caretDomPosition(range.endLine, range.endCharacter));
+}
+
+function clearSelectionChain() {
+  selectionChain = null;
+}
+
+/**
+ * ⌥↑ / ⌥↓. `outward` true grows the selection, false shrinks it.
+ *
+ * Shrinking past the innermost construct clears the selection rather than stopping on the word: that is
+ * where the walk started, so it is the state the reader came from.
+ */
+function extendShrinkSelection(outward) {
+  if (!isSourceViewerVisible() || !viewerCursor) return false;
+  if (selectionChainIsLive()) {
+    var next = selectionChain.index + (outward ? 1 : -1);
+    if (next >= selectionChain.ranges.length) return true; // nothing encloses this; the key is still ours
+    if (next < 0) {
+      selectionAnchor = null;
+      applySourceSelection();
+      clearSelectionChain();
+      return true;
+    }
+    applySelectionChainStep(next);
+    return true;
+  }
+  if (!outward) return false; // nothing to shrink
+  var loc = caretSourceLoc();
+  if (!loc || !loc.path) return false;
+  var origin = { lineIndex: viewerCursor.lineIndex, column: viewerCursor.column };
+  queryProjectAnalysis('selectionRange', wordAtCursor(), loc).then(function (response) {
+    var ranges = response && Array.isArray(response.selection) ? response.selection : [];
+    // A caret that moved while the server was thinking is a different question; drop the answer rather
+    // than select around where the reader no longer is.
+    if (!viewerCursor || viewerCursor.path !== loc.path
+      || viewerCursor.lineIndex !== origin.lineIndex || viewerCursor.column !== origin.column) return;
+    if (!ranges.length) { showSemanticNavigationFailure('selectionRange', wordAtCursor(), response); return; }
+    selectionChain = { path: loc.path, ranges: ranges, index: -1, applied: null };
+    applySelectionChainStep(0);
+  });
+  return true;
+}

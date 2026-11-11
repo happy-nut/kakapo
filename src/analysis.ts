@@ -4,6 +4,7 @@ import {
   AnalysisLocation,
   type AnalysisCodeLens,
   type AnalysisFoldingRange,
+  type AnalysisSelectionRange,
   type AnalysisInlayHint,
   type AnalysisSemanticToken,
   type AnalysisHighlight,
@@ -44,8 +45,12 @@ export type AnalysisKind =
   // Go to Type Declaration. The same request shape as the three above.
   | "typeDefinition"
   | "workspaceSymbol"
-  // The open file's own structure: what the structure popup lists, what the breadcrumb reads the enclosing
-  // symbol from, and what next/previous-symbol walks. Answered in `symbols`, not in `locations`.
+  // The open file's own structure: what the structure popup lists, what the sticky header and Focus Mode
+  // read the enclosing declarations from (enclosingSymbols, 16-reading-modes.js), and what
+  // next/previous-declaration walks. Answered in `symbols`, not in `locations`.
+  //
+  // NOT the breadcrumb, which this used to say: the trail above the source view is the file's PATH and
+  // nothing else, by design — the README gives that as the reason Show File Path was not ported.
   | "documentSymbol"
   // The two hierarchies, one direction each: who calls this / what this calls, and what this extends /
   // what extends it. A server that does not implement them says so, which is not the same answer as
@@ -63,6 +68,10 @@ export type AnalysisKind =
   // of names cannot tell a fold from a brace or a read from a write. Answered in `folds` / `highlights`.
   | "foldingRange"
   | "documentHighlight"
+  // The constructs enclosing the caret, innermost first — what IntelliJ's Extend Selection (⌥↑) grows
+  // along and Shrink Selection (⌥↓) walks back down. A position question like the four above, but its
+  // answer is a CHAIN rather than a place to go, so it is answered in `selection`.
+  | "selectionRange"
   // What the server would write above a declaration and inside a line — IntelliJ's Code Vision and its
   // inlay hints. Decoration, not navigation: answered in `lenses` / `hints`.
   | "codeLens"
@@ -113,6 +122,8 @@ export type AnalysisResponse = {
   hover?: string;
   /** Only for kind "foldingRange". Absent (not empty) when the server does not implement the request. */
   folds?: AnalysisFoldingRange[];
+  /** Only for kind "selectionRange": the constructs around the caret, innermost first. */
+  selection?: AnalysisSelectionRange[];
   /** Only for kind "documentHighlight", each occurrence labelled read / write / neither. */
   highlights?: AnalysisHighlight[];
   /** Only for kind "codeLens": one entry per declaration the server has something to say about. */
@@ -566,6 +577,7 @@ export class ProjectAnalysis {
       // they take the same shape as the structure above: ask the client for this path, or answer "not
       // supported" so the caller can keep its own fallback rather than read an empty list as a fact.
       if (request.kind === "foldingRange") return await this.foldingRanges(path, onRevision);
+      if (request.kind === "selectionRange") return await this.selectionRanges(path, request, onRevision);
       if (request.kind === "documentHighlight") return await this.documentHighlights(path, request, declineReason);
       if (request.kind === "codeLens" || request.kind === "inlayHint" || request.kind === "semanticTokens") {
         return await this.decoration(request.kind, path, request, onRevision);
@@ -1231,6 +1243,39 @@ export class ProjectAnalysis {
         serverSource: client.server.source, locations: [],
         highlights: answer.supported ? answer.highlights : undefined,
         fallbackReason: answer.supported ? undefined : `${client.server.name} does not implement document highlight`,
+      };
+    } catch (error) {
+      if (this.transportFailure(error)) this.quarantine(client, error);
+      return { ok: true, engine: "index", confidence: "heuristic", locations: [], fallbackReason: errorMessage(error) };
+    }
+  }
+
+  /**
+   * The constructs enclosing the caret, innermost first — Extend / Shrink Selection.
+   *
+   * Server-only on purpose. The index knows names and their positions; what encloses a position is a
+   * question about the grammar, and a heuristic answer here would be a selection that grows to the wrong
+   * thing — worse than the key doing nothing, because the reader would act on it.
+   */
+  private async selectionRanges(path: string, request: AnalysisRequest, onRevision: boolean): Promise<AnalysisResult> {
+    if (onRevision) {
+      return {
+        ok: true, engine: "index", confidence: "heuristic", locations: [], revision: this.reviewTarget,
+        fallbackReason: `Reading ${this.reviewTarget}, which no language server can be pointed at`,
+      };
+    }
+    const client = this.clientFor(path);
+    if (!client) {
+      return { ok: true, engine: "index", confidence: "heuristic", locations: [], fallbackReason: `No language server is available for ${path}` };
+    }
+    try {
+      const answer = await client.selectionRanges(path, request.line ?? 0, request.column ?? 0);
+      this.setStatus("ready", serverFields(client.server));
+      return {
+        ok: true, engine: "lsp", confidence: "semantic", server: client.server.name,
+        serverSource: client.server.source, locations: [],
+        selection: answer.supported ? answer.chain : undefined,
+        fallbackReason: answer.supported ? undefined : `${client.server.name} does not implement selection ranges`,
       };
     } catch (error) {
       if (this.transportFailure(error)) this.quarantine(client, error);

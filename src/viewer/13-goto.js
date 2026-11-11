@@ -378,7 +378,13 @@ function applySourceBlameIfActive(path) {
     var row = cell.closest('.source-row[data-line-index]');
     var lineIndex = Number(row && row.dataset.lineIndex);
     var record = sourceBlameLines.get(lineIndex + 1);
-    var label = cell.textContent || String(lineIndex + 1);
+    // The number this gutter already shows — from the span that holds it, not from the cell's text.
+    // Read with textContent it also picked up the blame entry this function had written there on an
+    // earlier pass, and wrote the lot back as the "line number": the gutter read `2026-08-11happy-nut1–7`
+    // where it means `1–7`, and grew by one date and author every time it repainted. It repaints often —
+    // sourceRowsCompleted re-runs it as each chunk of a big file arrives.
+    var painted = cell.querySelector('.source-line-number');
+    var label = painted ? painted.textContent : (cell.textContent || String(lineIndex + 1));
     var numberHtml = '<span class="source-line-number">' + escapeHtml(label) + '</span>';
     if (!record) {
       cell.innerHTML = '<span class="source-blame-entry source-blame-empty"></span>' + numberHtml;

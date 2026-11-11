@@ -358,12 +358,14 @@ var PROBLEM_ORDER = { error: 0, warning: 1, weak: 2 };
 
 function visibleProblemRows(query) {
   var needle = String(query || '').trim().toLowerCase();
-  var queries = queryVariants(needle);
+  // The matcher gets the query AS TYPED — `needle` stays lower-cased for this list's own
+  // substring work, because camel humps are case and a lower-cased pattern has none.
+  var queries = queryVariants(String(query || '').trim());
   var own = reviewedPaths();
   return problemRows.filter(function (row) {
     if (problemsErrorsOnly && row.severity !== 'error') return false;
     if (!needle) return true;
-    var hay = (row.path + ' ' + row.message).toLowerCase();
+    var hay = [row.message, row.path];
     return matchesQueryVariants(hay, queries);
   }).sort(function (a, b) {
     // Severity first, then the review's own files. A list of twenty-five where the three that belong to

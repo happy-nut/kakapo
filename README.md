@@ -184,10 +184,12 @@ else's repository behind their back is a worse thing to do than making them type
 | `⌘6` | Problems — everything the language servers found in this project, the review's own files first |
 | `⌘⇧B` | Go to the declaration of this thing's **type** |
 | `⌘F12` | This file's structure — filter, then jump |
-| `⌥↓` / `⌥↑` | Next / previous declaration in this file |
+| `⌘⌥]` / `⌘⌥[` | Next / previous declaration in this file |
+| `⌥↑` / `⌥↓` | Extend / shrink the selection to the construct around the caret |
 | `⌘P` | Search files by name (`store.ts:42` lands on the line) |
 | `⌘⇧E` | Recent locations — where the caret has been |
-| `⇧⇧` | Search everywhere (files, text, symbols, history) |
+| `⇧⇧` | Search Everywhere — recent files, files, symbols and actions in one list; again to widen the scope |
+| `Tab` / `⇧Tab` | Step its tab strip: All, Classes, Files, Symbols, Actions, Text |
 | `⌘⇧A` | Find an action by name — every command, with its chord |
 | `⌥Space` / `⌘Y` | Quick definition — the code, without going there |
 | `⌘⇧T` | This file's test, or back to what it tests |
@@ -325,9 +327,19 @@ type (names only, as IntelliJ matches, and a query typed with a Korean layout st
 that made it). `Enter` lands on the symbol's name. The language server answers it; where there is no server
 for the language, the same declaration index that backs Find Usages does, labelled as the heuristic it is.
 
-**Stepping by declaration** (`⌥↓` / `⌥↑`) — the next or previous declaration, which is IntelliJ's
+**Extend / shrink selection** (`⌥↑` / `⌥↓`) — IntelliJ's, on the chords its own Mac keymap gives them.
+Each press grows the selection to the next construct that encloses the caret — the word, the argument,
+the call, the statement, the method, the class — and `⌥↓` walks back down; past the innermost one the
+selection clears, which is where you started. The chain comes from the language server
+(`textDocument/selectionRange`), so what counts as a construct is the language's own answer rather than a
+guess at braces: a request this app had the plumbing to send and had never sent. Where no server covers
+the file, the key does nothing rather than selecting the wrong thing.
+
+**Stepping by declaration** (`⌘⌥]` / `⌘⌥[`) — the next or previous declaration, which is IntelliJ's
 next/previous method. Not on `⌃↓`/`⌃↑`: kakapo's shortcut table spells Command and Control the same way
-(one table, both platforms), and `⌘↓` is already Go to Definition.
+(one table, both platforms), and `⌘↓` is already Go to Definition. It used to sit on `⌥↓`/`⌥↑`, which
+turned out to be Extend Selection's own chords on IntelliJ's Mac keymap; it moved into the bracket family,
+where `⌘[`/`⌘]` already walk the cursor's history and `⌥[`/`⌥]` the patch sets.
 
 A declaration, not every symbol a language server mentions. The servers that ship here answer
 `documentSymbol` with a flat list that includes each function's own local variables and each object
@@ -426,9 +438,36 @@ instead is the diagnostics of the project's real language servers, which `⌘6` 
 Settings* and *Structural Search*: both are about search scopes and patterns this app has no model for.
 *Live templates* and their parameter stepping: there is nothing to type into here.
 
-**Search everywhere** (`⇧⇧`) — the launcher with every section beside it. The double tap is spelled as a
-chord in [src/shortcuts.ts](src/shortcuts.ts) and recognised by the one matcher, so it stays rebindable and
-there is no second place where a chord is written down.
+**Search Everywhere** (`⇧⇧`) — IntelliJ's, ported from the shipped IDE rather than from memory. The All
+tab merges recent files, file names, workspace symbols and this app's own commands into **one flat list**,
+re-sorted on every keystroke by how well each row answers the query — which is what IntelliJ does now
+(its grouped list model is gone; `MixedListFactory` is the only one left), and why the best answer is
+always the first row whichever kind of thing it is. Each group offers fifteen rows and a trailing
+`… more` adds fifteen more, which are IntelliJ's own `MULTIPLE_CONTRIBUTORS_ELEMENTS_LIMIT` and the
+amount its more element fetches. An empty box lists recent files, because recent files is the one
+contributor there whose pattern may be empty.
+
+The rail beside it **is** the tab strip, in IntelliJ's order and with IntelliJ's chords: All (`⇧⇧`),
+Classes (`⌥O`), Files (`⌘P`), Symbols (`⌘⌥O`), Actions (`⌘⇧A`), Text (`⌘⇧F`). `Tab` and `⇧Tab` step it and
+carry what you have typed across, and a tab's own chord switches to it rather than reopening the dialog.
+`⇧⇧` while All is already up widens the scope instead — in a review the narrow scope is the files that
+moved and the wide one is the whole project, which is this app's reading of IntelliJ's project / everywhere
+line. A query that finds nothing in the change widens by itself and says so, rather than answering "no".
+
+**How a query matches** is IntelliJ's `MinusculeMatcher`, ported the same way and checked by running the
+shipped one: `SEC` reaches `SearchEverywhereContributor`, `qop` reaches `quick-open.js`, `*` matches
+anywhere, a space means "then, later, another word" (`se cont`), and the characters that answered are
+marked in the row so you can see why it did. The same matcher ranks the list — IntelliJ's
+`matchingDegree`, where a match at a word start outranks one in the middle of a word, so `quick` puts
+`quickOpen` above `aQuickOpenThing` instead of calling them equal. It is one rule for every list in the
+app: Quick Open, the structure and hierarchy views, Find Usages, the problems list and the command
+palette all filter and rank through it.
+
+A line can be written after a name in any of the spellings IntelliJ accepts — `store.ts:42`,
+`store.ts:42:7`, `store.ts 42`, `store.ts#L42`, `store.ts(42,7)` — because the pattern that reads them is
+its own, copied across. The double tap itself is spelled as a chord in
+[src/shortcuts.ts](src/shortcuts.ts) and recognised by the one matcher, inside IntelliJ's own 300 ms
+window, so it stays rebindable and there is no second place where a chord is written down.
 
 **Not ported.** Go to Related Symbol, which in IntelliJ is framework-specific (a template and its
 controller, a bean and its XML); `⌘⇧T` is the part of it that generalises to any project. And `⌘↑` opens

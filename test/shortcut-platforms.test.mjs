@@ -60,16 +60,16 @@ test("the chords with no ⌘ are modifier-exact, so Control does not turn them i
   assert.deepEqual(hits(v, { key: "F3", code: "F3" }), ["toggleBookmark"]);
   assert.deepEqual(hits(v, { key: "3", code: "Digit3", altKey: true }), ["jumpBookmark"]);
   assert.deepEqual(hits(v, { key: "3", code: "Digit3", altKey: true, shiftKey: true }), ["assignBookmark"]);
-  // ⌥↓ is deliberately shared: stepping symbols in the code, stepping comments in the merged dock. The
-  // table allows one chord to serve several actions when they live on different surfaces, and the
-  // dispatcher tries them in turn — so what matters is that they do not share a surface.
+  // ⌥↓ is deliberately shared: shrinking the selection in the code, stepping the search history in the
+  // find bar. The table allows one chord to serve several actions when they live on different surfaces,
+  // and the dispatcher tries them in turn — so what matters is that they do not share a surface.
   const altDown = hits(v, { key: "ArrowDown", code: "ArrowDown", altKey: true });
-  assert.ok(altDown.includes("nextPrevSymbol"), altDown.join(", "));
+  assert.ok(altDown.includes("extendShrinkSelection"), altDown.join(", "));
   const surfaces = altDown.map((id) => [...v.window.SHORTCUT_DEFS].find((def) => def.id === id)?.where);
   assert.equal(new Set(surfaces).size, surfaces.length, `one chord, one surface each (got ${surfaces.join(", ")})`);
   // Adding Control must NOT make ⌥↓ read as a ⌘ chord — ⌘↓ is Go to Definition, and a reader pressing
   // Ctrl+Alt+Down would otherwise jump somewhere entirely different.
-  assert.ok(!hits(v, { key: "ArrowDown", code: "ArrowDown", altKey: true, ctrlKey: true }).includes("nextPrevSymbol"));
+  assert.ok(!hits(v, { key: "ArrowDown", code: "ArrowDown", altKey: true, ctrlKey: true }).includes("extendShrinkSelection"));
   v.close();
 });
 

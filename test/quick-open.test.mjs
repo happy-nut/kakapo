@@ -397,11 +397,20 @@ test("the launcher cannot keep the keyboard once it is not the thing on screen",
   v.close();
 });
 
-test("the launcher lists only the surfaces that still exist", async () => {
+// The rail IS IntelliJ's Search Everywhere tab strip, in its order: All, Classes, Files, Symbols,
+// Actions, Text (SearchEverywhereTabsShortcutsUtils.createShortcutsMap names exactly those six and the
+// chord each answers to). Recent files and History are this app's own two, below the separator and out of
+// the Tab cycle — which is what `data-se-tab` marks.
+test("the launcher lists IntelliJ's tab strip, and marks which rows cycle", async () => {
   const v = await loadViewer(html);
   await v.openQuickOpenSection("content");
-  const sections = v.$all("#quick-open-side .quick-open-side-item").map((b) => b.dataset.section);
-  assert.deepEqual(sections, ["content", "all", "recent", "history"], "the three searches and history, nothing removed");
+  const rows = v.$all("#quick-open-side .quick-open-side-item");
+  assert.deepEqual(rows.map((b) => b.dataset.section),
+    ["everywhere", "classes", "all", "symbol", "actions", "content", "recent", "history"],
+    "IntelliJ's six tabs in IntelliJ's order, then this app's own two");
+  assert.deepEqual(rows.filter((b) => b.hasAttribute("data-se-tab")).map((b) => b.dataset.section),
+    ["everywhere", "classes", "all", "symbol", "actions", "content"],
+    "Tab cycles the six tabs and stops before Recent files");
   v.close();
 });
 
@@ -457,18 +466,23 @@ test("the Find in Files file mask takes globs and exclusions, in the page and on
 test("every section the rail advertises a chord for answers that chord from inside the dialog", async () => {
   const v = await loadViewer(html);
   const railRows = () => Array.from(v.$("#quick-open-side").querySelectorAll(".quick-open-side-item"));
+  const activeSection = () => (railRows().find((row) => row.classList.contains("active")) || {}).dataset?.section;
 
   v.key("f", { metaKey: true, shiftKey: true, code: "KeyF" });
   await v.settle(10);
   const advertised = railRows()
     .filter((row) => row.getAttribute("data-keyhint"))
     .map((row) => ({ section: row.dataset.section, chord: row.getAttribute("data-keyhint") }));
-  assert.ok(advertised.length >= 3, `the rail prints chords: ${JSON.stringify(advertised)}`);
+  assert.ok(advertised.length >= 7, `the rail prints chords: ${JSON.stringify(advertised)}`);
 
-  const press = (chord) => v.key(chord.slice(-1).toLowerCase(), {
-    metaKey: chord.includes("⌘"), shiftKey: chord.includes("⇧"), altKey: chord.includes("⌥"),
-    code: /\d/.test(chord.slice(-1)) ? `Digit${chord.slice(-1)}` : `Key${chord.slice(-1)}`,
-  });
+  const press = (chord) => {
+    // ⇧⇧ is a double tap, not a modifier on a key — the matcher recognises it from two bare Shifts.
+    if (chord === "⇧⇧") { v.key("Shift", { location: 1 }); v.key("Shift", { location: 1 }); return; }
+    v.key(chord.slice(-1).toLowerCase(), {
+      metaKey: chord.includes("⌘"), shiftKey: chord.includes("⇧"), altKey: chord.includes("⌥"),
+      code: /\d/.test(chord.slice(-1)) ? `Digit${chord.slice(-1)}` : `Key${chord.slice(-1)}`,
+    });
+  };
 
   for (const { section, chord } of advertised) {
     // Start each one from the same place, so "it did something" means this chord did it.
@@ -479,16 +493,14 @@ test("every section the rail advertises a chord for answers that chord from insi
     }
     press(chord);
     await v.settle(10);
-    const classes = v.$("#quick-open").className;
     if (section === "content") {
       assert.equal(v.quickOpenVisible(), false, `${chord} on the section already open closes it`);
-    } else if (section === "all") {
-      assert.ok(v.quickOpenVisible() && !/quick-content|quick-recent/.test(classes), `${chord} → file search (${classes})`);
-    } else if (section === "recent") {
-      assert.ok(v.quickOpenVisible() && classes.includes("quick-recent"), `${chord} → recent files (${classes})`);
-    } else {
+    } else if (section === "history") {
       // A row whose click leaves this dialog for a panel of its own — it must at least leave.
       assert.equal(v.quickOpenVisible(), false, `${chord} → ${section}, so the launcher gets out of the way`);
+    } else {
+      assert.ok(v.quickOpenVisible(), `${chord} keeps the dialog up`);
+      assert.equal(activeSection(), section, `${chord} → the ${section} tab`);
     }
   }
   v.close?.();
@@ -585,4 +597,40 @@ test("a list still waiting on its provider says so, instead of showing an empty 
   );
   assert.equal(v.$("#quick-open-filter")?.classList.contains("is-loading"), false, "the chip stops waiting too");
   v.close();
+});
+
+test("the dialog never says the same thing twice, and the box is named by the title", () => {
+  // The title and the placeholder were bound to the SAME i18n key, so the dialog opened with "Search
+  // files" written twice one line apart, in 12px sans above and 15px mono below. Eight of the ten modes
+  // already gave the box a sentence of its own — "Filter this file's symbols", "Filter actions" — and the
+  // two that did not just repeated the title. Decided from the two values rather than by naming those
+  // modes, so a mode added later cannot reintroduce it.
+  return loadViewer(html).then(async (v) => {
+    const input = v.$("#quick-open-input");
+    const title = v.$("#quick-open-mode");
+
+    // The box keeps a name without the placeholder: the title IS its label. A placeholder standing in for
+    // a label is the thing being removed here, so it must not be what names it afterwards.
+    assert.equal(input.getAttribute("aria-labelledby"), title.id,
+      "the visible title labels the box, rather than a placeholder standing in for one");
+    assert.ok(!input.hasAttribute("data-i18n-ph"),
+      "and no data-i18n-ph, or applyI18n would put the repeated string back on the next language switch");
+
+    const seen = [];
+    for (const mode of [undefined, "recent", "content", "structure", "actions"]) {
+      v.window.openQuickOpen(mode);
+      await v.settle(5);
+      const pair = { mode: mode || "all", title: title.textContent, placeholder: input.getAttribute("placeholder") || "" };
+      seen.push(pair);
+      assert.notEqual(pair.placeholder, pair.title,
+        `${pair.mode}: the box repeats the title word for word ("${pair.title}")`);
+    }
+
+    // ...and the modes that DO have something of their own to say still say it: blanking everything would
+    // satisfy the assertion above while throwing away eight useful sentences.
+    const informative = seen.filter((p) => p.placeholder);
+    assert.ok(informative.length >= 3,
+      "the modes with a sentence of their own kept it: " + JSON.stringify(seen));
+    v.close();
+  });
 });

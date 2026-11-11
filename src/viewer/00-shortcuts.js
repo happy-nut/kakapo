@@ -50,7 +50,15 @@ function shortcutModifiers(event, withShift) {
 // and `key` both resolve to ''). The alternative was a second key handler somewhere else with the timing
 // written into it — which is exactly the drift the single chord table exists to prevent. So the tap is
 // recognised HERE and handed to the same matcher as every other chord.
-var SHORTCUT_DOUBLE_TAP_MS = 400;
+//
+// 300ms is IntelliJ's own window, read off the handler that implements the gesture there:
+// ModifierKeyDoubleClickHandler.MyDispatcher.handleModifier resets the pending tap when the next Shift
+// event arrives more than 300ms after the last one. It was 400 here, which let a slow, unrelated pair of
+// Shifts open the dialog. What is NOT copied is the fire moment: IntelliJ runs the action on the second
+// RELEASE, this table dispatches on keydown — and the alternative is a keyup handler with the timing
+// written into it a second time, which is the drift the one table exists to prevent. The gap between a
+// tap's press and its release is ~50ms, so the two moments are the same beat.
+var SHORTCUT_DOUBLE_TAP_MS = 300;
 var lastShiftTapAt = 0;
 // The detector has to be idempotent per event, because shortcutChords() is called more than once for the
 // same keypress (the dispatcher asks which shortcuts an event could be, and several callers ask again).
@@ -218,6 +226,20 @@ function isShortcut(event, id) {
   for (var i = 0; i < hits.length; i += 1) if (hits[i].id === id) { shortcutMatchIndex = hits[i].index; return true; }
   return false;
 }
+/**
+ * Do two rows' surfaces overlap — i.e. could both chords be live at the same moment?
+ *
+ * `any` is the window, so it overlaps every surface EXCEPT a modal one: while the Search Everywhere
+ * dialog is up it answers every key itself and the menu accelerators are stood down, so a window chord
+ * cannot fire underneath it. MODAL_SURFACES (src/shortcuts.ts) is the list, and this is the one reader
+ * of the rule — test/shortcut-registry.test.mjs imports the same list rather than restating it.
+ */
+function shortcutSurfacesOverlap(a, b) {
+  if (a === b) return true;
+  if (a !== 'any' && b !== 'any') return false;
+  var surface = a === 'any' ? b : a;
+  return MODAL_SURFACES.indexOf(surface) < 0;
+}
 /** The action already bound to `chord` on a surface `id` would collide with, or '' if it is free. */
 function shortcutConflict(id, chord) {
   var def = shortcutDef(id);
@@ -226,7 +248,7 @@ function shortcutConflict(id, chord) {
   for (var i = 0; i < SHORTCUT_DEFS.length; i += 1) {
     var other = SHORTCUT_DEFS[i];
     if (other.id === id) continue;
-    if (other.where !== 'any' && def.where !== 'any' && other.where !== def.where) continue;
+    if (!shortcutSurfacesOverlap(other.where, def.where)) continue;
     var keys = shortcutKeys(other.id);
     for (var k = 0; k < keys.length; k += 1) if (shortcutCanonical(keys[k]) === want) return other.id;
   }

@@ -911,8 +911,10 @@ body {
   display: flex;
   align-items: center;
   gap: 4px;
-  /* 3px, not 5px, so the two 24px buttons below fit inside the bar's own 30px without growing it. */
-  padding: 3px 8px;
+  /* 3px, not 5px, so the two 24px buttons below fit inside the bar's own 30px without growing it. The 10px
+     is the sidebar's one left inset: the brand bar above and the scrolling tree between them both use it,
+     and this bar's 8px put the status line 2px left of every row it sits under. */
+  padding: 3px 10px;
   border-top: 1px solid var(--border);
   min-height: 30px;
 }
@@ -1859,12 +1861,27 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
    the default width. Proportional type at a larger size fits more of the name in less room. */
 .tree {
   display: grid;
-  gap: 1px;
+  gap: var(--tree-row-gap);
   font-size: 12.5px;
   font-family: inherit;
   /* One step per nesting level, spelled once. At 14px a file three levels down started past a third of the
      panel; 11px still reads as a level and gives those characters back to the name. */
   --tree-indent: 11px;
+  /* Where level 0's leading mark sits, measured from the row's BORDER edge — the one number both row kinds
+     start from, so a folder and a file at the same depth begin on the same line. They did not: the folder
+     row (<summary>) had 7px and no border, the file row (.file-link) had 8px and a 1px transparent border
+     it was carrying for the focus ring, which put every file icon 2px right of the folder icon above it at
+     the same depth. Three quantities, each off by one, nearly cancelling — which is why it read as a wobble
+     rather than as an indent. The gap from icon to name is deliberately NOT shared; see the measured note
+     on .source-link's column-gap. */
+  --tree-pad: 7px;
+  /* One step of air between rows, and the same step wherever two rows meet. See the note on .tree-dir. */
+  --tree-row-gap: 1px;
+  /* The height of a row. Named because the indent guide has to begin one row below the top of the folder
+     it belongs to, and a guide that started at a different number than the rows are laid out at would
+     drift the first time anyone changed either. Rows are single-line (nowrap + ellipsis), so this is the
+     height, not a minimum that something might exceed. */
+  --tree-row: 24px;
 }
 .tree .path { font-size: inherit; }
 /* Only a LEAF name is split into two boxes, so only a leaf row becomes a flex container. A directory's
@@ -1901,14 +1918,29 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
    Both, then: at least a dozen characters for the type however narrow the row, and half the row when half
    the row is more than that. */
 .tree .path-tail { flex: 0 0 auto; min-width: 0; max-width: max(12ch, 50%); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tree-dir { display: grid; gap: 1px; }
+/* `margin-block: 1px` on the rows themselves (below, with the selection surfaces) produced three different
+   distances from one declaration, because what the step came out to depended on the layout mode of
+   whatever contained the row: 3px between two folders — a grid parent, where margins do not collapse, plus
+   its own 1px gap — 1px between two files, a block parent where they do collapse, and 2px where one kind
+   met the other. A folder row therefore sat 3px below the row above it and 2px above the row below: not
+   grouping air, just a row dropped a pixel inside its own slot. The step is declared once on .tree and
+   applied by the containers, so it no longer matters which of them is a grid — and the rows carry no
+   margin at all, which is why there is nothing here to override. */
+.tree-dir { display: grid; gap: var(--tree-row-gap); }
+.tree .mc-virtual-root > * + *,
+.tree .mc-virtual-children > * + * { margin-top: var(--tree-row-gap); }
+/* A closed folder still reserved the gap under its summary, leaving it 2px from its neighbour where every
+   other pair is 1px. Hiding the empty children box does not help: the grid item is the UA content slot
+   <details> puts around it, which exists whether or not anything is in it. A closed folder has no content
+   row, so it needs no row gap. */
+.tree-dir:not([open]) { gap: 0; }
 .tree-dir summary {
   display: grid;
   grid-template-columns: 14px minmax(0, 1fr);
   align-items: center;
   gap: 4px;
-  min-height: 24px;
-  padding: 1px 5px 1px calc(7px + (var(--depth) * var(--tree-indent)));
+  min-height: var(--tree-row, 24px);
+  padding: 1px 5px 1px calc(var(--tree-base) + (var(--depth) * var(--tree-indent)));
   /* `cursor: default` is the UA default for <summary> and it was simply never overridden, so in one list of
      identically sized 280x24 rows the file rows said "clickable" and the folder rows above them said
      "inert" — while clicking a folder row is the only way to open it. */
@@ -1931,7 +1963,41 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
 .tree-dir > summary .fi-open { display: none; }
 .tree-dir[open] > summary .fi-closed { display: none; }
 .tree-dir[open] > summary .fi-open { display: block; }
-.file-link.tree-file { padding-left: calc(8px + (var(--depth) * var(--tree-indent))); }
+/* An absolutely-positioned box is laid out against its PADDING box, and .file-link's 1px border means that
+   box starts 1px further in than <summary>'s. Each kind therefore names its own base in padding-box terms,
+   and everything that has to line up across the two — the leading mark, and the guides below — is written
+   once against --tree-base instead of being hand-tuned twice. */
+.tree-dir > summary { --tree-base: var(--tree-pad); }
+.tree .file-link { --tree-base: calc(var(--tree-pad) - 1px); }
+.file-link.tree-file { padding-left: calc(var(--tree-base) + (var(--depth) * var(--tree-indent))); }
+/* The tree's own indent guides. Depth here is carried by exactly one thing — how far the row starts in —
+   and past two levels the eye has to measure that distance rather than see it. The code view already draws
+   a hairline per indent level; a tree is the surface where indentation IS the structure, so it gets the
+   same hairline from the same token (--indent-guide, declared with the whitespace tokens below) on the
+   same ladder. Deliberately not tied to the Shift+Alt+I toggle: that row is declared `where: "code"` in
+   shortcuts.ts and gated on isCodeSurfaceVisible(), so it governs code text, not chrome — and it is off by
+   default, which would have meant no tree guides for anyone who never found it.
+
+   Drawn on <details>, which is the one box both trees agree on. The source tree wraps a folder's contents
+   in .mc-virtual-children and the changes tree hangs them straight off the <details>, so a guide hung on
+   that wrapper is a guide the changes tree never gets — the same way a rule written against one tree's
+   markup has diverged here before. <details> spans exactly one folder and its whole subtree in both, so
+   one line down it from below its own summary is continuous by construction: nothing to bridge between
+   rows, and nothing for a hovered or selected row's `background:` shorthand to blank out. A closed folder
+   is one row tall, so its line has no height and never paints. */
+.tree-dir { position: relative; }
+.tree-dir::before {
+  content: "";
+  position: absolute;
+  top: var(--tree-row);
+  bottom: 0;
+  /* +7px: half the 14px icon column, so the line descends through the centre of the folder glyph it
+     belongs to rather than grazing its edge. */
+  left: calc(var(--tree-pad) + (var(--depth, 0) * var(--tree-indent)) + 7px);
+  width: 1px;
+  background: var(--indent-guide);
+  pointer-events: none;
+}
 /* Arrow-key focus in the tree (changes/files) matches the active-file highlight, so navigating the file tree
    reads the same as the diff-side selection. The fill and border are one shared rule with every other
    selection surface — see "selection is one complete neutral surface" in the chrome section below. */
@@ -1951,7 +2017,7 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
      WCAG 2.5.8's floor. The spacing exception does not rescue a stack of full-width rows — vertically
      adjacent centres 18px apart put the 24px circles through each other. It costs 6px of density per row
      on the app's densest surface, which is the trade the floor asks for. */
-  min-height: 24px;
+  min-height: var(--tree-row, 24px);
   padding: 1px 6px;
   text-decoration: none;
   border: 1px solid transparent;
@@ -2057,7 +2123,7 @@ td.d2h-del:not(.d2h-code-side-linenumber) { color: #d8e0e8; }
   text-align: center;
   font: 10.5px/1.2 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
-.file-find-count.is-empty { color: var(--warning, #c69026); }
+.file-find-count.is-empty { color: var(--diag-warning); }
 /* IntelliJ's Cc / W / .* / In Selection, the same square glyph group the Find in Files strip uses — one
    control group, one line, and the pressed state is the accent both strips already speak. */
 .file-find-options { display: inline-flex; align-items: center; gap: 3px; flex: none; }
@@ -3056,9 +3122,20 @@ body.cmd-link-active .source-code { cursor: pointer; }
 /* The type glyphs are drawn INSET in their box — the code icon's ink runs 3..13 of 16 — so the same column gap
    that sits snugly under a folder name reads far wider under a file name: measured 8.8px of whitespace on a
    file row against 5.2px on the folder row right above it, in one tree. Spend only what the glyph doesn't
-   already carry, so both rows read at the same distance from their icon. */
+   already carry, so both rows read at the same distance from their icon. Re-measured when the glyph went
+   from 15px to 14px, because a folder has TWO glyphs and they do not end in the same place: ink reaches
+   13.42px into the open folder's box, 12.83px into the closed one's, and 11.38px into the file's. Against
+   a 4px folder gap that is 4.58px of whitespace under an open folder and 5.17px under a closed one, so the
+   file gap is the one that lands between them — 2px gives 4.63px and is never more than 0.54px from either
+   folder, where 3px gives 5.63px and is out by 1.04px. The name column pays for it: a file name starts 2px
+   left of a folder name at the same depth. That is the trade this gap has always been making, and it is
+   the right way round — the eye reads the whitespace after a glyph, not the glyph's box. */
 .source-link { column-gap: 2px; }
-.file-link .ftype { width: 15px; height: 15px; flex: none; display: block; }
+/* 14px, the size every other glyph in the chrome is drawn at, and the size of the folder glyph this one
+   shares a column with. At 15 it was the only odd icon size in the app: one pixel larger than the folder
+   mark directly above it in the same column, and odd inside the row's 20px content box, so all 271 of them
+   sat half a pixel low. */
+.file-link .ftype { width: 14px; height: 14px; flex: none; display: block; }
 /* IntelliJ's File Colors, which is how it says "this file is test code" in every tree it has: the ROW is
    tinted and the name is left alone. The values are its own — FileColorManagerImpl's palette, Green
    #effae7 light / #49544a dark and Yellow #ffffe4 / #4f4b41 — and which scope gets which is from the
@@ -3409,6 +3486,11 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
    `.problem-result` here declares a template that never applies. Measured in the running app: the rule was
    in the stylesheet and the computed value was still the two-column one. */
 .quick-open-item.problem-result { grid-template-columns: auto minmax(0, 1fr) auto; }
+/* Search Everywhere's trailing "more" row (IntelliJ's MORE_ELEMENT). Not a place — it fetches the next
+   fifteen of every group — so it is drawn as a quieter row than the results above it. Compound for the
+   same reason the line above is: `.quick-open-item` sets the row's columns far below this. */
+.quick-open-item.se-more { grid-template-columns: minmax(0, 1fr); color: var(--muted); font-size: 12px; }
+.quick-open-item.se-more.active { color: var(--chrome-selected-text); }
 .problem-mark {
   flex: none;
   width: 7px;
@@ -3469,10 +3551,10 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
    here with the word, because this list has no icons and "Test" is two glyphs wider than one. */
 .usage-result-tag {
   margin-left: 7px;
-  border: 1px solid color-mix(in srgb, var(--ok, #5aa469) 55%, transparent);
+  border: 1px solid color-mix(in srgb, var(--chrome-vcs-staged) 55%, transparent);
   border-radius: 999px;
   padding: 0 5px;
-  color: color-mix(in srgb, var(--ok, #5aa469) 85%, var(--text));
+  color: color-mix(in srgb, var(--chrome-vcs-staged) 85%, var(--text));
   font-size: 9.5px;
   letter-spacing: .03em;
 }
@@ -3507,7 +3589,9 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
    popup's .usage-loc / .usage-code. */
 .usage-result .quick-open-path { flex: none; color: var(--muted); font-variant-numeric: tabular-nums; }
 /* The occurrence itself, picked out of the line it sits on — IntelliJ bolds it. Not a search-hit
-   background: every row here matches, so a highlight on all of them would say nothing. */
+   background: every row here matches, so a highlight on all of them would say nothing.
+   The app's one mark for "these are the characters that matched", so quickNameHtml() (03-quick-open.js)
+   draws the camel-hump match in every other list with it rather than declaring a twin of this rule. */
 .usage-hit { padding: 0; color: var(--text); background: transparent; font-weight: 700; }
 .quick-open-item.active .usage-hit { color: inherit; }
 .usage-result .usage-result-code { flex: 1 1 auto; min-width: 0; }
@@ -4126,8 +4210,8 @@ body.dock-maximized .dock-panel { inset: 0; width: auto; max-height: none; trans
   white-space: nowrap;
 }
 .row-tag.is-test {
-  border-color: color-mix(in srgb, var(--ok, #5aa469) 55%, transparent);
-  color: color-mix(in srgb, var(--ok, #5aa469) 85%, var(--text));
+  border-color: color-mix(in srgb, var(--chrome-vcs-staged) 55%, transparent);
+  color: color-mix(in srgb, var(--chrome-vcs-staged) 85%, var(--text));
 }
 .quick-open-item.active .row-tag { border-color: color-mix(in srgb, var(--chrome-selected-text, #fff) 45%, transparent); color: var(--chrome-selected-text, #fff); }
 .quick-open-path { flex: 1 1 auto; }
@@ -4611,7 +4695,15 @@ body.dock-maximized .dock-panel { inset: 0; width: auto; max-height: none; trans
 /* ===== Compact high-contrast review chrome =====
    The diff remains visually quiet; interactive chrome gets clearer contrast, consistent radii, and one
    focus language. Motion is reserved for state changes that can otherwise look like a stalled renderer. */
-button, input, select, .sidebar, .dock-panel {
+/* The list is what a control IS, not which element it happens to be built from. It used to be `button,
+   input, select` and two panels, so a sidebar row animated when it was a <button> and snapped when it was
+   an <a> or a <summary> — and nobody chose either. Measured in the running app before this line changed:
+   .source-link (<button>) 120ms, .change-row (<a>) 0s, .tree-dir summary (<summary>) 0s, .file-link (<a>)
+   0s. Two trees in one sidebar, behaving differently because of their markup.
+   The code canvas is deliberately absent and must stay absent: a .source-row or a .code-cursor that
+   transitions pays for every caret move, which is the cost three of this week's fixes went to remove. */
+button, input, select, .sidebar, .dock-panel,
+.change-row, .file-link, .tree-dir summary, .viewed-box {
   transition: color 120ms ease, background-color 120ms ease, border-color 120ms ease,
     box-shadow 120ms ease, opacity 140ms ease, transform 160ms cubic-bezier(.2, .8, .2, 1);
 }
@@ -4655,7 +4747,23 @@ button:focus-visible, input:focus-visible, select:focus-visible {
    seam into theirs at the same height. With tabs above them they simply sit below that band. */
 .diff-toolbar { min-height: var(--header-band); padding: 3px 7px; gap: 7px; }
 .source-toolbar { min-height: var(--header-band); }
-.diff-tool-button { width: 27px; height: 27px; }
+/* 26, the height .plain-button computes to from its own padding, because the two sit side by side in this
+   bar and 27 made the icon button overhang it by half a pixel top and bottom — enough that their hover
+   fills were visibly different heights. 27 was not arbitrary: the band's content box is odd (38 less its
+   1px rule), so an odd control centres on a whole pixel there and an even one does not. That trade is the
+   wrong way round. The overhang shows whenever both are lit; the half pixel they now share does not show
+   at all, and inside a 26px box the 1px border leaves 24 for a 14px glyph — 5px a side, the same whole
+   number every other icon control in the chrome already centres its glyph at. */
+.diff-tool-button { width: 26px; height: 26px; }
+/* The header band is a shared OUTER height, so that the rule under the sidebar's header and the rule under
+   the pane's toolbar land on the same y. Each band spends that height differently, though, and both of
+   these are left with an ODD content box once their own 1px rule comes out of it — 37 in the brand bar, 29
+   here — which centres every even-height control in them half a pixel low: the brand bar's 26px switch at
+   5.5, this bar's two 26px buttons at 1.5. One more pixel on the bottom edge, inside the same outer
+   height, makes the content box even again. The content shifts up half a pixel, which nothing can see; the
+   band's own height and its rule do not move, which is the part that had to stay. */
+.sidebar-brand { padding-bottom: 1px; }
+.source-toolbar { padding-bottom: 3px; }
 .plain-button { padding: 5px 9px; }
 .http-run { border-radius: 4px; }
 
@@ -4899,7 +5007,6 @@ body {
 .rail-btn { border-radius: var(--ui-radius-md); }
 .rail-btn > svg { width: 16px; height: 16px; }
 .rail-btn:hover { transform: translateY(-1px); }
-.rail-btn:active { transform: translateY(0) scale(.96); }
 .rail-tip,
 .mc-button-hint { border-radius: var(--ui-radius-md); box-shadow: var(--ui-shadow-popup); }
 .rail-tip kbd,
@@ -4914,10 +5021,6 @@ body {
 .settings-cat,
 .quick-open-item,
 .mc-dropdown-item { border-radius: var(--ui-radius-sm); }
-.tree-dir summary,
-.file-link,
-.change-row,
-.source-link { margin-block: 1px; }
 .tree-focus,
 summary.tree-focus,
 .file-link.active,
@@ -4947,9 +5050,13 @@ summary.tree-focus,
 .diff-tool-button:hover,
 .plain-button:hover,
 .dock-btn:hover { transform: translateY(-1px); }
+/* One press, stated once. The rail already answered a press by settling AND dipping; the three button
+   classes beside it only settled, so the same click felt different depending on which strip it landed in.
+   The dip is what says "that registered" on a control whose hover lift is already gone by then. */
+.rail-btn:active,
 .diff-tool-button:active,
 .plain-button:active,
-.dock-btn:active { transform: translateY(0); }
+.dock-btn:active { transform: translateY(0) scale(.96); }
 .source-tabs {
   align-items: flex-end;
   gap: 1px;
@@ -5040,13 +5147,6 @@ summary.tree-focus,
      row reflows through dozens of intermediate widths and the animation appears to stutter. */
   .sidebar-brand, .sidebar-scroll { width: var(--sidebar-width, 300px); }
   body.sidebar-collapsed { grid-template-columns: var(--rail-width) 0 minmax(0, 1fr); }
-  /* While the workspace rail slides open/closed the shell resizes this whole view every frame. The sidebar's
-     children are already width-pinned above, but the diff (content) column is 1fr, so it re-wraps through dozens
-     of intermediate widths and the MAIN panel judders. For the duration, pin the content column to its settled
-     width and let the sidebar column (minmax) absorb the view's width change — the tree just clips, the diff
-     never reflows. The pinned width equals the settled width in both states, so lifting the pin is seamless.
-     Must follow body.sidebar-collapsed so it wins the grid-template-columns when both classes are set. */
-  body.rail-pinning { transition: none; grid-template-columns: var(--rail-width) minmax(0, 1fr) var(--rail-pin-content, minmax(0, 1fr)); }
   body.sidebar-collapsed .sidebar {
     opacity: 0;
     transform: translateX(-10px);
@@ -5099,7 +5199,19 @@ summary.tree-focus,
 .http-response.loading { display: flex; align-items: center; gap: 8px; }
 .http-loading-copy { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .quick-open-filter.is-loading { display: inline-flex; align-items: center; gap: 5px; }
-.dock-panel, .semantic-peek:not(.hidden) { animation: mc-surface-in 150ms cubic-bezier(.2, .8, .2, 1); }
+/* Everything that OPENS over the app rises the same way. The dock and the peek already did; the three
+   surfaces the keyboard opens most — the launcher, Settings and the menus — cut in with no entrance at
+   all, which is the one place a 150ms difference reads as a different program. Each is hidden with
+   `display: none` (.hidden), and that is what restarts the animation on every open; nothing in JS. */
+.dock-panel,
+.semantic-peek:not(.hidden),
+.quick-open:not(.hidden) .quick-open-panel,
+.settings-panel,
+.mc-dropdown,
+.compare-menu:not(.hidden) .compare-menu-main,
+.compare-menu:not(.hidden) .compare-menu-branches { animation: mc-surface-in 150ms cubic-bezier(.2, .8, .2, 1); }
+/* The dim behind the launcher fades with it rather than cutting in over a blurred page. */
+.quick-open:not(.hidden):not(.anchored) { animation: dock-backdrop-in 150ms ease; }
 @keyframes mc-loading-sweep { 0% { transform: translateX(-75%); opacity: .25; } 50% { opacity: 1; } 100% { transform: translateX(75%); opacity: .25; } }
 @keyframes mc-surface-in { from { opacity: 0; transform: translateY(5px) scale(.995); } to { opacity: 1; transform: none; } }
 
@@ -5303,7 +5415,7 @@ html[data-indent-guides="on"][data-show-whitespace="on"] .ws-lead[data-ws="space
   cursor: pointer;
 }
 .sticky-lines .source-table { width: 100%; }
-.sticky-lines .source-row:hover { background: color-mix(in srgb, var(--accent, #4a9eff) 12%, transparent); }
+.sticky-lines .source-row:hover { background: color-mix(in srgb, var(--active) 12%, transparent); }
 html[data-sticky-lines="off"] .sticky-lines { display: none; }
 
 /* Focus mode dims, never hides: the shape of the file stays scrollable past the declaration being read. */
@@ -5344,3 +5456,73 @@ html[data-inlay-hints="off"] .inlay-hint { display: none; }
   text-align: left; cursor: pointer;
 }
 .mc-file-collapsed:hover, .mc-file-collapsed:focus-visible { color: var(--text); border-style: solid; }
+
+/* ===== Scroll-driven reading cues ==========================================================
+   Two questions a reader of a long file keeps asking that this canvas never answered: how far through
+   this file am I, and is there anything above the header I am looking at.
+
+   Both are answered by the scroller itself. `scroll-timeline` publishes a scroller's position as a
+   timeline, and the cues below are animations wound by that timeline instead of by the clock — so there
+   is no scroll listener, no rAF, and nothing on the main thread at all: a scroll-driven animation is
+   evaluated on the compositor. That is the whole reason this is CSS and not four lines of JS. The main
+   thread is exactly what #136-#138 went to clear, and a scroll handler on a 27,000-row file would have
+   put the cost straight back in the place it was taken out of.
+
+   When the content does not overflow its scroller the timeline is INACTIVE, and an animation attached to
+   an inactive timeline simply does not apply. A short diff therefore shows no progress bar at all rather
+   than a full one, and no state is tracked anywhere to make that happen. */
+#diff-view { timeline-scope: --diff-read; }
+#diff2html-container { scroll-timeline: --diff-read block; }
+#source-viewer { timeline-scope: --source-read; }
+#source-body { scroll-timeline: --source-read block; }
+
+#diff-view > .diff-pane-header,
+#source-viewer > .source-toolbar {
+  position: relative;
+  /* The header lifts off the content the moment anything has scrolled under it. 64px is about two rows:
+     far enough that one wheel notch does not flash it, short enough that it is already there by the time
+     the eye comes back up. */
+  animation: header-over-content linear both;
+  animation-range: 0 64px;
+}
+#diff-view > .diff-pane-header { animation-timeline: --diff-read; }
+#source-viewer > .source-toolbar { animation-timeline: --source-read; }
+@keyframes header-over-content {
+  from { box-shadow: 0 0 0 transparent; }
+  to { box-shadow: 0 7px 16px -10px var(--shadow); }
+}
+
+/* The progress hairline sits ON the header's own bottom rule, so it reads as that rule filling in rather
+   than as a second bar competing with it for the same edge. */
+#diff-view > .diff-pane-header::after,
+#source-viewer > .source-toolbar::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  transform: scaleX(0);
+  transform-origin: 0 50%;
+  background: var(--active);
+  opacity: .72;
+  pointer-events: none;
+  animation: read-progress linear both;
+}
+#diff-view > .diff-pane-header::after { animation-timeline: --diff-read; }
+#source-viewer > .source-toolbar::after { animation-timeline: --source-read; }
+@keyframes read-progress { to { transform: scaleX(1); } }
+
+/* Where this file's changes end. Half the canvas is empty whenever a diff is short, and empty reads as
+   unfinished rather than as finished: nothing said the content had ENDED rather than stopped at the
+   bottom of what was rendered. A centred hairline that fades out at both ends is that full stop. It
+   carries no text, so it needs no translation and cannot go stale, and it is drawn on the one file the
+   canvas is showing — a collapsed file has no body to end. */
+#diff2html-container .d2h-file-wrapper.mc-active-diff:not(.file-collapsed)::after {
+  content: "";
+  display: block;
+  height: 1px;
+  width: min(380px, 34%);
+  margin: 30px auto 0;
+  background: linear-gradient(90deg, transparent, var(--border), transparent);
+}

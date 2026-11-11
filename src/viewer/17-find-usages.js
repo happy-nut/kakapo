@@ -243,11 +243,13 @@ function usageRowVisible(row) {
 
 function visibleUsageRows(query) {
   var needle = String(query || '').trim().toLowerCase();
-  var queries = queryVariants(needle);
+  // The matcher gets the query AS TYPED — `needle` stays lower-cased for this list's own
+  // substring work, because camel humps are case and a lower-cased pattern has none.
+  var queries = queryVariants(String(query || '').trim());
   return usageViewRows.filter(function (row) {
     if (!usageRowVisible(row)) return false;
     if (!needle) return true;
-    var hay = (row.path + ' ' + row.text).toLowerCase();
+    var hay = [row.text, row.path];
     return matchesQueryVariants(hay, queries);
   });
 }
@@ -855,7 +857,10 @@ function paintUsageHighlights() {
     if (row) row.classList.add('usage-mark-row');
     var container = row && (inDiff ? diffCellCtn(row) : (row.querySelector('.source-code') || row));
     if (!container) return;
-    var shown = container.textContent || '';
+    // The container's OWN text, in the same coordinates fileFindRange walks in. textContent also carries
+    // the inlay labels, so on a hinted line `start` was measured with them and resolved without them —
+    // the two ends of one offset disagreeing about what a column is.
+    var shown = sourceCellText(container);
     var start = mark.column;
     if (shown.substr(start, mark.length) !== usageMarkName) start = shown.indexOf(usageMarkName);
     if (start < 0) return;

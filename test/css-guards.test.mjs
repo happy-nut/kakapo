@@ -395,6 +395,51 @@ test("modern chrome uses one compact radius and elevation system without roundin
   assert.match(css, /\.settings-cat\.active\s*\{[^}]*box-shadow:\s*none/, "settings navigation follows the same full-surface selection language");
 });
 
+// Prose is not a selector. The rules below are read with comments stripped, because the comment ABOVE the
+// transition rule names .source-row and .code-cursor to say they must stay out of it — swept raw, that
+// sentence would read as the rule listing them.
+const cssBare = css.replace(/\/\*[\s\S]*?\*\//g, "");
+function selectorOfRuleContaining(declaration) {
+  const i = cssBare.indexOf(declaration);
+  if (i < 0) return null;
+  return cssBare.slice(0, cssBare.lastIndexOf("{", i)).split(/[{}]/).pop().trim().replace(/\s+/g, " ");
+}
+
+// Motion here is a language, and the rule that speaks it was written in HTML tags: `button, input, select`
+// plus two panels. Whether a sidebar row answered the pointer therefore depended on which element it was
+// built from. Measured in the running app before this changed: .source-link, a <button>, faded over 120ms,
+// while .change-row (<a>) and .tree-dir summary (<summary>) directly beside it in the same sidebar changed
+// instantly. Neither was a decision — one tree glided and the other snapped because of their markup.
+//
+// The second half is the one that costs something if it is lost: the code canvas stays OUT of the rule. A
+// transition on .source-row or .code-cursor is paid on every caret move, and deleting exactly that kind of
+// per-move work is what PRs #137 and #138 were.
+test("the shared transition names every interactive chrome row, and no code row", () => {
+  const selector = selectorOfRuleContaining("transition: color 120ms ease, background-color 120ms");
+  assert.ok(selector, "the shared chrome transition rule still exists");
+  for (const row of [".change-row", ".file-link", ".tree-dir summary", ".viewed-box"]) {
+    assert.ok(selector.includes(row), `${row} is a row the pointer lands on — it shares the one transition: ${selector}`);
+  }
+  for (const code of [".source-row", ".code-cursor", ".d2h-code-line", ".source-code"]) {
+    assert.ok(!selector.includes(code), `${code} is the code canvas: a transition there is paid per caret move`);
+  }
+});
+
+// Seven surfaces open over the app. The dock and the peek rose into place; the three the keyboard opens
+// most — the launcher, Settings and the menus — cut in with no entrance at all, which is where a 150ms
+// difference stops reading as a style and starts reading as a different program. Each is hidden with
+// `display: none`, and that is what restarts the animation on every open; no JS is involved.
+test("every surface that opens over the app shares one entrance", () => {
+  const selector = selectorOfRuleContaining("animation: mc-surface-in");
+  assert.ok(selector, "the shared entrance rule still exists");
+  for (const surface of [".dock-panel", ".semantic-peek", ".quick-open-panel", ".settings-panel", ".mc-dropdown",
+    ".compare-menu-main", ".compare-menu-branches"]) {
+    assert.ok(selector.includes(surface), `${surface} opens over the app — it uses the shared entrance: ${selector}`);
+  }
+  assert.match(css, /\.quick-open:not\(\.hidden\):not\(\.anchored\)\s*\{\s*animation:\s*dock-backdrop-in/,
+    "the dim behind the launcher fades in rather than cutting over an already-blurred page");
+});
+
 test("panel focus is a brief shared flash instead of a persistent native outline", () => {
   assert.match(css, /\[data-mc-focus-panel\]:focus\s*\{[^}]*outline:\s*none/, "a stale DOM-focused scroller cannot keep a permanent blue rectangle");
   assert.match(css, /\.mc-panel-focus-flash\s*\{[^}]*animation:\s*mc-panel-focus-flash\s+520ms/, "every panel uses the same roughly half-second focus flash");
@@ -579,14 +624,27 @@ test("the Changes tree writes an added file's name in ink, not in a diff fill", 
 // dropped and the property inherits, so the rule looks present and does nothing. That is how a whole
 // block of new shortcut-sheet styling came to reference `--accent` and `--danger`, neither of which this
 // stylesheet has ever defined (the accent token is `--active`), and look merely subtle on screen.
+// The fallback half of this used to be exempt, and a missing token with a fallback is the worse of the two:
+// `var(--x)` with no --x paints nothing, which someone notices, while `var(--accent, #4a9eff)` paints the
+// literal and looks deliberate. Three such names were live when this was widened — --accent, --ok and
+// --warning, none of them declared anywhere — so the sticky-lines hover, the Test tag and the no-matches
+// count were painted by one hardcoded colour each, identically in all twelve themes, while every rule
+// around them followed the palette. A guard that only swept the un-fallbacked form reported zero.
 test("every custom property a rule reads is one this stylesheet declares", () => {
   const declared = new Set([...css.matchAll(/(--[a-z0-9-]+)\s*:/gi)].map((m) => m[1]));
-  const read = [...css.matchAll(/var\(\s*(--[a-z0-9-]+)\s*\)/gi)].map((m) => m[1]); // no fallback = must exist
-  // Two tokens are legitimately absent here: they are written as an inline style by the renderer
-  // (render-tree.ts sets --depth per row, brand.ts sets --kakapo-ui-icon on the page).
-  const setInMarkup = new Set(["--depth", "--kakapo-ui-icon"]);
+  const read = [...css.matchAll(/var\(\s*(--[a-z0-9-]+)\s*[,)]/gi)].map((m) => m[1]);
+  // Written as an inline style rather than declared here, so the fallback IS the default and the name
+  // genuinely has nowhere to live in this file. Each one is set in the source named beside it.
+  const setInMarkup = new Set([
+    "--depth",            // render-tree.ts, 04-source-tree.js, 17-find-usages.js — per-row indent
+    "--kakapo-ui-icon",   // brand.ts / render.ts / app-main.ts — the page's icon
+    "--structure-depth",  // 16-structure.js
+    "--sidebar-width",    // 05-keymap.js
+    "--hgraph-w",         // 12-history.js
+    "--bookmark-mark",    // 11-render-http.js, 16-structure.js
+  ]);
   const undeclared = [...new Set(read.filter((name) => !declared.has(name) && !setInMarkup.has(name)))];
-  assert.deepEqual(undeclared, [], "a var() with no fallback must name a token that exists");
+  assert.deepEqual(undeclared, [], "a var() must name a token this file declares, or one the markup sets");
 });
 
 
@@ -780,7 +838,7 @@ test("every chrome control a pointer aims at clears the 24px target floor", () =
   assert.match(pill || "", /min-height:\s*24px/, "the compare pill is a button, and is 24px tall");
   // ...without making the bar that holds them taller: its padding gave up the 4px they needed.
   const tools = ruleDeclaring(".sidebar-tools", "padding");
-  assert.match(tools || "", /padding:\s*3px\s+8px/, "the bar's padding leaves room for 24px buttons inside 30px");
+  assert.match(tools || "", /padding:\s*3px\s/, "the bar's padding leaves room for 24px buttons inside 30px");
   assert.match(tools || "", /min-height:\s*30px/, "and the bar is still the height it was");
 });
 
@@ -807,4 +865,170 @@ test("the source caret is painted out of the flow, so a caret move cannot relayo
   // so an unscoped rule would send it up the tree.
   assert.ok(!/(^|,)\s*\.code-cursor\s*\{[^}]*position:\s*absolute/s.test(cssRules),
     "the rule must stay scoped to #source-body — the diff caret has no positioning context of its own");
+});
+
+// A px-only calc() evaluator. The tree's two row kinds reach the same x by different arithmetic, and the
+// only way to guard that they still agree is to do the arithmetic.
+function resolvePx(expr, vars) {
+  let e = String(expr).trim();
+  for (let i = 0; i < 8 && /var\(/.test(e); i += 1) {
+    e = e.replace(/var\(\s*(--[a-z0-9-]+)\s*(?:,[^()]*)?\)/gi, (_, name) => {
+      assert.ok(name in vars, "the ladder may only be built from values this guard knows: " + name);
+      return "(" + vars[name] + ")";
+    });
+  }
+  e = e.replace(/calc\(/g, "(").replace(/px/g, "");
+  assert.match(e, /^[-+*/(). \d]+$/, "the ladder must stay plain arithmetic, not " + e);
+  return Function("return " + e)();
+}
+
+function declarationIn(body, property) {
+  const m = String(body || "").match(new RegExp("(?:^|;)\\s*" + property + "\\s*:\\s*([^;]+)"));
+  return m ? m[1].trim() : null;
+}
+
+test("a folder and a file at the same depth begin on the same line", () => {
+  // They did not. <summary> started at 7px with no border; .file-link started at 8px and carried a 1px
+  // transparent border for its focus ring that nothing subtracted back out, so at every depth a file's
+  // icon sat 2px right of the folder icon above it — close enough to read as a wobble rather than as an
+  // indent, and small enough that three separate off-by-ones hid inside it. Both bases now come off one
+  // declared --tree-pad, and the difference between them is exactly the border, which is the whole claim.
+  const tree = ruleDeclaring(".tree", "--tree-pad");
+  assert.ok(tree, ".tree must declare the ladder");
+  const vars = {
+    "--tree-pad": declarationIn(tree, "--tree-pad"),
+    "--tree-indent": declarationIn(tree, "--tree-indent"),
+  };
+  assert.ok(vars["--tree-pad"] && vars["--tree-indent"], "both halves of the ladder are declared on .tree");
+
+  const dirBase = declarationIn(ruleDeclaring(".tree-dir > summary", "--tree-base"), "--tree-base");
+  const fileBase = declarationIn(ruleDeclaring(".tree .file-link", "--tree-base"), "--tree-base");
+  assert.ok(dirBase && fileBase, "each row kind names its own base in padding-box terms");
+
+  const fileBorder = declarationIn(ruleDeclaring(".file-link", "border:"), "border");
+  assert.ok(fileBorder, ".file-link's border is what the two bases have to differ by");
+  const borderPx = Number(String(fileBorder).match(/([\d.]+)px/)[1]);
+
+  // An absolutely positioned box and a padding edge are both measured from the padding box, so the file
+  // row's base has to give back the border its box already spent.
+  assert.equal(
+    resolvePx(dirBase, vars) - resolvePx(fileBase, vars), borderPx,
+    "the file row's base must be the folder's less its own border, or the two ladders drift apart",
+  );
+
+  // And the step itself is one number, so the ladders cannot diverge further down.
+  for (const depth of [0, 1, 2, 5]) {
+    const at = (base, border) => border + resolvePx(base, { ...vars, "--depth": String(depth) }) + depth * resolvePx(vars["--tree-indent"], vars);
+    assert.equal(at(dirBase, 0), at(fileBase, borderPx), `depth ${depth}: both row kinds start at the same x`);
+  }
+});
+
+test("the tree's indent guide rides the same ladder the rows do", () => {
+  // A guide drawn from its own numbers is a guide that is right until someone moves the rows. It also has
+  // to hang on <details>: the source tree wraps a folder's contents in .mc-virtual-children and the
+  // changes tree does not, so a guide on that wrapper is a guide only one of the two trees ever gets.
+  const guide = ruleDeclaring(".tree-dir::before", "left");
+  assert.ok(guide, "the guide hangs on .tree-dir, the one box both trees have");
+  const left = declarationIn(guide, "left");
+  assert.match(left, /var\(\s*--tree-pad\s*\)/, "it starts from the rows' own base");
+  assert.match(left, /var\(\s*--depth[^)]*\)\s*\*\s*var\(\s*--tree-indent\s*\)/, "and steps by the rows' own step");
+
+  // It begins one row down, from the same number the rows are laid out at — not a copy of it.
+  assert.match(declarationIn(guide, "top") || "", /var\(\s*--tree-row\s*\)/, "the guide starts one declared row down");
+  const rows = [".tree-dir summary", ".file-link"].map((sel) => declarationIn(ruleDeclaring(sel, "min-height"), "min-height"));
+  rows.forEach((value, i) => assert.match(value || "", /var\(\s*--tree-row\b/,
+    `row kind ${i} is laid out at the same declared height the guide starts below`));
+
+  // Painted from the code view's token, so the twelve themes keep one answer for what a guide looks like.
+  assert.match(declarationIn(guide, "background") || "", /var\(\s*--indent-guide\s*\)/,
+    "the tree guide and the code guide are the same ink");
+});
+
+test("every pair of tree rows is one declared step apart", () => {
+  // `margin-block: 1px` on the rows produced three different distances from one declaration, because what
+  // it came out to depended on the layout mode of whatever held the row: 3px between two folders (grid
+  // parent, margins do not collapse, plus its own gap), 1px between two files (block parent, they do), and
+  // 2px where the kinds met. The containers own the step now, so the rows must not carry one.
+  const rowSelectors = /(^|[,}])\s*[^{}]*(\.tree-dir\s*(>\s*)?summary|\.file-link|\.change-row|\.source-link)[^{}]*\{([^}]*)\}/g;
+  const withMargin = Array.from(cssRules.matchAll(rowSelectors))
+    .filter((m) => /(^|;)\s*margin(-block|-top|-bottom)?\s*:\s*(?!0)/.test(m[4]))
+    .map((m) => m[0].slice(0, 90).replace(/\s+/g, " "));
+  assert.deepEqual(withMargin, [], "no tree row may carry vertical margin of its own:\n  " + withMargin.join("\n  "));
+  assert.match(ruleDeclaring(".tree-dir", "gap") || "", /gap:\s*var\(\s*--tree-row-gap\s*\)/,
+    "the folder's own grid uses the declared step");
+  assert.match(cssRules, /\.tree-dir:not\(\[open\]\)\s*\{[^}]*gap:\s*0/,
+    "and a closed folder reserves none: its content row is the UA slot, which exists whether or not it is open");
+});
+
+// The last value a selector declares for a property, applying its rules in source order the way the
+// cascade would. A band sets its padding in a shorthand and then overrides one edge further down.
+function finalDeclaration(selector, property) {
+  let value = null;
+  ruleBodiesForExactSelector(selector).forEach((body) => {
+    const direct = declarationIn(body, property);
+    if (direct !== null) value = direct;
+  });
+  return value;
+}
+
+function edgeFromShorthand(shorthand, edge) {
+  const parts = String(shorthand).trim().split(/\s+/);
+  if (parts.length === 1) return parts[0];
+  if (parts.length === 2) return edge === "top" || edge === "bottom" ? parts[0] : parts[1];
+  if (parts.length === 3) return edge === "top" ? parts[0] : edge === "bottom" ? parts[2] : parts[1];
+  return edge === "top" ? parts[0] : edge === "right" ? parts[1] : edge === "bottom" ? parts[2] : parts[3];
+}
+
+test("a chrome band leaves an even content box for the controls centred in it", () => {
+  // --header-band is a shared OUTER height so the rule under the sidebar's header and the rule under the
+  // pane's toolbar land on the same y. What each band has left after its own padding and its own 1px rule
+  // is not shared, and both of these came out ODD — 37 and 29 — which centres every even-height control in
+  // them on a half pixel: the brand bar's 26px switch sat at 5.5, the toolbar's two 26px buttons at 1.5.
+  const band = Number(String(declarationIn(ruleDeclaring(":root", "--header-band"), "--header-band")).match(/([\d.]+)px/)[1]);
+  assert.ok(band > 0, "--header-band is declared in px");
+
+  [[".sidebar-brand"], [".source-toolbar", ".toolbar"]].forEach(([selector, base]) => {
+    const padding = finalDeclaration(selector, "padding");
+    const padTop = Number(String(edgeFromShorthand(padding, "top")).match(/([\d.]+)/)[1]);
+    const padBottomDecl = finalDeclaration(selector, "padding-bottom");
+    const padBottom = padBottomDecl !== null
+      ? Number(String(padBottomDecl).match(/([\d.]+)/)[1])
+      : Number(String(edgeFromShorthand(padding, "bottom")).match(/([\d.]+)/)[1]);
+    // The rule may be declared on the band's base class rather than on the band — .source-toolbar takes
+    // its 1px from .toolbar — and a guard that only looked at the band read 0 and called an even box odd.
+    const rule = finalDeclaration(selector, "border-bottom") || (base ? finalDeclaration(base, "border-bottom") : null);
+    assert.ok(rule, `${selector}: the 1px rule under the band has to be found, or this arithmetic is fiction`);
+    const border = Number(String(rule).match(/([\d.]+)px/)[1]);
+    const inner = band - padTop - padBottom - border;
+    assert.equal(inner % 2, 0,
+      `${selector}: ${band} less ${padTop}+${padBottom} padding and its ${border}px rule leaves ${inner}, which centres an even control on a half pixel`);
+  });
+});
+
+test("the toolbar's icon button is the height of the text button beside it", () => {
+  // They were 27 and 26 and sit 16px apart in the same bar, so the icon button overhung the text button by
+  // half a pixel top and bottom and their hover fills were visibly different heights.
+  const icon = finalDeclaration(".diff-tool-button", "height");
+  assert.match(icon || "", /26px/, "the icon button is 26px tall");
+  assert.match(finalDeclaration(".diff-tool-button", "width") || "", /26px/, "and square");
+  // 26 less its own 1px border leaves 24 for a 14px glyph: 5px a side, whole, like every other icon control.
+  const border = finalDeclaration(".diff-tool-button", "border");
+  const bw = Number(String(border).match(/([\d.]+)px/)[1]);
+  assert.equal((26 - 2 * bw - 14) % 2, 0, "and its glyph is centred on a whole pixel");
+});
+
+test("the tree's two glyphs are one size, and the sidebar has one left inset", () => {
+  // The file glyph was 15px — the only odd icon size in the app, one pixel larger than the folder mark it
+  // shares a column with, and odd inside the row's 20px content box, so all 271 of them sat half low.
+  const file = declarationIn(ruleDeclaring(".file-link .ftype", "width"), "width");
+  const folder = declarationIn(ruleDeclaring(".folder-icon .folder-ic", "width"), "width");
+  assert.equal(file, folder, "a file glyph and a folder glyph in the same column are the same size");
+  assert.equal(Number(String(file).match(/([\d.]+)/)[1]) % 2, 0, "and an even one, so it centres whole in an even row");
+
+  const insets = [".sidebar-brand", ".sidebar-scroll", ".sidebar-tools"].map((selector) => {
+    const padding = finalDeclaration(selector, "padding");
+    return edgeFromShorthand(padding, "left");
+  });
+  assert.deepEqual(new Set(insets).size, 1,
+    "every band down the sidebar starts at the same x: " + insets.join(" / "));
 });
