@@ -230,6 +230,12 @@ const MAX_LOCATIONS = 500;
 // base change or a branch switch dressed up as a save, where a batched, yielding rebuild is cheaper.
 const MAX_INLINE_INDEX_READS = 32;
 
+// The wait before a fallen language server is started again, doubling per fall and capped. See
+// `restarting`: short at first because the common fall is one slow request timing out on a server that is
+// otherwise fine, capped so a server that cannot run is not respawned by every keystroke.
+const SERVER_RESTART_BASE_MS = 1_000;
+const SERVER_RESTART_MAX_MS = 60_000;
+
 function uniqueLocations<T extends AnalysisLocation>(items: T[], limit = MAX_LOCATIONS): T[] {
   const seen = new Set<string>();
   const out: T[] = [];
@@ -287,7 +293,14 @@ export class ProjectAnalysis {
   /** Built indexes keyed by revision. A revision's tree is immutable, so these never need invalidating. */
   private revisionIndexes = new Map<string, Promise<RegexIndex>>();
   private clients = new Map<string, LspClient>();
-  private failedServers = new Set<string>();
+  // What fell over, how often, and when. A Set here meant the quarantine was PERMANENT: one tsserver that
+  // timed out a single request left every later ⌘B, ⌘⌥B, ⌥F7 and ⌘U on every .ts file in the window
+  // answering off the regex index, under a status chip reading "heuristic" and no way back short of
+  // reopening the folder. Measured in the real app: the first file asked answered `engine: "lsp"`, the
+  // next three answered `No language server is available`, and reversing the order moved the failure with
+  // it — the file was never the reason. A server that falls is restarted now; the count only lengthens the
+  // wait, so one that cannot run does not respawn on every keypress.
+  private failedServers = new Map<string, { attempts: number; at: number }>();
   private readonly resolveServer: (root: string, path: string) => LanguageServerCommand | undefined;
   // How long the background warm-up waits for a server to confirm it has analysed the file. Generous
   // because nothing is waiting on it, bounded because a server that never diagnoses must not leave the
@@ -753,7 +766,7 @@ export class ProjectAnalysis {
   private clientFor(path: string): LspClient | undefined {
     for (const server of this.serverCandidates(path)) {
       const key = this.serverKey(server);
-      if (this.failedServers.has(key)) continue;
+      if (this.restarting(key)) continue;
       let client = this.clients.get(key);
       if (!client) {
         client = new LspClient(this.root, server);
@@ -769,10 +782,10 @@ export class ProjectAnalysis {
    * Is a server CONFIGURED for this file's language, healthy or not?
    *
    * `clientFor` returns undefined for two very different reasons — nothing resolves for this language, or
-   * everything that does is quarantined — and a per-call `attempted` flag cannot tell them apart, because
-   * `failedServers` outlives the call and is never cleared. Deriving "no server covers this language"
-   * from it meant one tsserver crash turned every later ⌘B on every `.ts` file into "this language is
-   * not supported", which is a claim about the project rather than about a server that fell over.
+   * what does is inside the wait before its restart — and a per-call `attempted` flag cannot tell them
+   * apart, because `failedServers` outlives the call. Deriving "no server covers this language" from it
+   * meant one tsserver crash turned every later ⌘B on every `.ts` file into "this language is not
+   * supported", which is a claim about the project rather than about a server that fell over.
    */
   private hasServerFor(path: string): boolean {
     // The SAME candidate list clientFor builds, so the two cannot disagree. Asking the bundled resolver
@@ -796,9 +809,26 @@ export class ProjectAnalysis {
     return `${server.command}\0${server.args.join("\0")}`;
   }
 
+  /**
+   * Is this server inside the wait after its last fall?
+   *
+   * Doubling, capped: 1s after the first fall, 2s after the second, up to a minute. The first wait is
+   * short because the overwhelming case is a server that timed out one slow request and runs perfectly on
+   * the next ask; the cap is there because a server that cannot start at all would otherwise be respawned
+   * by every keystroke. The count is never cleared, so a server that keeps dying is asked ever more
+   * rarely rather than being declared missing.
+   */
+  private restarting(key: string): boolean {
+    const failure = this.failedServers.get(key);
+    if (!failure) return false;
+    const wait = Math.min(SERVER_RESTART_BASE_MS * 2 ** (failure.attempts - 1), SERVER_RESTART_MAX_MS);
+    return Date.now() - failure.at < wait;
+  }
+
   private quarantine(client: LspClient, error?: unknown): void {
     const key = this.serverKey(client.server);
-    this.failedServers.add(key);
+    const previous = this.failedServers.get(key);
+    this.failedServers.set(key, { attempts: (previous ? previous.attempts : 0) + 1, at: Date.now() });
     this.clients.delete(key);
     client.dispose();
     this.setStatus("failed", {

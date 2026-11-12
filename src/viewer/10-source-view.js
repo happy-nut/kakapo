@@ -960,8 +960,16 @@ function isSourceViewerVisible() {
 // no view target so the caller can fall back to the default.
 function selectAllInView() {
   var target = null;
-  if (isSourceViewerVisible()) target = document.getElementById('source-body');
-  else if (isDiffViewVisible()) {
+  if (isSourceViewerVisible()) {
+    // A big file is painted a window at a time, so #source-body holds a few hundred rows and a spacer
+    // standing in for the rest — and selectNodeContents over that selects the window, not the file.
+    // Measured in the real app: ⌘A on a 1761-line file selected 372 lines, and the ⌘C after it copied
+    // those 372 with nothing to say the other 1389 were missing. Every other reader that needs rows
+    // outside the window already finishes the paint first (selectedSourceRows, the comment anchors,
+    // semantic navigation, the file find); the one whose whole job is "all of it" was the one that did not.
+    flushSourceRows();
+    target = document.getElementById('source-body');
+  } else if (isDiffViewVisible()) {
     target = document.querySelector('#diff2html-container .d2h-file-wrapper:not(.df-inactive)') || document.getElementById('diff2html-container');
   }
   if (!target) return false;
