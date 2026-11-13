@@ -1284,12 +1284,18 @@ function applySourceSelection() {
  * `...values: ` every selection and every click past it landed eleven characters early — ⌥↑ on
  * `startLine` selected `Math.trun`. One rule, read by all three, rather than the fact living in the one
  * place that happened to be written first.
+ *
+ * A collapsed fold's button is the same kind of thing and was not on the list. `›코드 19줄 접힘` is drawn
+ * INTO the line it hangs off, so every reader of this walk counted it as code: measured in the real app,
+ * five collapsed rows of `src/analysis.ts` each read 9–10 characters longer than the line on disk, and
+ * `caretDomPosition` asked for that length put the caret inside `.mc-code-fold-label` — past the end of
+ * the file's own line, in text the file does not contain. The rule was right; the list was short.
  */
 function sourceTextWalker(cell) {
   return document.createTreeWalker(cell, NodeFilter.SHOW_TEXT, {
     acceptNode: function (node) {
       var parent = node.parentNode;
-      return parent && parent.closest && parent.closest('.inlay-hint')
+      return parent && parent.closest && parent.closest('.inlay-hint, .mc-code-fold-button')
         ? NodeFilter.FILTER_REJECT
         : NodeFilter.FILTER_ACCEPT;
     },
