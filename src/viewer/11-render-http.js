@@ -651,7 +651,7 @@ function renderHttpTable(file) {
     rows += '<tr class="source-row http-row' + (hasRun ? ' http-request-line' : '') + (isScript ? ' http-script-line' : '')
       + (isCursorLine ? ' cursor-line' : '') + '" data-line-index="' + index + '">'
       + '<td class="num http-gutter">' + gutter + '<span class="num-text">' + (index + 1) + '</span></td>'
-      + '<td class="source-code">' + (isCursorLine ? renderHttpLineWithCursor(line, scope, cursor.column, isScript) : highlightHttpLine(line, scope, isScript)) + '</td>'
+      + sourceCodeCellHtml(isCursorLine ? renderHttpLineWithCursor(line, scope, cursor.column, isScript) : highlightHttpLine(line, scope, isScript), index < lines.length - 1)
       + '</tr>';
     if (Object.prototype.hasOwnProperty.call(respAfterLine, index)) {
       const rIdx = respAfterLine[index];
@@ -1090,6 +1090,33 @@ function sourceLineHtml(line, byLine, index, language) {
   return highlightLine(line, language);
 }
 
+/**
+ * One line's code cell — and a blank line gets a `<br>` rather than nothing at all.
+ *
+ * A `<td>` holding no content whatsoever is dropped WHOLE by Chromium's table-to-text serializer: not
+ * emptied, removed, taking its row separator with it. `.num` is `user-select: none`, so a blank line's
+ * row has no selectable text anywhere and every blank line fell out of the copy. Measured in the real
+ * app on `src/analysis.ts`: 1761 lines selected, 1691 on the clipboard, and the 70 missing were exactly
+ * its 70 blank lines — so a copied function came back with its paragraphs run together.
+ *
+ * It also reached the Cmd+K citation, which is worse than losing whitespace: `cleanSelectedSourceText`
+ * pairs the serializer's lines with the selected ROWS by index, and on the mismatch (1692 lines against
+ * 1762 rows) it gives up and returns the text unpaired. So a citation went out reading
+ * `src/analysis.ts:81-83` with two lines under it — a line range that does not hold what it claims.
+ *
+ * The diff view never had this: diff2html writes `<span class="d2h-code-line-ctn"><br></span>` for its
+ * own blank lines. The answer was already in the app, one view over.
+ *
+ * `hasRowBelow` is false for the table's last row only, and there the `<br>` is left off. Everywhere else
+ * the break Chromium emits for it IS the separator before the next row; on the final row there is no next
+ * row to separate from, so it emits a newline of its own and a whole-file copy of a file ending in a
+ * newline came back one line longer than the file. Measured all four positions — blank first, middle,
+ * last, and the file's own final rows — and this is the only one that differed.
+ */
+function sourceCodeCellHtml(inner, hasRowBelow) {
+  return '<td class="source-code">' + (inner || (hasRowBelow ? '<br>' : '')) + '</td>';
+}
+
 function renderSourceTable(file, query) {
   const normalizedQuery = query.trim().toLowerCase();
   const lines = file.content.split(/\r?\n/);
@@ -1155,7 +1182,7 @@ function renderSourceTable(file, query) {
         + (mnemonic ? ' data-bookmark-mnemonic="' + escapeHtml(mnemonic) + '"'
           + ' style="--bookmark-mark: \'' + escapeHtml(mnemonic) + '\'"' : '') + '>',
       '<td class="num">' + String(index + 1) + '</td>',
-      '<td class="source-code">' + markWhitespaceRuns(sourceLineHtml(line, semanticByLine, index, languageAt(index))) + foldButton + '</td>',
+      sourceCodeCellHtml(markWhitespaceRuns(sourceLineHtml(line, semanticByLine, index, languageAt(index))) + foldButton, index < lines.length - 1),
       '</tr>',
     ].join('');
   };
