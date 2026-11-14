@@ -120,3 +120,33 @@ test("a decorator draws on the rows that are painted instead of building the fil
     v.close();
   }
 });
+
+// Select All is the one reader that cannot work off the painted window, because "all of it" is the whole
+// request. It built its range straight over #source-body, which on a big file holds a few hundred rows and
+// a spacer standing in for the rest — so ⌘A selected the window and the ⌘C after it copied the window,
+// with nothing on screen to say the remainder was missing. Measured in the real app before the fix:
+// ⌘A on src/analysis.ts (1,761 lines) selected 372 of them.
+//
+// Asserted against the DOM rather than against the selection's text: a range over #source-body can only
+// ever cover what is in the document when it is made, so "is the last line there" IS the question, and in
+// jsdom — which serializes a selection poorly — it is the only form of it that cannot pass by accident.
+test("Select All reaches the end of a file whose rows are not all painted", async () => {
+  const v = await loadViewer(html);
+  try {
+    installLayout(v, { spacerTop: 90000 }); // 100 screens down: out of reach
+    v.window.openSourceFile("src/big.ts");
+    const parked = await restingRowCount(v);
+    assert.ok(parked < LINES, `precondition: the file is not fully painted (${parked} of ${LINES})`);
+    assert.ok(spacer(v), "precondition: a spacer stands in for the rest");
+
+    assert.equal(v.window.selectAllInView(), true, "Select All found a target");
+
+    assert.ok(
+      v.$("#source-body").querySelector(`.source-row[data-line-index="${LINES - 1}"]`),
+      "the file's last line is in the document that Select All just selected",
+    );
+    assert.equal(spacer(v), null, "and nothing is left standing in for rows that were never painted");
+  } finally {
+    v.close();
+  }
+});

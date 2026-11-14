@@ -477,6 +477,88 @@ test("a broken project TypeScript server cannot displace the packaged sidecar", 
   }
 });
 
+test("a language server that falls over is restarted, not condemned for the rest of the window", {
+  timeout: 30_000,
+  skip: process.platform === "win32",
+}, async () => {
+  // The defect this is the negative control for, measured in the real app on this repo: ask one .ts file
+  // for an implementation and the answer comes back `engine: "lsp"`; ask the next three and every one of
+  // them answers `No language server is available for <path>`, with the status chip reading "heuristic"
+  // for the rest of the window. Reversing the order moved the failure to whichever file was asked later,
+  // so it was never about the file — one request had timed out, `transportFailure` matched `/timed out/`,
+  // and `quarantine` put the server in a set that nothing ever took it out of. ⌘B, ⌘⌥B, ⌥F7 and ⌘U all
+  // answered off the regex index from then on, which is exactly "navigation stopped working".
+  //
+  // The server here falls the same way a real one does — the process goes away mid-request — and then
+  // runs correctly, which is what a restarted tsserver does. One ask must fail and a later ask must be
+  // semantic; a server kept in quarantine can never produce the second.
+  const root = tempProject();
+  write(root, "src/target.ts", "export function target() { return 42; }\n");
+  write(root, "src/app.ts", "import { target } from './target';\nexport const value = target();\n");
+  const files = [
+    { path: "src/target.ts", content: "export function target() { return 42; }\n" },
+    { path: "src/app.ts", content: "import { target } from './target';\nexport const value = target();\n" },
+  ];
+  const marker = join(root, "spawned-once");
+  const fake = join(root, "falls-over-once.mjs");
+  writeFileSync(fake, `
+import { existsSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
+// The first process to start is the one that falls; whatever starts after it works. Recorded on disk
+// because the restart is a NEW process and has no other way to know it is the second.
+const second = existsSync(${JSON.stringify(marker)});
+if (!second) writeFileSync(${JSON.stringify(marker)}, 'yes');
+let buffer = Buffer.alloc(0);
+function send(value) {
+  const body = Buffer.from(JSON.stringify(value));
+  process.stdout.write('Content-Length: ' + body.length + '\\r\\n\\r\\n');
+  process.stdout.write(body);
+}
+process.stdin.on('data', (chunk) => {
+  buffer = Buffer.concat([buffer, chunk]);
+  while (true) {
+    const end = buffer.indexOf('\\r\\n\\r\\n');
+    if (end < 0) return;
+    const length = Number(/Content-Length:\\s*(\\d+)/i.exec(buffer.subarray(0, end).toString())?.[1]);
+    if (buffer.length < end + 4 + length) return;
+    const message = JSON.parse(buffer.subarray(end + 4, end + 4 + length));
+    buffer = buffer.subarray(end + 4 + length);
+    if (typeof message.id !== 'number') continue;
+    if (message.method === 'initialize') { send({ jsonrpc: '2.0', id: message.id, result: { capabilities: {} } }); continue; }
+    // The fall: the process goes away with the request outstanding, which is the shape every real
+    // transport failure has — the client raises "exited", transportFailure matches it, quarantine runs.
+    if (!second) process.exit(1);
+    send({ jsonrpc: '2.0', id: message.id, result: [{
+      uri: pathToFileURL(resolve(process.cwd(), 'src/target.ts')).href,
+      range: { start: { line: 0, character: 16 }, end: { line: 0, character: 22 } },
+    }] });
+  }
+});
+`);
+  const analysis = new ProjectAnalysis(root, {
+    files,
+    resolveServer: () => ({ family: "typescript", name: "falls-over-lsp", command: process.execPath, args: [fake] }),
+  });
+  try {
+    const first = await analysis.query({ kind: "definition", path: "src/app.ts", line: 1, column: 23, symbol: "target" });
+    assert.notEqual(first.engine, "lsp", "the first ask is the one the server falls on");
+
+    // Poll rather than sleep past the backoff: the wait is a real clock, so the only honest question is
+    // whether a later ask gets a semantic answer at all, not whether it does so by a particular instant.
+    const deadline = Date.now() + 20_000;
+    let later = first;
+    while (Date.now() < deadline && later.engine !== "lsp") {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      later = await analysis.query({ kind: "definition", path: "src/app.ts", line: 1, column: 23, symbol: "target" });
+    }
+    assert.equal(later.engine, "lsp", `a fallen server is started again — ${later.fallbackReason || "no reason given"}`);
+    assert.equal(later.locations[0]?.path, "src/target.ts");
+  } finally {
+    analysis.dispose();
+  }
+});
+
 test("mapLspDiagnostics normalizes severity and ranges and drops unusable entries", () => {
   const mapped = mapLspDiagnostics([
     { range: { start: { line: 4, character: 2 }, end: { line: 4, character: 9 } }, severity: 1, message: "boom", source: "tsc", code: 2345 },
