@@ -155,7 +155,7 @@ test("the caret-local semantic menu opens its selected source without a second e
 // structure in the background (BACKGROUND_ANALYSIS_KINDS), so `at(-1)` is whatever happened to settle last.
 const lastOfKind = (requests, kind) => requests.filter((r) => r.kind === kind).at(-1);
 
-test("Cmd+B resolves the token at the active diff caret on both working and base panes", async () => {
+test("the usages popup resolves the token at the active diff caret on both working and base panes", async () => {
   const requests = [];
   const v = await loadViewer(html, {
     monacoBridge: true,
@@ -178,7 +178,10 @@ test("Cmd+B resolves the token at the active diff caret on both working and base
   }
 
   const working = placeCaret("new", "target");
-  v.key("b", { metaKey: true, code: "KeyB" });
+  // ⌘⌥F7, IntelliJ's Show Usages. This read ⌘B until ⌘B became Go to Declaration, which is a different
+  // question — the subject here is the COORDINATES a diff caret supplies, and the usages popup is still
+  // the surface that asks for them from both panes.
+  v.key("F7", { metaKey: true, altKey: true, code: "F7" });
   await v.settle(40);
   assert.deepEqual(
     JSON.parse(JSON.stringify(lastOfKind(requests, "references"))),
@@ -197,11 +200,11 @@ test("Cmd+B resolves the token at the active diff caret on both working and base
   // menu asking the reader to confirm the only answer.
   await v.settle(40);
   assert.ok(v.$("#semantic-peek").classList.contains("hidden"), "one remaining usage needs no dropdown");
-  assert.equal(v.$("#source-viewer").dataset.openPath, "src/target.ts", "Cmd+B lands on the one usage it found");
+  assert.equal(v.$("#source-viewer").dataset.openPath, "src/target.ts", "it lands on the one usage it found");
 
   await v.openDiffFor("src/app.ts");
   const base = placeCaret("old", "oldValue");
-  v.key("b", { metaKey: true, code: "KeyB" });
+  v.key("F7", { metaKey: true, altKey: true, code: "F7" });
   await v.settle(40);
   assert.deepEqual(
     JSON.parse(JSON.stringify(lastOfKind(requests, "references"))),
@@ -219,6 +222,41 @@ test("Cmd+B resolves the token at the active diff caret on both working and base
     },
     "the base caret remains a valid semantic-navigation origin, and says which side it came from",
   );
+  v.close();
+});
+
+test("in the diff, ⌘B resolves the symbol and ⌘↓ opens the file", async () => {
+  // One row, two keys, two answers — which is what the table's `keys` list is for. ⌘B is IntelliJ's
+  // chord and means the same thing everywhere, so in a diff it still asks about the symbol under the
+  // caret; ⌘↓ is this app's own second key and keeps the answer it has always given here, which is to
+  // open the file the row belongs to. Collapsing them would have cost the diff its semantic navigation.
+  const requests = [];
+  const v = await loadViewer(html, {
+    monacoBridge: true,
+    analysisBridge(request) { requests.push(request); return { ...responseFor(request), locations: [] }; },
+  });
+  await v.openDiffFor("src/app.ts");
+  const wrapper = v.window.diffWrapperByPath("src/app.ts");
+  const rows = v.window.diffRowsOf(v.window.diffSideTable(wrapper, "new"));
+  const index = rows.findIndex((row) => v.window.diffLineText(row).includes("target"));
+  assert.notEqual(index, -1, "the diff prints the token this is about");
+  const column = v.window.diffLineText(rows[index]).indexOf("target");
+  v.window.setDiffCursor("src/app.ts", "new", index, column + 1, false);
+
+  v.key("b", { metaKey: true, code: "KeyB" });
+  await v.settle(40);
+  const asked = lastOfKind(requests, "definition");
+  assert.ok(asked, "⌘B asks the analyzer from the diff, rather than opening the file");
+  assert.equal(asked.symbol, "target", "about the symbol under the diff caret");
+
+  await v.openDiffFor("src/app.ts");
+  v.window.setDiffCursor("src/app.ts", "new", index, column + 1, false);
+  const before = requests.filter((r) => r.kind === "definition").length;
+  v.key("ArrowDown", { metaKey: true, code: "ArrowDown" });
+  await v.settle(40);
+  assert.equal(v.$("#source-viewer").dataset.openPath, "src/app.ts", "⌘↓ opens the file the caret is in");
+  assert.equal(requests.filter((r) => r.kind === "definition").length, before,
+    "and asks nothing: opening the file IS its answer in a diff");
   v.close();
 });
 
@@ -402,7 +440,8 @@ test("a caret on an unchanged base row is read at its working-tree twin", async 
   assert.equal(v.window.diffLineText(oldKeep.row), v.window.diffLineText(newKeep.row),
     "the premise this rests on: an unchanged row is the same text on both sides");
   v.window.setDiffCursor("src/ctx.ts", "old", oldKeep.index, 13, false);
-  v.key("b", { metaKey: true, code: "KeyB" });
+  // ⌘⌥F7, the usages popup: it asks the analyzer from wherever the caret is, which is what this is about.
+  v.key("F7", { metaKey: true, altKey: true, code: "F7" });
   await v.settle(40);
   const mapped = lastOfKind(requests, "references");
   assert.equal(mapped.symbol, "keep", "the token is the one under the caret");
@@ -416,7 +455,7 @@ test("a caret on an unchanged base row is read at its working-tree twin", async 
   // replaced this one.
   const gone = rowOf("old", "oldValue");
   v.window.setDiffCursor("src/ctx.ts", "old", gone.index, 13, false);
-  v.key("b", { metaKey: true, code: "KeyB" });
+  v.key("F7", { metaKey: true, altKey: true, code: "F7" });
   await v.settle(40);
   const declined = lastOfKind(requests, "references");
   assert.equal(declined.symbol, "oldValue");

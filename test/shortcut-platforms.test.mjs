@@ -43,7 +43,7 @@ test("every ⌘ chord fires from Control as well as Command", async () => {
     { name: "⌘U", init: { key: "u", code: "KeyU" }, expect: "goToSuper" },
     { name: "⌘F3", init: { key: "F3", code: "F3" }, expect: "showBookmarks" },
     { name: "⌘F12", init: { key: "F12", code: "F12" }, expect: "fileStructure" },
-    { name: "⌘B", init: { key: "b", code: "KeyB" }, expect: "defUsages" },
+    { name: "⌘B", init: { key: "b", code: "KeyB" }, expect: "goToDef" },
     { name: "⌘E", init: { key: "e", code: "KeyE" }, expect: "recentFiles" },
   ];
   for (const chord of chords) {

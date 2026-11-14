@@ -1158,3 +1158,83 @@ test("a sync that has to read the disk cannot stamp its signature over a later r
     analysis.dispose();
   }
 });
+
+test("a library declaration is the answer, not the package's JavaScript entry", async () => {
+  // The shape this is about, verbatim from a real project: `import { app } from "electron"`. tsserver
+  // answers textDocument/definition with `const app: App;` in electron.d.ts — correctly — and answers
+  // _typescript.goToSourceDefinition with node_modules/electron/index.js line 1, the CommonJS launcher
+  // shim, because the package ships typings and no readable implementation. Asking the second question
+  // and keeping its answer sent every ⌘B on a library value to a file of no interest.
+  //
+  // The project declares `widget` too, in a test fixture, which is what used to decide this: the old gate
+  // asked the regex index whether the target "is a declaration", a library file is in no index, so the
+  // test collapsed into "does this project happen to declare the same name" — and electron's `app` was
+  // discarded while electron's `BrowserWindow`, a name nothing here declares, was kept.
+  const root = tempProject();
+  write(root, "src/app.ts", "import { widget } from \"widget\";\nwidget.start();\n");
+  write(root, "test/fixture.ts", "const widget = 1;\nexport default widget;\n");
+  write(root, "node_modules/widget/index.js", "const { spawnSync } = require('child_process');\nmodule.exports = require('./impl');\n");
+  write(root, "node_modules/widget/index.d.ts", `${"declare namespace Widget {}\n".repeat(10)}  const widget: Widget;\n`);
+  const files = [
+    { path: "src/app.ts", content: "import { widget } from \"widget\";\nwidget.start();\n" },
+    { path: "test/fixture.ts", content: "const widget = 1;\nexport default widget;\n" },
+  ];
+  const asked = join(root, "asked.json");
+  const fake = join(root, "fake-lsp.mjs");
+  writeFileSync(fake, `
+import { appendFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
+let buffer = Buffer.alloc(0);
+const at = (path, line, endLine) => ({
+  uri: pathToFileURL(resolve(process.cwd(), path)).href,
+  range: { start: { line, character: 2 }, end: { line: endLine ?? line, character: 20 } },
+});
+function send(value) {
+  const body = Buffer.from(JSON.stringify(value));
+  process.stdout.write('Content-Length: ' + body.length + '\\r\\n\\r\\n');
+  process.stdout.write(body);
+}
+process.stdin.on('data', (chunk) => {
+  buffer = Buffer.concat([buffer, chunk]);
+  while (true) {
+    const end = buffer.indexOf('\\r\\n\\r\\n');
+    if (end < 0) return;
+    const length = Number(/Content-Length:\\s*(\\d+)/i.exec(buffer.subarray(0, end).toString())?.[1]);
+    if (buffer.length < end + 4 + length) return;
+    const message = JSON.parse(buffer.subarray(end + 4, end + 4 + length));
+    buffer = buffer.subarray(end + 4 + length);
+    if (typeof message.id !== 'number') continue;
+    appendFileSync(${JSON.stringify(asked)}, JSON.stringify(message.method) + '\\n');
+    let result = [];
+    if (message.method === 'initialize') result = { capabilities: {} };
+    // The typed declaration, which is the right answer and the one the server gives first.
+    else if (message.method === 'textDocument/definition') result = [at('node_modules/widget/index.d.ts', 10)];
+    // "Where is the JavaScript behind this typing" — a different question, answered with the whole file.
+    else if (message.method === 'workspace/executeCommand') result = [at('node_modules/widget/index.js', 0, 1)];
+    send({ jsonrpc: '2.0', id: message.id, result });
+  }
+});
+`);
+  const analysis = new ProjectAnalysis(root, {
+    files,
+    resolveServer: () => ({ family: "typescript", name: "typings-lsp", command: process.execPath, args: [fake] }),
+  });
+  try {
+    const definition = await analysis.query({ kind: "definition", path: "src/app.ts", line: 1, column: 2, symbol: "widget" });
+    assert.equal(definition.engine, "lsp");
+    assert.deepEqual(
+      definition.locations.map((item) => `${item.path}:${item.lineIndex}`),
+      ["node_modules/widget/index.d.ts:10"],
+      "the declaration the server named, not the package entry",
+    );
+    const methods = readFileSync(asked, "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line));
+    assert.equal(
+      methods.includes("workspace/executeCommand"),
+      false,
+      "and the source-definition question is never asked: it answers something else",
+    );
+  } finally {
+    analysis.dispose();
+  }
+});
