@@ -5526,3 +5526,25 @@ html[data-inlay-hints="off"] .inlay-hint { display: none; }
   margin: 30px auto 0;
   background: linear-gradient(90deg, transparent, var(--border), transparent);
 }
+
+/* ---- Endpoints (⌘7) ------------------------------------------------------------------------------
+   IntelliJ Ultimate's Endpoints tool window shows the address with its method and framework beside it,
+   and draws a deprecated endpoint struck through. The method is the thing the eye sorts by, so it leads
+   the row in a fixed column and carries its own colour — the same verbs the HTTP client already paints. */
+.quick-open-item.endpoint-result { display: grid; grid-template-columns: 5.5em minmax(0, 1fr) auto; align-items: center; gap: 10px; }
+.endpoint-method {
+  font: 10px/1.6 Monaco, ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 700; text-align: center; letter-spacing: .02em;
+  border: 1px solid var(--border); border-radius: 3px; padding: 1px 4px;
+  color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.endpoint-method[data-method="GET"] { color: var(--chrome-vcs-new, var(--add-strong)); }
+.endpoint-method[data-method="POST"] { color: var(--chrome-vcs-staged, var(--active)); }
+.endpoint-method[data-method="PUT"], .endpoint-method[data-method="PATCH"] { color: var(--chrome-vcs-edited, var(--active)); }
+.endpoint-method[data-method="DELETE"] { color: var(--del-strong); }
+.endpoint-framework { color: var(--muted); font-size: 11px; }
+/* Struck through, as Ultimate draws one — and dimmed, because a deprecated route is still a route and
+   must stay readable rather than become a decoration. */
+.endpoint-result.endpoint-deprecated .quick-open-name { text-decoration: line-through; opacity: .75; }
+.quick-open-item.active .endpoint-method,
+.quick-open-item.active .endpoint-framework { color: var(--chrome-selected-text); }

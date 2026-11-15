@@ -154,7 +154,7 @@ else's repository behind their back is a worse thing to do than making them type
 | `⌘E` | Recent files — the list on its own, press again to close. Type to filter (Korean typing is read as the QWERTY keys that made it) |
 | `⌥A` / `⌥U` | All changes on the branch / only what is not committed yet |
 | `⌥C` | Choose the branch "all changes" is measured against |
-| `⌘B` or `⌘⌥F7` | Who uses this — the flat list at the caret (IntelliJ's Show Usages) |
+| `⌘⌥F7` | Who uses this — the flat list at the caret (IntelliJ's Show Usages) |
 | `⌥F7` | Find usages — the same answer, grouped by what each usage *is* |
 | `⌘F7` / `⌘⇧F7` | Highlight this symbol everywhere in the open file, writes apart from reads |
 | `⌘⌥↓` / `⌘⌥↑` | Next / previous occurrence of the symbol under the caret |
@@ -181,6 +181,7 @@ else's repository behind their back is a worse thing to do than making them type
 | `F1` | Quick documentation for the symbol under the caret |
 | `⌘⇧P` | The type of the expression under the caret |
 | `⌘F1` | The full message of the problem on this line |
+| `⌘7` | Endpoints — every HTTP route this project declares |
 | `⌘6` | Problems — everything the language servers found in this project, the review's own files first |
 | `⌘⇧B` | Go to the declaration of this thing's **type** |
 | `⌘F12` | This file's structure — filter, then jump |
@@ -194,10 +195,10 @@ else's repository behind their back is a worse thing to do than making them type
 | `⌥Space` / `⌘Y` | Quick definition — the code, without going there |
 | `⌘⇧T` | This file's test, or back to what it tests |
 | `⌘⇧Y` / `⌘⇧H` / `⌘⇧M` | Call / type / method hierarchy — press again for the other direction |
-| `⌘U` | Go to the supertype |
+| `⌘U` | Go to the supertype — or, on a member, to the one it overrides |
 | `F3` / `⌘F3` | Bookmark this line / show every bookmark |
 | `⇧⌥1`…`⇧⌥9` / `⌥1`…`⌥9` | Number this line / go to that number |
-| `⌘↓` / `⌘`-click | Go to definition — including into library code (a dependency, a stdlib module, a bundled type stub, an entry inside a `.phar`, a class a server can decompile for itself), which opens read-only. A definition the server publishes only on the web — Sorbet answers its stdlib with a github.com link — opens in your browser instead. A class in a JDK image reports where it is: reading one needs a decompiler kakapo does not ship, and only Java has a server that decompiles on its own |
+| `⌘B` / `⌘↓` / `⌘`-click | Go to declaration, or its usages when the caret is already on it (IntelliJ's Go to Declaration is one key for both) — including into library code (a dependency, a stdlib module, a bundled type stub, an entry inside a `.phar`, a class a server can decompile for itself), which opens read-only. A definition the server publishes only on the web — Sorbet answers its stdlib with a github.com link — opens in your browser instead. A class in a JDK image reports where it is: reading one needs a decompiler kakapo does not ship, and only Java has a server that decompiles on its own |
 | `⌥F1` | Reveal the open file in the sidebar |
 | `F2` / `⇧F2` | Next / previous problem the language server found |
 | `⌥Enter` | On a flagged line: draft the change request that asks an agent to fix it |
@@ -211,14 +212,14 @@ Settings ▸ Shortcuts lists the rest.
 
 ## Getting around
 
-Most of this is IntelliJ's keymap, because most of it was already: `⌘B` usages, `⌥F7` find usages,
+Most of this is IntelliJ's keymap, because most of it was already: `⌘B` declaration or usages, `⌥F7` find usages,
 `⌘⌥B` implementations, `⌘⌥O` workspace symbols, `⌘E` recent files, `⌘⇧F` find in path, `⌘L` go to line,
 `⌥F1` reveal in the sidebar, `F2`/`⇧F2` next problem, `⌘[`/`⌘]` back and forward, `⌘↓` or `⌘`-click for a
 definition.
 
 What this adds:
 
-**Find usages** (`⌥F7`) — the same answer `⌘B` gives, grouped by what each usage *is*: the imports
+**Find usages** (`⌥F7`) — the same answer `⌘⌥F7` gives, grouped by what each usage *is*: the imports
 together, the writes together, the `extends` clause, the `new`, the type parameters, the lines that only
 mention the name in a comment or a string. Forty references to one symbol is a list you scroll; the same
 forty under eight headings is a list you read, and "which of these forty write to it" is usually the
@@ -326,6 +327,21 @@ modifiers in the page.
 type (names only, as IntelliJ matches, and a query typed with a Korean layout still on is read as the keys
 that made it). `Enter` lands on the symbol's name. The language server answers it; where there is no server
 for the language, the same declaration index that backs Find Usages does, labelled as the heuristic it is.
+
+**Endpoints** (`⌘7`) — every HTTP route the project declares, with the method, the full address and the
+framework that declares it; type to filter by any of those or by file, `Enter` to jump to the declaration,
+`⌘C` to copy it as a request. This is IntelliJ **Ultimate's** Endpoints tool window, and it is sourced
+differently from the rest of the ports here: Ultimate is closed and the behaviour comes from JetBrains'
+documentation, while the detection comes from each framework's own API — Express, FastAPI, Flask, Django, Spring, JAX-RS, Micronaut, Ktor, NestJS, Next.js, SvelteKit, Remix, Go, Rails, ASP.NET and gRPC.
+Three of those declare the address in the PATH OF THE FILE rather than in a call inside it (Next.js,
+SvelteKit, Remix), which no line pattern can see, so those are read from the file's own place in the tree. A controller's base path is part of the address, so a `@PostMapping` under
+`@RequestMapping("/transfers")` reads as `POST /transfers` rather than as half of one, and a deprecated
+endpoint is struck through as Ultimate draws it.
+
+It is a heuristic and says so: no language server reports routes, so this reads the same indexed lines
+that answer Go to Definition when no server does. Every row carries the file and line it was read from,
+which is the thing that makes a heuristic checkable. The request `⌘C` writes pairs with the HTTP client
+already here — paste it into a `.http` file and `⌘Enter` runs it.
 
 **Extend / shrink selection** (`⌥↑` / `⌥↓`) — IntelliJ's, on the chords its own Mac keymap gives them.
 Each press grows the selection to the next construct that encloses the caret — the word, the argument,

@@ -62,9 +62,11 @@ function paintQuickOpenMode() {
                   ? t('findusages.title').replace('{name}', usageViewName)
                   : quickMode === 'problems'
                     ? t('problems.title')
-                    : quickMode === 'actions'
-                      ? t('actions.title')
-                      : t('quickopen.searchFiles');
+                    : quickMode === 'endpoints'
+                      ? t('endpoints.title')
+                      : quickMode === 'actions'
+                        ? t('actions.title')
+                        : t('quickopen.searchFiles');
   var quickPlaceholder = quickMode === 'everywhere'
     ? t('quickopen.everywherePlaceholder')
     : quickMode === 'symbol'
@@ -85,9 +87,11 @@ function paintQuickOpenMode() {
                 ? t('findusages.placeholder')
                 : quickMode === 'problems'
                   ? t('problems.placeholder')
-                  : quickMode === 'actions'
-                    ? t('actions.placeholder')
-                    : t('quickopen.searchFiles');
+                  : quickMode === 'endpoints'
+                    ? t('endpoints.placeholder')
+                    : quickMode === 'actions'
+                      ? t('actions.placeholder')
+                      : t('quickopen.searchFiles');
   // Eight of these ten modes give the box a sentence of its own — "Filter this file's symbols", "Filter
   // actions" — which is what a placeholder is for: it says what to type. Two of them named the same string
   // the title names, so the dialog opened with "Search files" written twice, one line apart, in 12px sans
@@ -249,6 +253,7 @@ function handleQuickOpenKey(event) {
   if (handleHierarchyKey(event)) return true;
   if (handleUsageViewKey(event)) return true;
   if (handleProblemsKey(event)) return true;
+  if (handleEndpointsKey(event)) return true;
   // Tab / ⇧Tab step the tab strip. Asked here as well as in the panel's own keydown listener because the
   // two cover different moments: the listener only sees keys that reach an element inside the dialog, and
   // Recent files leaves nothing focused at all.
@@ -481,6 +486,7 @@ function renderQuickOpenResults() {
   if (quickMode === 'bookmarks') { renderBookmarkResults(rawQuery); return; }
   if (quickMode === 'usages') { renderFindUsagesResults(rawQuery); return; }
   if (quickMode === 'problems') { renderProblemsResults(rawQuery); return; }
+  if (quickMode === 'endpoints') { renderEndpointResults(rawQuery); return; }
   if (quickMode === 'actions') { renderFindActionResults(rawQuery); return; }
   if (!isRecent && !rawQuery) {
     quickItems = [];

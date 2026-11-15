@@ -20,6 +20,14 @@ import { makeReviewHtml, cleanupFixtures } from "./helpers/fixture.mjs";
 import { loadViewer } from "./helpers/dom.mjs";
 
 const FILE = "src/store.ts";
+// A second file, for the other thing drawn into a line: a collapsed fold's own summary button.
+const FOLDED = "src/folded.ts";
+const FOLDED_LINES = [
+  "export function widen(value) {",
+  "  const doubled = value * 2;",
+  "  return doubled;",
+  "}",
+];
 const LINES = [
   "const a = 1;",                  // 0
   "    return cache.get(name);",   // 1  <- the hinted line
@@ -30,8 +38,10 @@ const HINTED = LINES[1];
 
 let html;
 before(async () => {
-  ({ html } = await makeReviewHtml(
-    [{ path: FILE, before: "const a = 0;\n", after: `${LINES.join("\n")}\n` }], { app: true }));
+  ({ html } = await makeReviewHtml([
+    { path: FILE, before: "const a = 0;\n", after: `${LINES.join("\n")}\n` },
+    { path: FOLDED, before: "export function widen(v) { return v; }\n", after: `${FOLDED_LINES.join("\n")}\n` },
+  ], { app: true }));
 });
 after(cleanupFixtures);
 
@@ -103,4 +113,53 @@ test("a highlight does not swallow a label sitting at its edge", async () => {
   assert.ok(upToLabel, "that range builds too");
   assert.equal(String(upToLabel), "return ", "and stops before the label");
   v.close();
+});
+
+// The other text the app draws into a line, and the one that was not on the walk's list.
+//
+// A collapsed block hangs its own summary off the line it starts on — `›코드 19줄 접힘` — inside the same
+// `.source-code` cell. Chromium never puts it in a selection (the button is `user-select: none`), so the
+// copy was right and every reader of the line's own text was wrong: measured in the real app, five
+// collapsed rows of `src/analysis.ts` each read 9–10 characters longer than the line on disk, and
+// `caretDomPosition` asked for that length put the caret INSIDE `.mc-code-fold-label` — past the end of
+// the file's line, in text the file does not contain.
+async function withFold() {
+  const v = await loadViewer(html, { analysisBridge: () => null });
+  v.window.openSourceFile(FOLDED);
+  await v.settle(40);
+  v.window.collapseAllSourceFolds();
+  await v.settle(60);
+  const row = v.$(".source-row.source-block-folded");
+  return { v, row, cell: row && row.querySelector(".source-code") };
+}
+
+test("a collapsed fold's summary is not part of the line it hangs off", async () => {
+  const { v, row, cell } = await withFold();
+  try {
+    assert.ok(row, "the block collapsed, so there is a summary drawn into a line");
+    assert.ok(cell.querySelector(".mc-code-fold-button"), "…and it is inside the line's own cell");
+    assert.notEqual(cell.textContent, FOLDED_LINES[0], "the painted cell is longer than the line");
+    assert.equal(v.window.sourceCellText(cell), FOLDED_LINES[0], "…and the line's own text is the line");
+  } finally {
+    v.close();
+  }
+});
+
+test("the last column of a folded line is the end of the line, not the start of the summary", async () => {
+  const { v, row, cell } = await withFold();
+  try {
+    const line = Number(row.dataset.lineIndex);
+    // Asked for with the accessor's OWN answer, which is how the app asks and how the drift showed up:
+    // pinning the file's length instead leaves this green under the bug, because column 30 of a line that
+    // the walk thinks is 39 long is still inside the line's own text. The two readers have to agree.
+    const end = v.window.caretDomPosition(line, v.window.sourceCellText(cell).length);
+    assert.ok(end, "a point for the last column builds");
+    const host = end.node.nodeType === 3 ? end.node.parentElement : end.node;
+    assert.equal(host.closest(".mc-code-fold-button"), null,
+      "the caret for the last column is not inside the fold's summary");
+    assert.equal(v.window.sourceTextLengthBefore(cell, end.node, end.offset), FOLDED_LINES[0].length,
+      "and reading that point back gives the line's last column");
+  } finally {
+    v.close();
+  }
 });

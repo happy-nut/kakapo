@@ -37,6 +37,8 @@ import {
   type SymbolRecord,
 } from "./analysis-index.js";
 export { buildRegexSymbolIndex } from "./analysis-index.js";
+import { collectEndpoints, type Endpoint } from "./endpoints.js";
+export type { Endpoint } from "./endpoints.js";
 export type AnalysisKind =
   | "definition"
   | "references"
@@ -72,6 +74,10 @@ export type AnalysisKind =
   // along and Shrink Selection (⌥↓) walks back down. A position question like the four above, but its
   // answer is a CHAIN rather than a place to go, so it is answered in `selection`.
   | "selectionRange"
+  // Every HTTP endpoint the project declares — IntelliJ Ultimate's Endpoints tool window. Answered in
+  // `endpoints`, off the same regex index that answers workspace symbols when no server does, because no
+  // language server reports routes: what declares one is a framework's own API, not the language's.
+  | "endpoints"
   // What the server would write above a declaration and inside a line — IntelliJ's Code Vision and its
   // inlay hints. Decoration, not navigation: answered in `lenses` / `hints`.
   | "codeLens"
@@ -124,6 +130,8 @@ export type AnalysisResponse = {
   folds?: AnalysisFoldingRange[];
   /** Only for kind "selectionRange": the constructs around the caret, innermost first. */
   selection?: AnalysisSelectionRange[];
+  /** Only for kind "endpoints": every route the project declares, in reading order. */
+  endpoints?: Endpoint[];
   /** Only for kind "documentHighlight", each occurrence labelled read / write / neither. */
   highlights?: AnalysisHighlight[];
   /** Only for kind "codeLens": one entry per declaration the server has something to say about. */
@@ -230,6 +238,12 @@ const MAX_LOCATIONS = 500;
 // base change or a branch switch dressed up as a save, where a batched, yielding rebuild is cheaper.
 const MAX_INLINE_INDEX_READS = 32;
 
+// The wait before a fallen language server is started again, doubling per fall and capped. See
+// `restarting`: short at first because the common fall is one slow request timing out on a server that is
+// otherwise fine, capped so a server that cannot run is not respawned by every keystroke.
+const SERVER_RESTART_BASE_MS = 1_000;
+const SERVER_RESTART_MAX_MS = 60_000;
+
 function uniqueLocations<T extends AnalysisLocation>(items: T[], limit = MAX_LOCATIONS): T[] {
   const seen = new Set<string>();
   const out: T[] = [];
@@ -287,7 +301,14 @@ export class ProjectAnalysis {
   /** Built indexes keyed by revision. A revision's tree is immutable, so these never need invalidating. */
   private revisionIndexes = new Map<string, Promise<RegexIndex>>();
   private clients = new Map<string, LspClient>();
-  private failedServers = new Set<string>();
+  // What fell over, how often, and when. A Set here meant the quarantine was PERMANENT: one tsserver that
+  // timed out a single request left every later ⌘B, ⌘⌥B, ⌥F7 and ⌘U on every .ts file in the window
+  // answering off the regex index, under a status chip reading "heuristic" and no way back short of
+  // reopening the folder. Measured in the real app: the first file asked answered `engine: "lsp"`, the
+  // next three answered `No language server is available`, and reversing the order moved the failure with
+  // it — the file was never the reason. A server that falls is restarted now; the count only lengthens the
+  // wait, so one that cannot run does not respawn on every keypress.
+  private failedServers = new Map<string, { attempts: number; at: number }>();
   private readonly resolveServer: (root: string, path: string) => LanguageServerCommand | undefined;
   // How long the background warm-up waits for a server to confirm it has analysed the file. Generous
   // because nothing is waiting on it, bounded because a server that never diagnoses must not leave the
@@ -569,6 +590,9 @@ export class ProjectAnalysis {
     }
     try {
       if (request.kind === "workspaceSymbol") return await this.workspaceSymbols(path, request.query ?? request.symbol ?? "", request.limit, request.types === true);
+      // Project-wide, like workspaceSymbol — it needs no path, and asking for one would make the list
+      // unavailable until a file happened to be open.
+      if (request.kind === "endpoints") return await this.projectEndpoints();
       if (!path) return { ok: false, engine: "index", confidence: "heuristic", locations: [], revision, error: "A project-relative source path is required" };
       // A file's structure is about the file, not about a position in it, so it skips symbolContext (which
       // exists to work out what the caret is on) and has its own index fallback.
@@ -753,7 +777,7 @@ export class ProjectAnalysis {
   private clientFor(path: string): LspClient | undefined {
     for (const server of this.serverCandidates(path)) {
       const key = this.serverKey(server);
-      if (this.failedServers.has(key)) continue;
+      if (this.restarting(key)) continue;
       let client = this.clients.get(key);
       if (!client) {
         client = new LspClient(this.root, server);
@@ -769,10 +793,10 @@ export class ProjectAnalysis {
    * Is a server CONFIGURED for this file's language, healthy or not?
    *
    * `clientFor` returns undefined for two very different reasons — nothing resolves for this language, or
-   * everything that does is quarantined — and a per-call `attempted` flag cannot tell them apart, because
-   * `failedServers` outlives the call and is never cleared. Deriving "no server covers this language"
-   * from it meant one tsserver crash turned every later ⌘B on every `.ts` file into "this language is
-   * not supported", which is a claim about the project rather than about a server that fell over.
+   * what does is inside the wait before its restart — and a per-call `attempted` flag cannot tell them
+   * apart, because `failedServers` outlives the call. Deriving "no server covers this language" from it
+   * meant one tsserver crash turned every later ⌘B on every `.ts` file into "this language is not
+   * supported", which is a claim about the project rather than about a server that fell over.
    */
   private hasServerFor(path: string): boolean {
     // The SAME candidate list clientFor builds, so the two cannot disagree. Asking the bundled resolver
@@ -796,9 +820,26 @@ export class ProjectAnalysis {
     return `${server.command}\0${server.args.join("\0")}`;
   }
 
+  /**
+   * Is this server inside the wait after its last fall?
+   *
+   * Doubling, capped: 1s after the first fall, 2s after the second, up to a minute. The first wait is
+   * short because the overwhelming case is a server that timed out one slow request and runs perfectly on
+   * the next ask; the cap is there because a server that cannot start at all would otherwise be respawned
+   * by every keystroke. The count is never cleared, so a server that keeps dying is asked ever more
+   * rarely rather than being declared missing.
+   */
+  private restarting(key: string): boolean {
+    const failure = this.failedServers.get(key);
+    if (!failure) return false;
+    const wait = Math.min(SERVER_RESTART_BASE_MS * 2 ** (failure.attempts - 1), SERVER_RESTART_MAX_MS);
+    return Date.now() - failure.at < wait;
+  }
+
   private quarantine(client: LspClient, error?: unknown): void {
     const key = this.serverKey(client.server);
-    this.failedServers.add(key);
+    const previous = this.failedServers.get(key);
+    this.failedServers.set(key, { attempts: (previous ? previous.attempts : 0) + 1, at: Date.now() });
     this.clients.delete(key);
     client.dispose();
     this.setStatus("failed", {
@@ -879,23 +920,6 @@ export class ProjectAnalysis {
         (error) => { if (done) return; done = true; clearTimeout(timer); reject(error); },
       );
     });
-  }
-
-  // Is this line, in this file, something the regex index also calls a declaration of this symbol?
-  //
-  // That is the test for "the server sent me the real thing" — and its opposite is the test for an
-  // indirection worth following. No declaration pattern in analysis-index.ts matches an `import`, so an
-  // import binding can never answer true here, including the one shape no single-line pattern can see: a
-  // name on its own inside a multi-line `import { … }`.
-  //
-  // An index with no record of the symbol ANYWHERE has no opinion and says yes, so a language the regex
-  // patterns do not cover keeps the server's answer untouched instead of paying a follow-up on every jump.
-  private async isIndexedDeclaration(location: AnalysisLocation, symbol: string): Promise<boolean> {
-    if (!symbol) return true;
-    const index = await this.getIndex();
-    const records = index.definitions.get(symbol) ?? [];
-    if (!records.length) return true;
-    return records.some((record) => record.path === location.path && record.lineIndex === location.lineIndex);
   }
 
   /**
@@ -1029,6 +1053,27 @@ export class ProjectAnalysis {
         // Following a location that really was the declaration is harmless by construction: the server
         // sends back the same place, the filter below drops it, and the original answer stands. The bound
         // is there so a server returning a long list cannot turn one keystroke into a dozen round trips.
+        //
+        // Two things this is NOT allowed to do, both of which it used to:
+        //
+        //   - Ask tsserver for the SOURCE definition. `_typescript.goToSourceDefinition` answers a
+        //     different question — "where is the JavaScript behind this typing" — and for a package that
+        //     ships typings and no readable implementation it answers with the package's entry file,
+        //     line 1. So ⌘B on `app` from `import { app } from "electron"` landed on
+        //     node_modules/electron/index.js:1, a CommonJS launcher shim, while the server had already
+        //     named node_modules/electron/electron.d.ts:26341 — `const app: App;` — correctly. IntelliJ
+        //     has no such step: Go to Declaration goes to the declaration (GtdKt.fromTargetData in
+        //     app-client.jar), and the JS implementation is a different action there too.
+        //
+        //   - Decide whether a target "is a declaration" by looking its NAME up in the project index.
+        //     A library target is in no index, so that test fell through to whether the project happens
+        //     to declare the same name somewhere — and this project has a `const app` in a test file, so
+        //     electron's `app` was thrown away and electron's `BrowserWindow`, which nothing here
+        //     declares, was kept. Navigation that works or not depending on an unrelated file's local
+        //     variable name is not navigation.
+        //
+        // What is left is the case the follow-up was written for, and only that: the binding lives in
+        // the file the question was asked from, so that is the only place worth asking again.
         if (method === "textDocument/definition" && locations.length && locations.length <= 4) {
           const resolved: AnalysisLocation[] = [];
           for (const candidate of locations) {
@@ -1041,14 +1086,10 @@ export class ProjectAnalysis {
             // produce it, and the reader was told the definition could not be found. It is also already
             // the declaration by construction: a class file holds no import binding to follow.
             if (candidate.external) { resolved.push(candidate); continue; }
-            if (await this.isIndexedDeclaration(candidate, symbol)) { resolved.push(candidate); continue; }
-            let followed: AnalysisLocation[] = [];
-            if (client.server.family === "typescript") {
-              try { followed = uniqueLocations(await client.sourceDefinitions(path, line, column)); } catch { /* standard LSP below */ }
-            }
-            if (!followed.length) {
-              followed = uniqueLocations(await client.locations(method, candidate.path, candidate.lineIndex, candidate.column));
-            }
+            if (candidate.path !== path) { resolved.push(candidate); continue; }
+            let followed = uniqueLocations(
+              await client.locations(method, candidate.path, candidate.lineIndex, candidate.column),
+            );
             followed = followed.filter((item) => item.path !== candidate.path || item.lineIndex !== candidate.lineIndex || item.column !== candidate.column);
             resolved.push(...(followed.length ? followed : [candidate]));
           }
@@ -1281,6 +1322,24 @@ export class ProjectAnalysis {
       if (this.transportFailure(error)) this.quarantine(client, error);
       return { ok: true, engine: "index", confidence: "heuristic", locations: [], fallbackReason: errorMessage(error) };
     }
+  }
+
+  /**
+   * Every endpoint the project declares.
+   *
+   * Read off the regex index, which already holds each file's text and its masked form — so this costs a
+   * scan of what is in memory and never touches the disk. Heuristic by construction and labelled as such:
+   * no language server reports routes, and the frameworks' own shapes are what a reader would grep for.
+   */
+  private async projectEndpoints(): Promise<AnalysisResult> {
+    const index = await this.getIndex();
+    const files = [...index.files].map(([path, content]) => ({
+      path, content, codeLines: index.codeLines.get(path),
+    }));
+    return {
+      ok: true, engine: "index", confidence: "heuristic", locations: [],
+      endpoints: collectEndpoints(files),
+    };
   }
 
   private async documentSymbols(path: string, onRevision: boolean): Promise<AnalysisResult> {

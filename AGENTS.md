@@ -54,6 +54,15 @@ and checks the table against it; a row may collide only when it says `fixed: "me
 forwards the key on with `sendToFocused`. That guard runs on macOS only — the menu it checks is macOS's —
 so run the suite there before trusting a chord change; Linux CI skips it.
 
+Navigation is measured against IntelliJ, not against itself. `npm run nav:smoke` asks whether a key
+still works; `npm run nav:matrix` asks whether it still does what IntelliJ does, and prints the two
+answers side by side. The second exists because the first cannot see the defect this repo paid for: ⌘B
+worked for a year and showed the usages popup on a reference, which IntelliJ never does. Change anything
+about go-to-declaration, usages, implementations, the type hierarchy or library targets and run the
+matrix — and when a row's expectation changes, re-read it out of the installed IDE (the header of
+`scripts/navigation-matrix.mjs` has the decompile command) rather than editing the expectation to match
+what the code now does.
+
 The viewer is one concatenated script with no module boundaries, so nothing stops a second copy of an
 answer from growing beside the first — and when one does, a fix reaches one copy and the two surfaces
 drift. `test/viewer-slices.test.mjs` therefore holds a one-fact-one-reader rule: the file the source view
