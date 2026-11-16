@@ -716,6 +716,13 @@ test("a one-sided change still renders both diff panes, so the kept scrollbar al
 // and 711 tall, content 32), and after the fix 280 / 520.
 //
 // jsdom has no layout and does not evaluate media queries, so this is guarded as text, like the rules above.
+//
+// The first fix for that spelled the bound `height: 35vh`, which is a ceiling and a FLOOR: a review of one
+// file — the shape this app is opened in most — still reserved 35% of the window for one row of tree, and
+// the diff began under an empty band. Reported from the outside as "a big file comes up like this". So the
+// claim here is "it cannot grow past a bound", not "it is not auto": `height: auto` WITH a `max-height` is
+// the right answer and this test used to forbid it. That the two readings behave identically on a long
+// review is why the floor survived — test/narrow-sidebar.test.mjs measures them apart in real Chromium.
 test("the stacked narrow-window sidebar is bounded, so the diff still gets the window", () => {
   const narrow = cssRules.match(/@media\s*\(max-width:\s*900px\)\s*\{([\s\S]*?)\n\}/);
   assert.ok(narrow, "the max-width:900px block must exist — it is what stacks the two columns");
@@ -727,10 +734,15 @@ test("the stacked narrow-window sidebar is bounded, so the diff still gets the w
 
   const sidebar = body.match(/\.sidebar\s*\{([^}]*)\}/);
   assert.ok(sidebar, ".sidebar must be restyled for the stacked layout");
-  assert.doesNotMatch(sidebar[1], /height:\s*auto/,
-    "the fix: an `auto` height here is the file list's full height, which is the whole window on a long review");
-  assert.match(sidebar[1], /height:\s*[\d.]+(vh|px|%)|max-height:\s*/,
-    "…so it must state a bounded height; .sidebar-scroll inside it already scrolls");
+  const bound = sidebar[1].match(/max-height:\s*[\d.]+(vh|px|%)/);
+  const fixed = sidebar[1].match(/(?<!max-)height:\s*[\d.]+(vh|px|%)/);
+  assert.ok(bound || fixed,
+    "it must state a bound; an unbounded sidebar here is the file list's full height, which is the whole window on a long review");
+  // The bound has to be a ceiling the tree may stay under, not a height it fills. A plain `height` is both.
+  assert.ok(bound,
+    "the bound belongs on max-height: a plain `height` also reserves that much for a one-file review");
+  assert.match(sidebar[1], /height:\s*auto/,
+    "…and the height itself is the tree's, so one row of tree is one row tall");
 });
 
 test("the sticky-lines overlay can inherit the gutter width: it is declared on the viewer, not the body", () => {
