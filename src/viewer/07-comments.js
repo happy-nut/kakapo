@@ -901,7 +901,14 @@ function reviewerCardHtml(c) {
     + (addressed ? '<span class="mc-addressed-tag" title="' + escapeHtml(t('comment.addressed.hint')) + '">' + escapeHtml(t('comment.addressed')) + '</span>' : '')
     + (addressed ? '<button type="button" class="mc-reopen" data-seq="' + c.seq + '" aria-label="' + escapeHtml(t('comment.reopen')) + '" title="' + escapeHtml(t('comment.reopen')) + '">↺</button>' : '')
     + '<button type="button" class="mc-del" data-keyhint-id="deleteComment:1" data-seq="' + c.seq + '" aria-label="' + escapeHtml(t('composer.delete')) + '" title="' + escapeHtml(t('composer.delete')) + '">×</button></div>'
-    + '<div class="mc-card-body">' + escapeHtml(c.text) + '</div></div>';
+    // What the comment SAYS, which is not the whole of what is stored in it. The composer prefills the
+    // anchor into the body (openComposer) so the writer can edit it, and `commentBodyWithoutAnchor` is the
+    // one reader that knows the difference. The dock card has asked it that way all along; this card, the
+    // one a reviewer actually reads, printed the record raw — so every comment on screen began with 86
+    // characters of its own path, and the head deliberately omits that label BECAUSE the card is already
+    // sitting on the line. Measured in the real app: the card read
+    // `@masking-core/src/.../MaskingSupportTest.java#L366 List 까지는 import 해도 될 듯`.
+    + '<div class="mc-card-body">' + escapeHtml(commentBodyWithoutAnchor(c)) + '</div></div>';
 }
 // Is the open composer the one that belongs in this (path, line, pane) slot?
 function composerAt(path, line, side) {
@@ -1152,13 +1159,27 @@ function renderArchivePanel() {
   panel.innerHTML = '<div class="archive-head">' + escapeHtml(t('archive.title'))
     + '<span class="archive-count">' + roots.length + '</span></div>'
     + roots.map(function (c) {
+      // WHERE it was and WHEN it went. The list is sorted by the hand-off time and showed none of it, so
+      // "the one I sent last week" was not a thing the list could be asked — and the reviewer who comes
+      // back to this panel is looking for a particular hand-off, not a particular line.
+      // patchSetShortDate is the app's short, locale-correct date (and the app's locale, not the OS's).
       var where = c.path ? sourceTabLabel(c.path) + ':' + c.line : '';
+      var when = c.archivedAt ? patchSetShortDate(c.archivedAt) : '';
+      if (when) where = where ? where + ' · ' + when : when;
+      // The row can only hold a line of the comment. The whole of it goes in the title, so a reviewer can
+      // READ a handed-over comment without clicking — and clicking is the one thing that takes it back out
+      // of the archive, which is why reading had to stop needing it.
+      var full = commentBodyWithoutAnchor(c);
       // escapeHtml, not escapeAttr: the renderer bundle has no escapeAttr, and escapeHtml covers & < > " '
       // — which is what a quoted attribute needs.
       return '<button type="button" class="archive-row" data-seq="' + c.seq + '" title="'
-        + escapeHtml(t('archive.restore')) + '">'
+        + escapeHtml(full ? full + '\n\n' + t('archive.restore') : t('archive.restore')) + '">'
         + '<span class="archive-where">' + escapeHtml(where) + '</span>'
-        + '<span class="archive-text">' + escapeHtml(String(c.text || '').replace(/\s+/g, ' ').slice(0, 90)) + '</span>'
+        // The row already prints WHERE above; printing the body raw printed the same path again, and the
+        // 90-character budget was spent before the reviewer's own words began — the list read
+        // `MaskingSupportTest.java:366` / `@masking-core/src/test/java/com/kakaopay/c…`, so two handed-over
+        // comments on one file were indistinguishable from each other.
+        + '<span class="archive-text">' + escapeHtml(full.replace(/\s+/g, ' ').slice(0, 90)) + '</span>'
         + '</button>';
     }).join('');
 }
@@ -1167,9 +1188,14 @@ document.addEventListener('click', function (event) {
   if (!row) return;
   var seq = Number(row.dataset.seq);
   if (!restoreArchivedThread(seq)) return;
-  // Put the reviewer where the comment is, since bringing it back is a decision to look at it again.
-  var back = reviewComments.filter(function (c) { return c.seq === seq; })[0];
-  if (back && back.path) openSourceAt(back.path, Math.max(0, back.line - 1), 0);
+  // Put the reviewer where the comment is, since bringing it back is a decision to look at it again —
+  // through revealComment, which is where "where a comment is" is answered for every other caller (F8's
+  // walk, the click on an answer notification). Its own answer includes the view the comment was WRITTEN
+  // in (`view`, set in addComment), and this handler used to go its own way to openSourceAt: a comment
+  // written in the diff came back in the source view, at a line number that means a different line as soon
+  // as the comment sits on the old side. The archive was the only door into a handed-over comment, so that
+  // door was the one that did not lead back to where it came from.
+  revealComment(seq);
 });
 
 function refreshComments() {
