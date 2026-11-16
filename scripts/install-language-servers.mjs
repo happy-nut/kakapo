@@ -52,11 +52,13 @@ export const SERVER_VERSIONS = Object.freeze({
   // Releases are listed at https://github.com/Kotlin/kotlin-lsp/releases (tags are `kotlin-lsp/vX`, and
   // those releases carry no assets); each archive's checksum is published next to the archive itself as
   // `<name>.sha256` under the CDN path below. Observed lifetimes: 262.9593.0 (2026-07-27) expired around
-  // 2026-09-16, 263.4702.0 (2026-09-13) by 2026-10-16, 263.6379.0 (2026-10-03) by 2026-11-01 — four to
-  // seven weeks, so expect to bump this a few times a year rather than once. The expired binary exits 7
+  // 2026-09-16, 263.4702.0 (2026-09-13) by 2026-10-16, 263.6379.0 (2026-10-03) by 2026-11-01,
+  // 263.7084.0 (2026-10-17) by 2026-11-16 — four to seven weeks, so expect to bump this a few times a
+  // year rather than once. Upstream's own cadence matches: a release lands every three to five weeks, so
+  // the newest tag is usually the one to take. The expired binary exits 7
   // with "This build of kotlin-server has expired", which is how to tell it from a server that merely
   // failed to start.
-  kotlin: "263.7084.0",
+  kotlin: "271.2085.0",
   sorbet: "0.6.13342.20260716135343-aafce23c1",
   php: "8.4.23",
   phpactor: "2026.06.25.0",
@@ -104,8 +106,8 @@ const CLANG_ARCHIVES = Object.freeze({
 });
 
 const KOTLIN_ARCHIVES = Object.freeze({
-  "darwin-x64": ["kotlin-server-263.7084.0.sit", "b29c393a5e541153d03d626e7946268437e358a667a5f914a126dbb4007664b1"],
-  "darwin-arm64": ["kotlin-server-263.7084.0-aarch64.sit", "b403bf8a54bd458e3ba6731cf8abb3340be08b439c03576dfc02b13faf3694b8"],
+  "darwin-x64": ["kotlin-server-271.2085.0.sit", "68457ab1825331e3eac85191b7c32737cbd8993867f5a9c50dfe012c5509e8f7"],
+  "darwin-arm64": ["kotlin-server-271.2085.0-aarch64.sit", "2d22388f58be6f4dfa7a8f18c1e231871164dcacc16e407559029d7232816b4a"],
 });
 
 const JAVA_ARCHIVES = Object.freeze({
