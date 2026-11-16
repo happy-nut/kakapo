@@ -31,8 +31,15 @@ test("a language with no server says so; a language with one never does", async 
     assert.equal(md.noServer, true, "no server covers Markdown");
 
     // TypeScript: a server resolves. Whatever the query answers, the language IS covered.
+    //
+    // Asked as the app asks it. `noServer` is optional and every reader tests it for truth
+    // (`response.noServer` — 15-semantic-navigation, 16-structure, 17-find-usages), so absent and false are
+    // the same answer: this language is covered. Only the fallback path writes the flag at all; a query the
+    // server answers semantically returns without it. Pinning `=== false` therefore passed only while the
+    // server FAILED to answer, and went red the day it started answering — the assertion was stricter than
+    // the claim above it, and the claim is the thing worth guarding.
     const ts = await analysis.query({ kind: "implementation", path: "src/app.ts", name: "used", line: 1, column: 20 });
-    assert.equal(ts.noServer, false, "a resolvable language is never reported as unsupported");
+    assert.notEqual(ts.noServer, true, "a resolvable language is never reported as unsupported");
   } finally {
     analysis.dispose();
   }
