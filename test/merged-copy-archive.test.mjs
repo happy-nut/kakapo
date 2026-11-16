@@ -101,7 +101,14 @@ test("an agent's answer goes with the question it answered", async () => {
   }
 });
 
-test("Cmd+Z brings the handed-over review back", async () => {
+// A hand-off MOVES the comment, so undoing one has two halves — back into the review, and out of the
+// archive — and this only ever asked about the first. The second half was missing: the original went on
+// living in `archivedComments` (what the undo stack holds is a copy, taken before the stamp), so one comment
+// sat in both lists at once, and handing the review over again archived the copy beside the original. Two
+// entries, same seq, same words, in the one list whose whole job is telling handed-over comments apart —
+// and it survived reloads, because the file is the source of truth and the file now said it twice.
+// Reported from the outside as two identical cards in the handed-over view.
+test("Cmd+Z brings the handed-over review back, and takes it out of the archive", async () => {
   const v = await withComment("why this change?");
   try {
     installClipboard(v);
@@ -109,11 +116,22 @@ test("Cmd+Z brings the handed-over review back", async () => {
     copyButton(v).click();
     await v.settle(60);
     assert.equal(v.window.reviewComments.length, 0);
+    assert.equal(v.window.archivedComments.length, 1, "precondition: the hand-off filed it away");
 
     v.key("z", { metaKey: true, code: "KeyZ" });
     await v.settle(60);
     assert.equal(v.window.reviewComments.length, 1, "one undo restores the batch");
     assert.equal(v.window.reviewComments[0].text, "why this change?");
+    assert.equal(v.window.archivedComments.length, 0,
+      "a comment that is back in the review is not also still handed over");
+
+    // The consequence, which is what was actually seen: hand the same review over a second time and the
+    // archive holds it once. Asserted on the rendered list too — that list is where it was reported from.
+    await v.openMergedView();
+    copyButton(v).click();
+    await v.settle(60);
+    assert.equal(v.window.archivedComments.length, 1, "handed over twice is still one handed-over comment");
+    assert.equal(v.$all("#archive-panel .archive-row").length, 1, "and the list shows it once");
   } finally {
     v.close();
   }

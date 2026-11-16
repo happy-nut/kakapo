@@ -792,6 +792,17 @@ function commentRemovalPending() {
 function undoLastCommentRemoval() {
   var batch = commentUndoStack.pop();
   if (!batch || !batch.length) return false;
+  // Two things share this stack and only one of them is a removal. `removeComments` takes the comment out
+  // of the review entirely, so putting it back is the whole of the undo. `archiveComments` MOVES it — the
+  // original goes on living in `archivedComments` and what is stacked here is a copy taken before it was
+  // stamped — so a concat alone left the same comment in both lists at once. Handing the review over again
+  // then archived the copy beside the original: two entries, same seq, same words, in the one list whose
+  // only job is telling handed-over comments apart. It survived a reload, because the file is the source of
+  // truth and the file now said it twice. Reported from the outside as two identical cards.
+  // Matched on seq, not identity: for an archive-undo the stacked batch holds copies, and for a removal the
+  // seqs are not in the archive at all, which makes this a no-op on that path rather than a second rule.
+  var seqs = batch.map(function (c) { return c.seq; });
+  archivedComments = archivedComments.filter(function (c) { return seqs.indexOf(c.seq) === -1; });
   reviewComments = reviewComments.concat(batch);
   saveComments();
   refreshComments();
