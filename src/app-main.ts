@@ -5,15 +5,16 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, net, protocol, shell } from "electron";
 import type { WebContents } from "electron";
-import { git, gitAsync, isBranchRef, isCommitSha, isGitRepository, resolveWorkspaceRoot, validateReviewBase } from "./git.js";
+import { commonGitDir, git, gitAsync, isBranchRef, isCommitSha, isGitRepository, resolveWorkspaceRoot, validateReviewBase } from "./git.js";
 import { renderWelcomeHtml } from "./render.js";
 import { makeTranslator, normalizeLocale, type Locale } from "./i18n.js";
 import { relaunchUpdatedApp, selfUpdateInstallAttempts } from "./self-update.js";
 import { bundlePathFor, installPackagedUpdate, isNewerVersion, macDmgAsset } from "./app-update.js";
+import { openSymbolCache } from "./analysis-cache.js";
 import { ProjectAnalysis } from "./analysis.js";
 import { ReviewPerformanceTrace } from "./perf.js";
 import type { SourceFile, WhitespaceMode } from "./types.js";
-import { workspaceDataDirectory, workspaceReviewFile } from "./workspace-data.js";
+import { workspaceDataDirectory, workspaceReviewFile, workspaceSymbolCacheFile } from "./workspace-data.js";
 import { kakapoIconCssVariable, kakapoIconHtml } from "./brand.js";
 import { reviewBodyCount, reviewDiffSignature } from "./review-bodies.js";
 import { ReviewBuilder, type BuildSnapshot } from "./review-builder.js";
@@ -1149,19 +1150,34 @@ function watchLspWeight(): void {
 // build it in one place. getState is a thunk because createWindow constructs the analysis before its WinState
 // exists — the onStatus closure must read the state lazily; the other callers already hold one.
 function makeAnalysis(root: string, getState: () => WinState | undefined): ProjectAnalysis {
-  return new ProjectAnalysis(root, {
+  const analysis = new ProjectAnalysis(root, {
+    symbolCache: openSymbolCache(symbolCacheFile(root)),
     onStatus: (status) => {
       const state = getState();
       if (!state || state.win.isDestroyed()) return;
       state.win.webContents.send("kakapo:analysis-status", status);
+      const cache = analysis.symbolCacheStats();
       state.perf.mark("analysis-status", {
         generation: status.generation,
         phase: status.phase,
         server: status.server ?? "",
         source: status.serverSource ?? "",
+        // How much of the symbol scan this launch did not have to do; see analysis-cache.ts.
+        cacheHits: cache?.hits ?? 0,
+        cacheMisses: cache?.misses ?? 0,
       });
     },
   });
+  return analysis;
+}
+
+// Where this workspace's kept symbol scan lives. Keyed by the REPOSITORY (the git dir every worktree of it
+// shares) rather than by the folder, because reusing the main checkout's scan in a freshly created worktree
+// is most of the point: measured across three repositories, a sibling worktree differs in 0.3–3% of files.
+// A folder that is not a repository keys off itself.
+function symbolCacheFile(root: string): string {
+  const shared = commonGitDir(root).replace(/[\\/]\.git$/, "");
+  return workspaceSymbolCacheFile(app.getPath("userData"), shared || root);
 }
 
 // Create the window for `root`, register its WinState, wire teardown, and boot it (animated mark ->

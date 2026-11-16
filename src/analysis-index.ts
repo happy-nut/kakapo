@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { extname, isAbsolute, join, relative, resolve } from "node:path";
+import type { SymbolCache } from "./analysis-cache.js";
 import type { AnalysisLocation } from "./lsp.js";
 import { findRipgrepBinary } from "./search.js";
 import { listRevisionFiles, readRevisionBlobs } from "./git-tree.js";
@@ -198,12 +199,31 @@ type IndexSink = {
   symbols: SymbolRecord[];
 };
 
-function indexOneFile(file: IndexedFile, sink: IndexSink): void {
-  const { fileMap, definitions, symbols } = sink;
+// The one place a found symbol enters the index: the flat list and the by-name map have to agree, and the
+// cache rehydration path below adds records too.
+function pushSymbol(sink: IndexSink, record: SymbolRecord): void {
+  sink.symbols.push(record);
+  const entries = sink.definitions.get(record.name) ?? [];
+  entries.push(record);
+  sink.definitions.set(record.name, entries);
+}
+
+function indexOneFile(file: IndexedFile, sink: IndexSink, cache?: SymbolCache): void {
+  const { fileMap, symbols } = sink;
   const path = file.path.replace(/\\/g, "/");
   if (documentPath(path)) return;
   fileMap.set(path, file.content);
   const lines = file.content.split(/\r?\n/);
+  // A previous launch already scanned this exact text (see analysis-cache.ts: the key is the content, not
+  // the path). Its records are the scan's own output, so the index below is identical either way — verified
+  // symbol-for-symbol on three repositories, 14,963 / 47,506 / 180,140 records.
+  const key = cache?.entryKey(path, file.content) ?? "";
+  const cached = key ? cache?.get(key, path, lines) : undefined;
+  if (cached) {
+    for (const record of cached) pushSymbol(sink, record);
+    return;
+  }
+  const scannedFrom = symbols.length;
   const masked = maskNonCode(file.content, path);
   const python = extname(path).toLowerCase() === ".py";
   const pythonClasses: Array<{ name: string; indent: number }> = [];
@@ -227,12 +247,10 @@ function indexOneFile(file: IndexedFile, sink: IndexSink): void {
       record.container = pythonClasses[pythonClasses.length - 1].name;
       if (record.symbolKind === "function") record.symbolKind = "method";
     }
-    symbols.push(record);
-    const entries = definitions.get(record.name) ?? [];
-    entries.push(record);
-    definitions.set(record.name, entries);
+    pushSymbol(sink, record);
     if (python && record.symbolKind === "class") pythonClasses.push({ name: record.name, indent });
   }
+  if (key) cache?.put(key, symbols.slice(scannedFrom));
 }
 
 function emptySink(): IndexSink {
@@ -266,17 +284,24 @@ export function buildRegexSymbolIndex(files: IndexedFile[]): RegexIndex {
 //
 // (A sampling timer reports the synchronous version's worst stall as 0 ms, which is the measurement
 // failing rather than the code behaving: the sampler never gets to run during the block it is measuring.)
-export async function buildRegexSymbolIndexChunked(files: IndexedFile[], budget = 128 * 1024): Promise<RegexIndex> {
+export async function buildRegexSymbolIndexChunked(
+  files: IndexedFile[],
+  budget = 128 * 1024,
+  cache?: SymbolCache,
+): Promise<RegexIndex> {
   const sink = emptySink();
   let pending = 0;
   for (const file of files) {
-    indexOneFile(file, sink);
+    indexOneFile(file, sink, cache);
     pending += file.content.length;
     if (pending >= budget) {
       pending = 0;
       await new Promise<void>((resolveChunk) => setImmediate(resolveChunk));
     }
   }
+  // One write per build, after the last file: the store is the whole project's records, and writing it per
+  // file would hand a 6 MB serialize to every chunk boundary.
+  cache?.flush();
   return asRegexIndex(sink);
 }
 
@@ -293,6 +318,9 @@ export async function buildRegexSymbolIndexChunked(files: IndexedFile[], budget 
 // names this path actually touched, and leaving one record behind would mean a jump into a line that no
 // longer exists. A wrong answer is worse than a slow one, so the whole removal happens for every touched
 // path, including paths being re-indexed rather than dropped.
+// Deliberately NOT given the symbol store: this re-scans the handful of files a save moved, and storing
+// them would serialize the whole store (6 MB on a 5,551-file repository) on the save path to spare the next
+// launch a scan of those same few files — ~10 ms of the 2.5 s the store is there to remove.
 export function patchProjectIndex(index: RegexIndex, files: IndexedFile[], removed: string[] = []): void {
   const normalize = (path: string) => path.replace(/\\/g, "/");
   const incoming = files
@@ -350,7 +378,7 @@ async function listProjectFiles(root: string): Promise<string[]> {
   });
 }
 
-export async function buildProjectIndex(root: string): Promise<RegexIndex> {
+export async function buildProjectIndex(root: string, cache?: SymbolCache): Promise<RegexIndex> {
   const paths = await listProjectFiles(root);
   const files: IndexedFile[] = [];
   for (let offset = 0; offset < paths.length; offset += 32) {
@@ -367,7 +395,7 @@ export async function buildProjectIndex(root: string): Promise<RegexIndex> {
     for (const file of loaded) if (file) files.push(file);
     await new Promise<void>((resolveBatch) => setImmediate(resolveBatch));
   }
-  return buildRegexSymbolIndexChunked(files);
+  return buildRegexSymbolIndexChunked(files, undefined, cache);
 }
 
 /**
@@ -381,12 +409,14 @@ export async function buildProjectIndex(root: string): Promise<RegexIndex> {
  * from one `cat-file --batch` (548 ms for 3,058 files, measured), and the work that follows is
  * buildRegexSymbolIndexChunked, which already yields.
  */
-export async function buildProjectIndexAtRevision(root: string, revision: string): Promise<RegexIndex> {
+export async function buildProjectIndexAtRevision(root: string, revision: string, cache?: SymbolCache): Promise<RegexIndex> {
   const paths = listRevisionFiles(root, revision)
     .filter((path) => indexablePath(path))
     .slice(0, MAX_INDEX_FILES);
   const blobs = await readRevisionBlobs(root, revision, paths, { maxBytes: MAX_INDEX_FILE_BYTES });
-  return buildRegexSymbolIndexChunked(blobs);
+  // The same store serves this: a revision's blob is text like any other, and most of a revision's text is
+  // text the working tree has too, so reading history mostly hits what the working-tree index already stored.
+  return buildRegexSymbolIndexChunked(blobs, undefined, cache);
 }
 
 export function safeRelativePath(root: string, path: string | undefined): string | undefined {

@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
+import type { SymbolCache } from "./analysis-cache.js";
 import {
   AnalysisLocation,
   type AnalysisCodeLens,
@@ -221,6 +222,10 @@ type AnalysisOptions = {
   coldQueryBudgetMs?: number;
   files?: IndexedFile[];
   onStatus?: (status: AnalysisStatus) => void;
+  // The symbol scan kept between launches (analysis-cache.ts). Supplied by the app, which knows the user-data
+  // directory and which repository this workspace belongs to; absent in tests and on the CLI path, where a
+  // build simply scans everything as before.
+  symbolCache?: SymbolCache;
 };
 
 // What syncIndex needs from one of the review's file records. Structural rather than importing SourceFile,
@@ -319,6 +324,7 @@ export class ProjectAnalysis {
   // withDeadlineWhileIndexing.
   private readonly coldQueryBudgetMs: number;
   private readonly fixedFiles?: IndexedFile[];
+  private readonly symbolCache?: SymbolCache;
   private readonly onStatus?: (status: AnalysisStatus) => void;
   private generation = 0;
   // What the built index holds, path → the review's signature for it. The index itself does not carry these:
@@ -332,6 +338,7 @@ export class ProjectAnalysis {
     this.indexBudgetMs = options.indexBudgetMs ?? 90_000;
     this.coldQueryBudgetMs = options.coldQueryBudgetMs ?? 400;
     this.fixedFiles = options.files;
+    this.symbolCache = options.symbolCache;
     this.onStatus = options.onStatus;
   }
 
@@ -457,6 +464,11 @@ export class ProjectAnalysis {
 
   getStatus(): AnalysisStatus {
     return { ...this.status };
+  }
+
+  /** How many files the kept symbol scan served and how many had to be scanned — for the perf trace. */
+  symbolCacheStats(): { hits: number; misses: number } | undefined {
+    return this.symbolCache?.stats();
   }
 
   dispose(): void {
@@ -695,13 +707,13 @@ export class ProjectAnalysis {
       const revision = this.reviewTarget;
       const cached = this.revisionIndexes.get(revision);
       if (cached) return cached;
-      const pending = buildProjectIndexAtRevision(this.root, revision);
+      const pending = buildProjectIndexAtRevision(this.root, revision, this.symbolCache);
       this.revisionIndexes.set(revision, pending);
       return pending;
     }
     if (!this.indexPromise) this.indexPromise = this.fixedFiles
       ? Promise.resolve(buildRegexSymbolIndex(this.fixedFiles))
-      : buildProjectIndex(this.root);
+      : buildProjectIndex(this.root, this.symbolCache);
     return this.indexPromise;
   }
 
