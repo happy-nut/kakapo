@@ -1,12 +1,11 @@
 function openDefaultSourceFile() {
   const isReadme = (candidate) => /^readme(\.|$)/i.test(candidate.name || '');
   const depthOf = (candidate) => (candidate.path || '').split('/').length;
-  // Prefer the TOP-MOST README (root before any nested one), not just the first match in tree order.
   const rootReadme = sourceFiles
     .filter((candidate) => candidate.embedded && isReadme(candidate))
     .sort((a, b) => depthOf(a) - depthOf(b))[0];
   const file = sourceFiles.find((candidate) => candidate.changed && candidate.embedded)
-    || rootReadme // top-most README when nothing changed
+    || rootReadme
     || sourceFiles.find((candidate) => candidate.embedded)
     || sourceFiles.find((candidate) => candidate.changed)
     || sourceFiles[0];
@@ -17,10 +16,6 @@ function openDefaultSourceFile() {
   if (hunkTotal() > 0) setActive(0, false);
 }
 
-// The selected lines of the open source file as a citation an agent can act on: "path:12-18" followed by the
-// code in a fenced block. Cmd+K's payload — plain Cmd+C used to be rewritten into this, which meant copying
-// two words out of a file to paste them in a comment silently produced a reference and a code fence instead.
-// null when the selection is not inside the painted source file.
 function sourceSelectionCitation() {
   const selection = window.getSelection();
   const sourceBody = document.getElementById('source-body');
@@ -67,7 +62,6 @@ function sourceSelectionCitation() {
 // anchor inside the body, the focus has left the rows entirely — so this never touches a drag that is
 // behaving.
 
-/** The last text node inside `el`, or the first when `last` is false. */
 function deepestTextNode(el, last) {
   if (!el) return null;
   var nodes = el.childNodes;
@@ -80,9 +74,7 @@ function deepestTextNode(el, last) {
   return null;
 }
 
-// Where the pointer was on the last move with a button held, and '' when no drag is running.
 var sourceDragY = null;
-// selection.extend() fires selectionchange again; without this the correction answers itself.
 var clampingSourceSelection = false;
 
 function sourceRowOf(node) {
@@ -97,7 +89,6 @@ function clampSourceDragSelection() {
   var selection = window.getSelection && window.getSelection();
   if (!selection || !selection.rangeCount || !selection.anchorNode || !selection.focusNode) return;
   if (!body.contains(selection.anchorNode) || !sourceRowOf(selection.anchorNode)) return;
-  // A focus still on a row is a selection that is working. Only the parked one is corrected.
   if (sourceRowOf(selection.focusNode)) return;
   var rows = body.querySelectorAll('.source-row');
   if (!rows.length) return;
@@ -124,7 +115,7 @@ document.addEventListener('selectionchange', clampSourceDragSelection);
 
 function selectedSourceRows(selection) {
   if (!selection.rangeCount) return [];
-  flushSourceRows(); // a selection may reach rows a big file has not painted yet
+  flushSourceRows();
   const ranges = Array.from({ length: selection.rangeCount }, (_, index) => selection.getRangeAt(index));
   return Array.from(document.querySelectorAll('#source-body .source-row'))
     .filter((row) => ranges.some((range) => {
@@ -137,31 +128,11 @@ function selectedSourceRows(selection) {
     .sort((a, b) => Number(a.dataset.lineIndex || 0) - Number(b.dataset.lineIndex || 0));
 }
 
-/**
- * One selected line with the line-number gutter taken off it \u2014 and only the gutter.
- *
- * `.num` is `user-select: none`, so a real browser never puts a line number in the selection and there
- * is usually nothing here to take off at all; the strip exists for the environments that ignore that
- * (jsdom, and anything that copies the table as a table). But `^\s*<n>\s+` also matches a line of CODE
- * whose first token happens to be its own line number \u2014 line 3 of a data file reading `3 4 5` \u2014 and
- * eating that produced a citation quoting `4 5` under "line 3", which is a wrong answer in the one
- * feature whose whole job is to be quotable.
- *
- * So the row is asked. Whatever its own code cell says is on that line IS on that line, gutter or no.
- */
 function stripLineNumberGutter(line, row) {
   if (!row) return line;
   const cell = row.querySelector('.source-code');
-  // The cell's OWN text. Read with textContent it also carried the inlay labels, and a label sits INSIDE
-  // the line \u2014 so `code.includes(line.trim())` was false on every hinted line and the guard this function
-  // exists to be fell through to the regex below. On the very line the comment names, `3 4 5` with a hint
-  // on it, copying gave `4 5`: the wrong answer this was written to prevent, reached by another door.
   const code = sourceCellText(cell).replace(/\u200b/g, '');
-  // Whatever the row's own code cell already accounts for IS code, gutter or no gutter.
   if (code && code.includes(line.trim())) return line;
-  // Otherwise there is something in front of the code, and the code is the part to keep \u2014 taking it
-  // from the row rather than cutting the line keeps the INDENTATION, which `^\s*<n>\s+` also ate: a
-  // greedy `\s+` ran straight through the line's own leading spaces.
   if (code && line.endsWith(code)) return code;
   const lineNumber = Number(row.dataset.lineIndex || 0) + 1;
   return line.replace(new RegExp('^\\s*' + lineNumber + '\\s+'), '');
@@ -183,13 +154,6 @@ function sourceLinesForRows(file, rows) {
     .trimEnd();
 }
 
-// Review folding stays intentionally local and structural: imports are one default-closed header, while
-// Cmd/Ctrl+. folds the innermost multiline `{ ... }` block containing the caret. Strings and comments are
-// skipped so braces in messages/doc comments do not create phantom ranges.
-// The file's lines. Splitting a megabyte of text is not free, and the caret path did it THREE times on
-// every keypress — here, for the import range, and for a line count — so most of an arrow key in a 117 KB
-// file went into String.prototype.split. Keyed on the content it was split from, the way sourceBraceRanges
-// below caches its scan: a new body is a new string, so a stale cache cannot survive one.
 function sourceLinesOf(file) {
   if (!file) return [];
   if (file.__linesOf !== file.content || !Array.isArray(file.__lines)) {
@@ -244,19 +208,6 @@ function sourceFoldHasComment(file, range) {
     return comment.path === file.path && line >= range.start && line <= range.end;
   });
 }
-// ---- Where a file folds ------------------------------------------------------------------------------
-// The brace walk above is a guess that is right about C-like languages and silent about every other one:
-// Python, YAML and Markdown have no braces and so had no folds at all, and even in a braced file an import
-// block or a comment header is a region braces cannot see. `textDocument/foldingRange` is the server's own
-// answer, and the server is already running for this file — it was simply never asked.
-//
-// Cached per path and generation, like the structure (16-structure.js), and ASKED FOR LAZILY: the first
-// render of a file uses the braces, the answer arrives, and the file re-renders with the real regions.
-// A server that does not implement the request leaves the braces in place rather than taking folding away.
-// Created on first use, not at this line. The first render of the app happens DURING the bundle's own load
-// (openDefaultSourceFile, from a slice above this one), so a `= new Map()` here has not run yet when the
-// first renderSourceTable asks — and the throw takes every later slice's initialisation down with it.
-// `var` hoists, so assigning it from inside the accessor is enough.
 var sourceFoldServerCache;
 function sourceFoldServerCacheMap() {
   if (!sourceFoldServerCache) sourceFoldServerCache = new Map();
@@ -272,39 +223,21 @@ function sourceServerFoldRanges(path) {
     .then(function (response) {
       if (!pageAlive()) return;
       var ranges = response && Array.isArray(response.folds) ? response.folds : null;
-      // `folds` absent means the question could not be answered (no server yet, or it does not implement
-      // the request) rather than "no folds", and the two must not be cached the same way: only a real
-      // answer is remembered, so a server that arrives later still gets asked.
       if (!ranges) sourceFoldServerCacheMap().delete(path);
       else sourceFoldServerCacheMap().set(path, { generation: analysisGeneration(), ranges: ranges, pending: false });
-      // Only re-render when the answer actually changes what folds: an unsupported server or an empty
-      // answer leaves the braces as they were, and re-rendering for that would be a flash for nothing.
       if (ranges && ranges.length && sourceOpenPath() === path) openSourceFile(path, false);
     }, function () {
       if (!pageAlive()) return;
-      // A failed ASK is not an answer. Caching it would turn "the server was still starting" into "this
-      // file does not fold", for the rest of the session — so the entry is dropped and the next render of
-      // this file asks again. Renders are file-open events, not frames, so this cannot spin.
       sourceFoldServerCacheMap().delete(path);
     });
   return null;
 }
 
-// ---- Highlighting from the parser that owns the language ---------------------------------------------
-// The source view tokenises by hand (highlightLine, 11-render-http.js) and the diff runs highlight.js, so
-// the two disagree about how much of a file is coloured — a `.yml` file was plain in one and not the other.
-// `textDocument/semanticTokens/full` is the answer from the thing that actually parses the file, and the
-// server giving it is already running: it was never asked.
-//
-// Used when it arrives, and only then. The hand tokenizer draws the first paint and every file whose
-// server has no legend for this, so nothing waits on a round trip to be readable — the same bargain the
-// folds make one function up.
 var semanticTokenCache;
 function semanticTokenCacheMap() {
   if (!semanticTokenCache) semanticTokenCache = new Map();
   return semanticTokenCache;
 }
-/** LSP's token types in this app's own classes. What is not mapped is left plain, which is honest. */
 var SEMANTIC_TOKEN_CLASS = {
   namespace: 'tok-type', type: 'tok-type', class: 'tok-type', enum: 'tok-type', interface: 'tok-type',
   struct: 'tok-type', typeParameter: 'tok-type',
@@ -325,7 +258,7 @@ function semanticTokensFor(path) {
       if (!tokens || !tokens.length) { semanticTokenCacheMap().delete(path); return; }
       var byLine = new Map();
       tokens.forEach(function (token) {
-        if (!SEMANTIC_TOKEN_CLASS[token.type]) return; // a type this app does not colour is not stored
+        if (!SEMANTIC_TOKEN_CLASS[token.type]) return;
         var row = byLine.get(token.lineIndex);
         if (!row) { row = []; byLine.set(token.lineIndex, row); }
         row.push(token);
@@ -338,13 +271,6 @@ function semanticTokensFor(path) {
     });
   return null;
 }
-/**
- * One line's HTML from its tokens, with the gaps between them escaped and left plain.
- *
- * Overlaps are dropped rather than nested: a server may send a token inside another (a type argument
- * inside a type), and two opened spans over the same characters would double-colour the text and, worse,
- * change the character count the whitespace marker and the caret both measure in.
- */
 function semanticLineHtml(text, tokens) {
   var out = '';
   var at = 0;
@@ -362,12 +288,6 @@ function semanticLineHtml(text, tokens) {
   return out + escapeHtml(text.slice(at));
 }
 
-/**
- * The regions of `file` that CAN fold — the server's if it has an answer, the brace pairs otherwise.
- *
- * One list either way, in the shape the manual fold state is keyed by, so everything downstream (the
- * stored keys, the gutter buttons, Collapse All) reads the same thing whichever engine produced it.
- */
 function sourceFoldCandidates(file) {
   if (!file || !file.embedded) return [];
   var server = sourceServerFoldRanges(file.path);
@@ -387,11 +307,6 @@ function sourceFoldRanges(file) {
     folds.push({ start: importRange.start, end: importRange.end, column: 0, kind: 'imports' });
   }
   var stored = sourceManualFoldKeys[file.path] || Object.create(null);
-  // Not skippable when nothing is collapsed, however tempting: sourceFoldCandidates() is also what ASKS the
-  // server for this file's folding ranges, so an early return here leaves Cmd+. with only the brace walk
-  // until something else happens to ask. (Two tests in lsp-reading-requests.test.mjs say so, and they were
-  // right.) The scan it does is cached on the content already — what the caret path was really paying for
-  // was splitting that content into lines three times a keypress, which sourceLinesOf now does once.
   var pairs = sourceFoldCandidates(file), valid = Object.create(null);
   pairs.forEach(function (pair) { valid[pair.start + ':' + pair.end] = pair; });
   Object.keys(stored).forEach(function (key) {
@@ -401,7 +316,6 @@ function sourceFoldRanges(file) {
   });
   sourceManualFoldKeys[file.path] = stored;
   folds.sort(function (a, b) { return a.start - b.start || b.end - a.end; });
-  // If a collapsed parent owns a region, its nested folds need no second marker until the parent reopens.
   return folds.filter(function (fold, index) {
     for (var i = 0; i < index; i++) {
       if (folds[i].start <= fold.start && folds[i].end >= fold.end) return false;
@@ -409,17 +323,6 @@ function sourceFoldRanges(file) {
     return true;
   });
 }
-// Navigating into a folded region opens it. The rows inside a fold are not rendered at all, so a caret
-// that lands on one sits on a row that does not exist: nothing to see, nothing to scroll to, and the jump
-// reads as having done nothing at all.
-//
-// Permanently, not just for the next render. ⌘F already answered this question that way, it is what an
-// editor does, and the alternative — dropping the fold while the caret is inside it — only takes effect
-// when something happens to rebuild the table, which the caret's fast path deliberately does not do.
-//
-// The fold's FIRST line is excluded: it is the row that carries the fold button, so it is rendered, and it
-// is where ⌘. leaves the caret after folding a block you were standing in. Counting it as hidden would
-// make a manual fold spring open the instant it was made.
 function expandSourceFoldsAt(path, lineIndex) {
   var file = sourceByPath.get(path);
   if (!file || !file.embedded) return false;
@@ -473,17 +376,10 @@ function toggleCurrentSourceFold() {
   if (existingButton) return openSourceFoldButton(existingButton);
   var file = sourceByPath.get(viewerCursor.path);
   if (!file || !file.embedded) return false;
-  // The INNERMOST region the caret is in, chosen by span rather than by position in the list. The brace
-  // walk happened to emit its pairs innermost-first (a stack pops that way) and this read [0]; the
-  // server's ranges arrive outermost-first, which would have folded the whole file on ⌘. and looked like
-  // a fold bug rather than an ordering one.
   var pair = sourceFoldCandidates(file).filter(function (range) {
     return range.start <= viewerCursor.lineIndex && range.end >= viewerCursor.lineIndex;
   }).sort(function (a, b) { return (a.end - a.start) - (b.end - b.start); })[0];
-  if (!pair) return false; // nothing foldable here — a movement-shaped key, so no complaint
-  // Folding would hide one of the reader's own comments, which is a deliberate refusal and was a
-  // completely silent one: caret inside a function you have commented on, press ⌘., nothing. The sibling
-  // refusal two functions away (openComposer, on a library file) has said why for as long as it existed.
+  if (!pair) return false;
   if (sourceFoldHasComment(file, pair)) { showCaretHint(t('fold.hasComment')); return true; }
   var stored = sourceManualFoldKeys[file.path] || Object.create(null);
   stored[pair.start + ':' + pair.end] = true;
@@ -491,13 +387,6 @@ function toggleCurrentSourceFold() {
   repaintSourceFold(file.path, pair.start, pair.column + 1);
   return true;
 }
-// ---- IntelliJ's three whole-file fold actions ---------------------------------------------------------
-// Collapse All, Expand All and Collapse Recursively. ⌘. has always folded the one region the caret is in;
-// what was missing is the pair that act on the file, which is how a reader skims a long file they did not
-// write — collapse everything, then open the two declarations the change is actually about.
-//
-// All three write the same `sourceManualFoldKeys` the gutter buttons write, so a fold made by a key and a
-// fold made by a click are the same fold, and the next render draws both from one list.
 function sourceFoldActionTarget() {
   var path = sourceOpenPath();
   if (!path || !isSourceViewerVisible()) return null;
@@ -505,7 +394,6 @@ function sourceFoldActionTarget() {
   if (!file || !file.embedded) return null;
   return { path: path, file: file };
 }
-/** Collapse every region the file has. Nested ones are kept: reopening a parent reveals them still folded. */
 function collapseAllSourceFolds() {
   var target = sourceFoldActionTarget();
   if (!target) return false;
@@ -519,7 +407,6 @@ function collapseAllSourceFolds() {
   openSourceFile(target.path, false);
   return true;
 }
-/** Open everything, including the import block this app folds on arrival. */
 function expandAllSourceFolds() {
   var target = sourceFoldActionTarget();
   if (!target) return false;
@@ -531,7 +418,6 @@ function expandAllSourceFolds() {
   openSourceFile(target.path, false);
   return true;
 }
-/** The region the caret is in and everything inside it — IntelliJ's Collapse Recursively. */
 function collapseSourceFoldRecursively() {
   var target = sourceFoldActionTarget();
   if (!target || !viewerCursor || viewerCursor.path !== target.path) return false;
@@ -554,12 +440,6 @@ function collapseSourceFoldRecursively() {
 function sourceVisibleLineIndex(lineIndex, direction) {
   var body = document.getElementById('source-body');
   if (!body) return lineIndex;
-  // The authoritative row order is the model, not the DOM — asking the DOM would step only within the
-  // painted window of a file still filling in. It is also the cheaper answer: this runs on every arrow key,
-  // and scanning every row of a 30k-line file to move one line never made sense. It used to read the model
-  // off sourceFill, which is cleared the moment the last spacer goes, so the scan it was written to avoid
-  // is exactly what a FINISHED file got — 27,089 rows through querySelectorAll per keystroke, 10% of the
-  // 137 ms one cost there. sourceRowModel survives the fill and a one-shot render has one too.
   var model = typeof sourceRowModel !== 'undefined' && sourceRowModel && sourceRowModel.path === sourceOpenPath()
     ? sourceRowModel.rowStarts
     : (typeof sourceFill !== 'undefined' && sourceFill ? sourceFill.rowStarts : null);
@@ -607,11 +487,7 @@ function handleSourceClick(event) {
     if (panel) panel.classList.toggle('hidden');
     return;
   }
-  // The second click belongs to the native word-selection gesture. Do not split the text node again by
-  // repainting the fake caret; handleSourceDoubleClick selects the stable logical word afterward.
   if (Number(event.detail) > 1) return;
-  // A click carrying a range selection is the end of a drag (see selectedText). Painting the caret here
-  // re-splits the text nodes the selection lives in and leaves the drag with nothing selected.
   if (selectedText()) return;
   const row = target?.closest?.('.source-row');
   if (!row) return;
@@ -625,13 +501,9 @@ function handleSourceClick(event) {
   const codeCell = row.querySelector('.source-code');
   const column = estimateColumnFromClick(codeCell, event, line);
   setSourceCursor(path, lineIndex, column, false, -1);
-  // ⌘-click is the mouse half of ⌘↓: the caret has just landed on the token, so ask for its definition.
   if (event.metaKey || event.ctrlKey) { event.preventDefault(); goToDefinitionUnderCursor(); }
 }
 
-// ⌘-hover: underline the token the pointer is on, the way an editor shows that a click will navigate. The
-// underline is a positioned overlay measured from a Range, not a wrapper span — mutating the code's DOM on
-// every mouse move would re-split the text nodes the caret and the selection live in.
 var cmdLinkEl = null;
 var cmdLinkKey = '';
 function hideCmdLink() {
@@ -694,8 +566,6 @@ function handleSourceDoubleClick(event) {
 
 function estimateColumnFromClick(codeCell, event, line) {
   if (!codeCell) return 0;
-  // A wrapped logical line can span several visual rows, so x/character-width arithmetic is no longer
-  // sufficient. Ask Chromium for the DOM caret at the pointer and convert that range to a source offset.
   if (codeCell.closest('.source-body.line-wrap')) {
     var point = null;
     if (document.caretPositionFromPoint) point = document.caretPositionFromPoint(event.clientX, event.clientY);
@@ -705,8 +575,6 @@ function estimateColumnFromClick(codeCell, event, line) {
     }
     if (point && codeCell.contains(point.offsetNode)) {
       try {
-        // Measured through the shared walk, not with a Range over the cell: a Range's text includes the
-        // inlay labels drawn into the line, so a click past one reported a column that far too large.
         return Math.max(0, Math.min(line.length,
           sourceTextLengthBefore(codeCell, point.offsetNode, point.offset)));
       } catch (e) {}
@@ -736,9 +604,6 @@ function measureCharWidth(element) {
 }
 
 var caretBusyTimer = null;
-// While the caret is actively moving (held arrow key, typing), keep it solid and only resume the
-// blink animation after a short idle. Otherwise key-repeat exposes the blink's "off" frames between
-// moves and the caret appears to vanish intermittently.
 function markCaretBusy() {
   document.body.classList.add('caret-busy');
   if (caretBusyTimer) clearTimeout(caretBusyTimer);
@@ -748,34 +613,22 @@ function markCaretBusy() {
 function setSourceCursor(path, lineIndex, column, shouldReveal = false, targetLine = -1) {
   markCaretBusy();
   clearSelectedDiffFold();
-  selectedCommentRow = null; // any explicit caret placement (click/move) ends a comment-box selection
+  selectedCommentRow = null;
   const file = sourceByPath.get(path);
   if (!file || !file.embedded) return;
   flashReviewPanelFocus(document.getElementById('source-body'));
   const lines = sourceLinesOf(file);
   const boundedLine = Math.max(0, Math.min(lineIndex, Math.max(lines.length - 1, 0)));
   const boundedColumn = Math.max(0, Math.min(column, (lines[boundedLine] || '').length));
-  // Before anything decides how to repaint: opening a fold changes which rows exist, so this move cannot
-  // take the two-rows-in-place fast path below.
   const unfolded = expandSourceFoldsAt(path, boundedLine);
 
   const prev = viewerCursor;
-  // Fast path: the file is already on screen and only the caret moved. Re-rendering the whole
-  // file on every keystroke blocks the main thread on large files, so patch just the previous
-  // and new caret lines in place instead.
-  // sourceBodyPath (the file actually painted in the body) must match too — dataset.openPath/viewerCursor
-  // are metadata that can be set before the body repaints (lazy fetch in flight, fast file switch, watch
-  // refresh), so without this the caret patches a STALE body and one file's content shows under another's
-  // breadcrumb. On mismatch we fall through to openSourceFile, which re-renders the body for `path`.
   const sameFileOpen = !unfolded && Boolean(sourceOpenPath() === path && isSourceViewerVisible()
     && prev && prev.path === path && !isHttpFile(path) && sourceBodyPath === path);
 
   viewerCursor = { path, lineIndex: boundedLine, column: boundedColumn, targetLine };
 
   if (sameFileOpen) {
-    // Coalesce caret render + scroll into ONE frame on reveal (ArrowDown) so a fast key-repeat doesn't run
-    // the caret several rows ahead of the lagging (rAF) scroll and snap ~one viewport at a time ("stutter
-    // every ~26 lines"). Click (no reveal) stays instant.
     if (shouldReveal) scheduleSourceReveal(prev);
     else updateSourceCaret(prev, lines, file.language || 'text');
   } else {
@@ -784,21 +637,10 @@ function setSourceCursor(path, lineIndex, column, shouldReveal = false, targetLi
     if (shouldReveal) scheduleScrollIntoView(document.querySelector('.source-row.cursor-line'), document.getElementById('source-body'), 0.15);
   }
   recordNav(navEntryOf('source'));
-  // Both reading modes follow the caret: the pinned header is relative to what is on screen, and the dim
-  // is relative to the declaration the caret is in. Defined in 16-reading-modes.js, which loads later.
   refreshFocusMode();
   scheduleStickyLines();
-  // The decorations do NOT follow the caret, and repainting them here was most of what an arrow key cost:
-  // every inlay hint and lens thrown away and drawn again, each one finding its row by an attribute scan
-  // over the whole table — 1,307 of those per keypress in a 1,920-line file, 66 ms. updateSourceCaret
-  // inserts and removes a caret span and touches no cell's contents, and 80 caret moves with this call
-  // gone leave all 836 hints and 56 lens rows exactly where they were. Everything that DOES invalidate
-  // them repaints already: a body re-render, a toggle, new decorations from the server, rows arriving.
 }
 var sourceRevealRaf = 0, sourceRevealPrev = null;
-// Source rows are a fixed monospace height, so the caret-follow scroll can be computed from
-// lineIndex*rowHeight instead of reading the caret's getBoundingClientRect — which forces a full reflow on
-// every move (~15ms on a 400-line file; the main caret-follow stutter). Cached; invalidated on resize.
 var _srcRowH = 0;
 function sourceRowHeight() {
   if (_srcRowH > 0) return _srcRowH;
@@ -808,9 +650,6 @@ function sourceRowHeight() {
 }
 if (typeof window !== 'undefined') window.addEventListener('resize', function () { _srcRowH = 0; });
 function scheduleSourceReveal(prev) {
-  // First prev of a coalesced burst wins: a fast ArrowDown updates viewerCursor many times before the frame
-  // fires; render the caret once (first prev -> final viewerCursor) and scroll in the SAME frame so caret and
-  // scroll stay locked together instead of the scroll snapping a viewport behind.
   if (!sourceRevealRaf) sourceRevealPrev = prev;
   if (sourceRevealRaf) return;
   sourceRevealRaf = requestAnimationFrame(function () {
@@ -823,14 +662,6 @@ function scheduleSourceReveal(prev) {
     var sb = document.getElementById('source-body');
     var rowH = sourceRowHeight();
     if (rowH > 0 && sb && !sb.classList.contains('rendered-body') && !sb.classList.contains('line-wrap')) {
-      // Scrolloff, not follow: scroll ONLY when the caret would otherwise leave the viewport, keeping it
-      // within a 15% margin of the top/bottom edge. While the caret moves comfortably inside that band the
-      // view stays put — continuous follow was dizzying (the file slid even when everything was visible) and
-      // it forced a scroll/reflow on every move. lineIndex*rowH avoids getBoundingClientRect entirely, and
-      // skipping the scroll when it's unnecessary removes the reflow on most moves too.
-      // Raw code rows are fixed-height/no-wrap, so the arithmetic path avoids a full-layout read on every
-      // key repeat. Comment/HTTP response rows add variable height between code lines; in that case use the
-      // real cursor row geometry or lineIndex*rowHeight can put the caret below the viewport.
       if (sb.querySelector('.mc-comment-row, .http-response, .source-fold-row, .source-block-folded')) revealSourceCursorWithMargin();
       else {
         var caretTop = viewerCursor.lineIndex * rowH;
@@ -839,8 +670,6 @@ function scheduleSourceReveal(prev) {
         var vTop = sb.scrollTop;
         if (caretTop < vTop + margin) sb.scrollTop = Math.max(0, caretTop - margin);
         else if (caretTop + rowH > vTop + ch - margin) sb.scrollTop = caretTop + rowH - ch + margin;
-        // The arithmetic above is vertical only — lineIndex*rowH knows nothing about the column. The caret's
-        // own box is the only thing that does, so the horizontal half reads it even on this cheap path.
         revealCaretColumn(sb.querySelector('.code-cursor'));
       }
     } else {
@@ -849,9 +678,6 @@ function scheduleSourceReveal(prev) {
   });
 }
 
-// Keep the source caret inside a 15% scroll-off band. This geometry path is used for rendered documents,
-// variable-height comment/HTTP rows, and atomic live-refresh restoration; ordinary fixed-height source
-// movement stays on the cheaper arithmetic path above.
 function revealSourceCursorWithMargin() {
   var body = document.getElementById('source-body');
   if (!body || !viewerCursor) return;
@@ -861,54 +687,33 @@ function revealSourceCursorWithMargin() {
   revealCaretColumn(body.querySelector('.code-cursor'));
 }
 
-// Move the caret by patching only the affected line cells, never the whole <table>. This keeps
-// large files responsive (no full re-highlight per keystroke) and, because the new caret line is
-// rebuilt with a fresh .code-cursor span, restarts the blink animation so the caret is solid the
-// instant it moves and only resumes blinking when idle.
 function updateSourceCaret(prev, lines, language) {
   const body = document.getElementById('source-body');
   if (!body) return;
-  // Markdown/CSV render to HTML cells (.rendered-body): the caret is a whole-row highlight there,
-  // so never rewrite a cell's innerHTML (that would replace the rendered block with raw text).
   const rendered = body.classList.contains('rendered-body');
   const rowFor = (idx) => body.querySelector('.source-row[data-line-index="' + idx + '"]');
-  // Restore the line the caret left: drop the caret span, re-highlight the full line.
   if (prev && prev.lineIndex !== viewerCursor.lineIndex) {
     const prevRow = rowFor(prev.lineIndex);
     if (prevRow) prevRow.classList.remove('cursor-line');
   }
-  // Drop the old caret span WITHOUT re-highlighting the line — re-tokenizing a line on every caret move is
-  // what made holding an arrow key stutter. (The diff caret already works this way: insert/remove a span.)
   if (!rendered) body.querySelectorAll('.code-cursor').forEach((s) => { const p = s.parentNode; if (p) { p.removeChild(s); if (p.normalize) p.normalize(); } });
-  // Reconcile the go-to-definition highlight (set only on symbol jumps, cleared on plain moves).
   body.querySelectorAll('.source-row.symbol-target').forEach((r) => r.classList.remove('symbol-target'));
   if (viewerCursor.targetLine >= 0) rowFor(viewerCursor.targetLine)?.classList.add('symbol-target');
   const row = rowFor(viewerCursor.lineIndex);
-  // The line is not in the DOM: either an eager body that does not hold it, or a big file that has not
-  // built that far yet. Re-rendering puts the window around viewerCursor, so the 400 rows it paints are
-  // the ones the caret just landed in — finishing the file instead cost 1.5 s to place one caret.
   if (!row) { if (!rendered) openSourceFile(viewerCursor.path, false); return; }
   row.classList.add('cursor-line');
   if (!rendered) insertSourceCaret(row, viewerCursor.column);
 }
-// Insert the caret span at `column` of `row` via a real DOM range into the already-highlighted line — the
-// same cheap technique the diff caret uses, so holding an arrow key never re-tokenizes a line.
 function insertSourceCaret(row, column) {
   var cell = row.querySelector('.source-code');
   if (!cell) return;
-  // A collapsed import header has no literal source text on screen. Keep its caret at the left edge of the
-  // summary instead of inserting it into the button label (which would look like an editable control).
   var pos = row.classList.contains('source-fold-row')
     ? { node: cell, offset: 0 }
-    : diffCaretDomPosition(cell, column); // empty line: returns {node: cell, offset: 0} so the caret still shows
+    : diffCaretDomPosition(cell, column);
   if (!pos) return;
   var span = document.createElement('span');
   span.className = 'code-cursor';
   span.setAttribute('aria-hidden', 'true');
-  // An empty line has no text box for `vertical-align: text-bottom` to align against, so a 1.25em-tall
-  // inline-block hangs out of the row and reads as a caret straddling this line and the next. The diff caret
-  // met this first and answers it the same way (06-diff-caret.js): take the caret out of the flow, where its
-  // height cannot push anything around, and pin it to the cell's own left edge.
   if ((cell.textContent || '').length === 0) {
     span.classList.add('code-cursor-empty');
     cell.appendChild(span);
@@ -924,16 +729,6 @@ function insertSourceCaret(row, column) {
 
 function openSourceAt(path, lineIndex, column) {
   var file = sourceByPath.get(path);
-  // Not in the project index at all. openSourceFile has known how to fetch one of these since library
-  // navigation shipped — a definition inside node_modules (the index skips it on purpose) or outside the
-  // review root — but openSourceAt never asked: it fell straight through to setSourceCursor for a file
-  // that had never been painted, which does nothing and says nothing. So ⌘↓ on any imported library
-  // symbol was completely silent, with the language server having answered correctly every time
-  // (`BrowserWindow` -> node_modules/electron/electron.d.ts:26347, engine lsp).
-  //
-  // Fixed HERE rather than in the goToDef handler because openSourceAt is the one door every jump goes
-  // through — definition, implementation, type definition, a usage row, a diagnostic — so each of them
-  // had the same hole.
   if (!file) {
     loadLibrarySourceFile(path).then(function (record) {
       if (!record) { reportLibraryMiss(path); return; }
@@ -955,18 +750,9 @@ function isSourceViewerVisible() {
   return Boolean(viewer && !viewer.classList.contains('hidden'));
 }
 
-// Cmd/Ctrl+A scoped to the current view: select the source body, or the active diff file's content —
-// NOT the whole page (the browser default reached into the sidebar). Returns false if there's
-// no view target so the caller can fall back to the default.
 function selectAllInView() {
   var target = null;
   if (isSourceViewerVisible()) {
-    // A big file is painted a window at a time, so #source-body holds a few hundred rows and a spacer
-    // standing in for the rest — and selectNodeContents over that selects the window, not the file.
-    // Measured in the real app: ⌘A on a 1761-line file selected 372 lines, and the ⌘C after it copied
-    // those 372 with nothing to say the other 1389 were missing. Every other reader that needs rows
-    // outside the window already finishes the paint first (selectedSourceRows, the comment anchors,
-    // semantic navigation, the file find); the one whose whole job is "all of it" was the one that did not.
     flushSourceRows();
     target = document.getElementById('source-body');
   } else if (isDiffViewVisible()) {
@@ -1010,27 +796,18 @@ function openDiffFileAtCaret() {
   setSourceCursor(fileName, lineIndex, 0, true, -1);
 }
 
-// ----- Comment-box navigation: a box attached to a line is a selectable stop while moving the caret -----
 function commentRowSiblingOf(lineIndex, dir) {
   var cur = document.querySelector('#source-body .source-row[data-line-index="' + lineIndex + '"]');
   if (!cur) return null;
   var sib = dir < 0 ? cur.previousElementSibling : cur.nextElementSibling;
   return (sib && sib.classList && sib.classList.contains('mc-comment-row')) ? sib : null;
 }
-// A thread row is not one box: it holds the question, each follow-up, and the agent's notes. Selection
-// addresses ONE card inside it, so `e` edits the reply you are actually looking at (it used to always edit
-// the first comment in the row — a follow-up could not be edited at all) and Backspace removes only that turn.
-// The waiting reply box at the end IS one of the stops: arrowing down through a thread has to reach the box
-// for the next turn, the way it reaches every card above it. Only the open composer is skipped — it owns a
-// live textarea, and the keys belong to what you are typing.
 function commentCardsIn(row) {
   if (!row) return [];
   return Array.prototype.slice.call(row.querySelectorAll('.mc-card')).filter(function (card) {
     return !card.classList.contains('mc-composer');
   });
 }
-// Every card the arrows can land on is now a written turn — the "Continue this thread" box that Enter used
-// to open is gone, and with it the only thing Enter had to do inside a thread.
 function enterSelectedCommentCard() {
   return false;
 }
@@ -1041,8 +818,6 @@ function markSelectedCard(card) {
 function selectedCommentCard() {
   return selectedCommentRow ? selectedCommentRow.querySelector('.mc-card-selected') : null;
 }
-// Arrows move within the thread first: down from the question lands on the follow-up under it, not past the
-// whole row. Returns false at either end so the caller steps off the row the way it always did.
 function stepSelectedCommentCard(dir) {
   var cards = commentCardsIn(selectedCommentRow);
   if (cards.length < 2) return false;
@@ -1059,42 +834,19 @@ function selectCommentRow(row, fromBelow) {
   selectedCommentRow = row || null;
   if (!selectedCommentRow) { markSelectedCard(null); return; }
   selectedCommentRow.classList.add('mc-row-selected');
-  // Entering from below (ArrowUp off the line under the thread) lands on the last turn, so the walk through a
-  // thread reads in the same direction the caret is travelling.
   var cards = commentCardsIn(selectedCommentRow);
   markSelectedCard(fromBelow ? cards[cards.length - 1] : cards[0]);
-  // Keep the caret visible: the box's active outline (.mc-row-selected) already shows the selection, and the
-  // caret must never be hidden ("어떤 경우에도 커서는 가려지면 안 됨"). Previously this removed cursor-line +
-  // code-cursor, so Go-to-comment → ArrowDown (which selects the comment box on that line) made the caret vanish.
 }
-/**
- * The keys that act on a SELECTED comment box, in one place because the contract is one: Backspace/Delete
- * deletes the row's comments, `e` edits, Enter enters the card, an arrow walks the thread's own turns and
- * then steps off onto the neighbouring row, Escape steps off without moving. Returns true when the key was
- * consumed, false to decline it.
- *
- * The two carets differ only in what a neighbouring row IS — a diff row addressed by pane and row index, a
- * source row addressed by line index — so each passes in those two moves: `stepOntoRow(sib)` returns true
- * when it took the caret there, and `restoreCaret()` puts the caret back where it was. This used to be two
- * copies twenty lines long, and a key added to one view would silently not exist in the other.
- */
 function handleSelectedCommentRowKey(event, stepOntoRow, restoreCaret) {
   if (event.key === 'Backspace' || event.key === 'Delete') { event.preventDefault(); deleteCommentsInRow(selectedCommentRow); return true; }
   if (event.code === 'KeyE' || event.key === 'e' || event.key === 'E') { event.preventDefault(); editCommentInRow(selectedCommentRow); return true; }
   if (event.key === 'Enter' && enterSelectedCommentCard()) { event.preventDefault(); return true; }
   if (event.key === 'ArrowUp' || event.key === 'ArrowDown' || event.key === 'ArrowLeft' || event.key === 'ArrowRight' || event.key === 'Escape') {
     var dir = event.key === 'ArrowUp' ? -1 : (event.key === 'ArrowDown' ? 1 : 0);
-    // Walk the thread's own turns first; only step off the row once there is no further card that way.
     if (dir && stepSelectedCommentCard(dir)) { event.preventDefault(); return true; }
     var sib = dir < 0 ? selectedCommentRow.previousElementSibling : (dir > 0 ? selectedCommentRow.nextElementSibling : null);
     clearCommentRowSelection();
     event.preventDefault();
-    // Rows the caret cannot address sit between code lines: a code-vision note (which is painted ABOVE the
-    // symbol it annotates, so it is the row below every comment on the line before one), a hunk header, a
-    // fold marker, the spacer the opposite pane gets for a comment, the placeholder a pane gets for a line
-    // that is not on its side. Walk past them, the way moveFromSelectedDiffFold already walks for the fold
-    // row — stepOntoRow declines what it cannot land on, so the first row it accepts is the next real line.
-    // Reading only the immediate sibling made ArrowDown dead whenever one of those rows happened to be next.
     var landed = false;
     while (sib && !landed) {
       landed = stepOntoRow(sib);
@@ -1110,9 +862,6 @@ function clearCommentRowSelection() {
   selectedCommentRow = null;
   markSelectedCard(null);
 }
-// Backspace deletes the SELECTED turn and whatever continues from it (commentSubtreeSeqs) — not everything
-// that happens to share the line. Two threads anchored to one row are two conversations and delete apart; a
-// question and the answers to it are one, and on the first card that is the whole thread.
 function deleteCommentsInRow(row) {
   if (!row) return;
   var card = selectedCommentCard() || commentCardsIn(row)[0];
@@ -1120,15 +869,12 @@ function deleteCommentsInRow(row) {
   if (!del) return;
   clearCommentRowSelection();
   var seq = parseInt(del.dataset.seq, 10);
-  if (isFinite(seq)) deleteComment(seq); // re-injects the remaining rows; the caret stays hidden until the next arrow
+  if (isFinite(seq)) deleteComment(seq);
 }
-// Open the composer in EDIT mode for the SELECTED comment in `row`, pre-filled with its text. threadHtml
-// renders the composer in place of that card (via composerState.editSeq), and saveComposer routes editSeq
-// through updateComment instead of addComment. Triggered by `e` while a comment box is selected.
 function editCommentInRow(row) {
   if (!row) return;
   var card = selectedCommentCard() || commentCardsIn(row)[0];
-  if (card && card.classList.contains('mc-ai')) return; // the agent's own words are not the reviewer's to rewrite
+  if (card && card.classList.contains('mc-ai')) return;
   var del = card ? card.querySelector('.mc-del') : null;
   if (!del) return;
   var seq = parseInt(del.dataset.seq, 10);
@@ -1147,8 +893,6 @@ function handleSourceCaretKey(event) {
   var ae = document.activeElement;
   if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT')) return false;
   const extend = event.shiftKey;
-  // A comment box is selected (caret hidden): the shared contract handles it. A source row is addressed by
-  // its line index.
   if (selectedCommentRow) {
     return handleSelectedCommentRowKey(event, function (sib) {
       if (!sib.classList || !sib.classList.contains('source-row')) return false;
@@ -1160,7 +904,6 @@ function handleSourceCaretKey(event) {
       setSourceCursor(viewerCursor.path, viewerCursor.lineIndex, viewerCursor.column, false, -1);
     });
   }
-  // Plain Up/Down: a comment box between the caret line and the next line becomes a selectable stop.
   if (!extend && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
     var box = commentRowSiblingOf(viewerCursor.lineIndex, event.key === 'ArrowUp' ? -1 : 1);
     if (box) { event.preventDefault(); selectCommentRow(box, event.key === 'ArrowUp'); return true; }
@@ -1176,8 +919,6 @@ function moveSourceCursor(dLine, dColumn, extend) {
   if (!viewerCursor) return;
   const file = sourceByPath.get(viewerCursor.path);
   if (!file || !file.embedded) return;
-  // Markdown/CSV rendered view: rows are blocks (sparse data-line-index), so any arrow steps to the
-  // adjacent block row rather than into a (non-existent) raw line. No text column / selection there.
   const renderedBody = document.getElementById('source-body');
   if (renderedBody && renderedBody.classList.contains('rendered-body')) {
     const rows = Array.from(renderedBody.querySelectorAll('.source-row'));
@@ -1212,13 +953,7 @@ function moveSourceCursor(dLine, dColumn, extend) {
   setSourceCursor(viewerCursor.path, line, col, true, -1);
   applySourceSelection();
 }
-// Word boundary in text from col in direction dir (+1 next, -1 prev).
 function nextWordBoundary(text, col, dir) {
-  // 0 = whitespace, 1 = word char, 2 = punctuation; a run of each is its own "word".
-  // Forward stops at the END of the run it is in or the next one — ⌥→ on `recoverableTransfers` lands right
-  // after the `s`, which is where macOS puts it and where you want to start typing or extend a selection.
-  // (It used to run on to the START of the next word, vim 'w', which left the caret out in the whitespace.)
-  // Backward stops at the START of the previous run, which is already the same convention from the other side.
   var classOf = function (ch) {
     if (ch === '' || /\s/.test(ch)) return 0;
     if (/[A-Za-z0-9_$]/.test(ch)) return 1;
@@ -1248,7 +983,6 @@ function moveSourceWord(dir, extend) {
   if (dir > 0) {
     var fwd = nextWordBoundary(text, col, 1);
     if (fwd > col) { col = fwd; }
-    // Nothing left on this line: the next stop is the end of the next line's first word.
     else if (line < lines.length - 1) { line += 1; var nt = lines[line] || ''; col = nextWordBoundary(nt, 0, 1); }
     else { col = text.length; }
   } else {
@@ -1274,23 +1008,6 @@ function applySourceSelection() {
   }
 }
 
-/**
- * A walk over a code cell's OWN text — the line as it is on disk — skipping what the app drew into it.
- *
- * An inlay hint is a span of text the SERVER suggested, sitting inside the line's markup; it is not part
- * of the line, and anything converting between a column and a DOM point has to agree about that or it
- * drifts by the length of every label before the point. `insertInlayHint` (16-reading-modes.js) knew
- * this and filtered; `caretDomPosition` and the wrapped-line click did not, so on a line carrying
- * `...values: ` every selection and every click past it landed eleven characters early — ⌥↑ on
- * `startLine` selected `Math.trun`. One rule, read by all three, rather than the fact living in the one
- * place that happened to be written first.
- *
- * A collapsed fold's button is the same kind of thing and was not on the list. `›코드 19줄 접힘` is drawn
- * INTO the line it hangs off, so every reader of this walk counted it as code: measured in the real app,
- * five collapsed rows of `src/analysis.ts` each read 9–10 characters longer than the line on disk, and
- * `caretDomPosition` asked for that length put the caret inside `.mc-code-fold-label` — past the end of
- * the file's own line, in text the file does not contain. The rule was right; the list was short.
- */
 function sourceTextWalker(cell) {
   return document.createTreeWalker(cell, NodeFilter.SHOW_TEXT, {
     acceptNode: function (node) {
@@ -1302,7 +1019,6 @@ function sourceTextWalker(cell) {
   });
 }
 
-/** A code cell's own text — what `textContent` would say if the drawn-in labels were not there. */
 function sourceCellText(cell) {
   if (!cell) return '';
   const walker = sourceTextWalker(cell);
@@ -1312,7 +1028,6 @@ function sourceCellText(cell) {
   return out;
 }
 
-/** The length of a code cell's own text up to `point`, with the drawn-in labels left out. */
 function sourceTextLengthBefore(cell, node, offset) {
   const walker = sourceTextWalker(cell);
   let seen = 0;
@@ -1345,24 +1060,9 @@ function setSourceTypeIcon(path) {
   var icon = link ? link.querySelector('.ftype') : null;
   holder.innerHTML = icon ? icon.outerHTML : '';
 }
-// Files-mode tabs: each distinct file opened in the source viewer becomes a tab (session-only).
-// Cmd/Ctrl+W closes the active tab; Cmd/Ctrl+Shift+[ / ] cycle tabs; the × button closes one. Tabs that
-// cannot fit the current window are collapsed into one N+ menu while the active file always stays visible.
-// (sourceTabs is declared near the other source state up top so early restore-state openSourceFile
-// calls run before this block don't see an undefined array.)
 function addSourceTab(path) { if (path && sourceTabs.indexOf(path) < 0) sourceTabs.push(path); }
 function sourceTabLabel(path) { var p = String(path || ''); var s = p.lastIndexOf('/'); return s >= 0 ? p.slice(s + 1) : p; }
 
-// A library target that is published on the web rather than shipped: Sorbet answers its own bundled stdlib
-// RBIs with a github.com link, so no file exists on this disk and nothing is broken. Hand it to the
-// browser — window.open reaches main's window-open handler, which passes only http(s) to the OS
-// (externalUrl in app-path-ipc.ts) and never navigates the page itself.
-//
-// Its own function because TWO surfaces arrive at a library target with no text: the source view's miss
-// below, and the external-definition branch in 15-semantic-navigation.js, which has its own (and for a
-// compiled class, better) message. Both have to make this one call the same way.
-// The label goes in through a FUNCTION replacement: `$&` in a replacement STRING is a pattern, and a URL
-// or a Java inner class (`Map$Entry`) carries `$`.
 function openLibraryOnWeb(path) {
   var p = String(path || '');
   if (!/^https?:\/\//i.test(p)) return false;
@@ -1371,14 +1071,10 @@ function openLibraryOnWeb(path) {
   return true;
 }
 
-// Why a library definition produced nothing, for the source view's own miss — three different things, and
-// only one of them is a failure. One reader, both of its sites (test/viewer-slices.test.mjs holds that).
 function reportLibraryMiss(path) {
   var p = String(path || '');
   if (openLibraryOnWeb(p)) return;
   var put = function (key) { showCaretHint(t(key).replace('{file}', function () { return sourceTabLabel(p); })); };
-  // A path INTO something: an entry in an archive, or a class in a JDK image. There is no file there, and
-  // for a jimage no decompiler here either, so "could not be opened" made a known limit look like a bug.
   if (p.indexOf('!/') >= 0 || /\.(phar|jar|zip|apk|aar)\//i.test(p)) { put('source.libraryInArchive'); return; }
   put('source.libraryUnavailable');
 }
@@ -1417,7 +1113,6 @@ function syncSourceTabOverflow(activePath) {
   var total = widths.reduce(function (sum, width) { return sum + width; }, 0) + gap * Math.max(0, tabs.length - 1);
   if (total <= available) return;
 
-  // The counter has a fixed compact width, so changing 4+ to 12+ cannot reopen the overflow calculation.
   var overflowWidth = sourceTabElementWidth(overflow, 44);
   var tabBudget = Math.max(0, available - overflowWidth - gap);
   var visible = new Set();
@@ -1435,8 +1130,6 @@ function syncSourceTabOverflow(activePath) {
       used += next;
     }
   });
-  // With an extremely narrow window, preserving the active editor is more important than fitting the
-  // counter perfectly. If there is no active path, keep the first tab as the keyboard/navigation anchor.
   if (!visible.size && tabs.length) visible.add(activeIndex >= 0 ? activeIndex : 0);
 
   tabs.forEach(function (tab, index) {
@@ -1475,10 +1168,6 @@ function showSourceTabOverflowMenu(button) {
   }), rect.top - 4, 'source-tab-overflow-menu', button);
 }
 
-// The tree's "active" row means one thing: this file is open in the source viewer. It is set from several
-// places (open, reveal, tree rebuild, restored UI state), and any of them going stale leaves a highlighted
-// row for a file that is not open — which reads as the app claiming something it is not doing. Re-derive it
-// from the one authority, here, on every tab render: no open path means no active row anywhere.
 function syncSourceTreeActive() {
   var openPath = sourceOpenPath();
   document.querySelectorAll('.source-link').forEach(function (link) {
@@ -1489,8 +1178,6 @@ function renderSourceTabs(activePath) {
   syncSourceTreeActive();
   var bar = document.getElementById('source-tabs');
   if (!bar) return;
-  // A single open file needs no tab strip: the source toolbar's breadcrumb already names it, so the extra
-  // title-bar-height row above it is pure dead space. Only show tabs once a second file makes them useful.
   if (sourceTabs.length < 2) {
     bar.classList.add('hidden'); bar.innerHTML = ''; sourceTabOverflowPaths = [];
     return;
@@ -1498,8 +1185,6 @@ function renderSourceTabs(activePath) {
   bar.classList.remove('hidden');
   bar.innerHTML = sourceTabs.map(function (p) {
     var active = p === activePath;
-    // IntelliJ's File Colors tint the editor TAB as well as the tree row — the same green says "you are
-    // reading test code" in the one place you look at while reading it (14-project-layout.js).
     var scope = projectScopeOf(p);
     return '<div class="source-tab' + (active ? ' active' : '')
       + (scope === 'test' ? ' is-test-file' : scope === 'generated' ? ' is-generated-file' : '')
@@ -1509,11 +1194,8 @@ function renderSourceTabs(activePath) {
       + '</div>';
   }).join('')
     + '<button type="button" class="source-tab-overflow hidden" aria-haspopup="menu"></button>';
-  // The close buttons name their chord through the table; resolve it as the tabs land.
   try { applyKeyHints(bar); } catch (e) {}
   observeSourceTabWidth(bar);
-  // openSourceFile renders before showSourceView reveals a hidden Files surface. Measure on the next frame,
-  // after the final sidebar/window width is available, so maximization and Cmd+1 never use a stale width.
   scheduleSourceTabOverflow(activePath);
 }
 function closeSourceTab(path) {
@@ -1524,7 +1206,6 @@ function closeSourceTab(path) {
   if (!wasActive) { renderSourceTabs(sourceOpenPath()); return; }
   var nextPath = sourceTabs[idx] || sourceTabs[idx - 1] || '';
   if (nextPath) { openSourceFile(nextPath); return; }
-  // No tabs left: reset the source view to its empty state.
   var v = document.getElementById('source-viewer'); if (v) v.dataset.openPath = '';
   var body = document.getElementById('source-body');
   var title = document.getElementById('source-title');

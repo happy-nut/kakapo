@@ -1,9 +1,3 @@
-// Pre-request and response-handler scripts, against IntelliJ's HTTP Response Handler API.
-//
-// Two things are being guarded. The API surface: client.global / client.test / client.assert / client.log /
-// client.exit, response.*, request.variables, jsonPath, xpath. And the digests, which are implemented here
-// rather than delegated (IntelliJ's crypto API is synchronous; window.crypto.subtle is not) — so they are
-// checked against published vectors, not against themselves.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { makeReviewHtml, cleanupFixtures } from "./helpers/fixture.mjs";
@@ -17,7 +11,6 @@ before(async () => {
 });
 after(cleanupFixtures);
 
-/** A viewer plus the pieces a script runs against, so each test says only what it is about. */
 async function scriptHost() {
   const v = await loadViewer(html);
   const log = { lines: [], tests: [] };
@@ -35,8 +28,6 @@ async function scriptHost() {
   const api = v.window.httpClientApi({ lines: [], tests: [] });
   return {
     v, log, request, scope,
-    // Top-level let/const in a classic script are not window properties, so the state is read back
-    // through the very API a handler writes it with.
     global: (name) => api.global.get(name),
     requestVar: (name) => v.window.httpRequestApi(request, scope, "api.http#0").variables.get(name),
     run: (source, response) => v.window.runHttpScript(source, {
@@ -58,10 +49,8 @@ test("digests match published vectors", async () => {
     "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
   assert.equal(crypto.sha256().updateWithText("abc").digest().toBase64(),
     "ungWv48Bz+pBQUDeXa4iI7ADYaOWF3qctBD/YfIAFa0=");
-  // An empty input is its own case: the padding block is the only block.
   assert.equal(crypto.sha256().digest().toHex(),
     "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
-  // 200 bytes spans more than one block, which is the only way the chunk loop gets exercised at all.
   assert.equal(crypto.sha256().updateWithText("a".repeat(200)).digest().toHex(),
     "c2a908d98f5df987ade41b5fce213067efbcc21ef2240212a41e54b5e7c28ae5");
   v.close();
@@ -77,7 +66,6 @@ test("hmac matches published vectors for each hash", async () => {
     "de7c9b85b8b78aa6bc8a7a36f70a90701c9db4d9");
   assert.equal(crypto.hmac.md5().withTextSecret("key").updateWithText(message).digest().toHex(),
     "80070713463e7749b90c2dc24911e275");
-  // A secret longer than the block size is hashed first — a different code path from the padded one.
   assert.equal(crypto.hmac.sha256().withTextSecret("k".repeat(100)).updateWithText("x").digest().toHex(),
     "8c1858bff6cf9cb73708b4b54f43bca6e1b8b4c3380760dc009001b265b64c6f");
   v.close();
@@ -237,14 +225,11 @@ test("await sleep() works, so a handler can pace itself", async () => {
 
 test("a script has no filesystem, process or module loader to reach for", async () => {
   const host = await scriptHost();
-  // The renderer is sandboxed (contextIsolation, no node integration), so these are absent rather than
-  // blocked — this asserts the property the design depends on, in the realm a handler actually runs in.
   for (const name of ["require", "process", "module", "global"]) {
     const outcome = await host.run(`client.global.set("probe", typeof ${name});`);
     assert.equal(outcome.ok, true, outcome.error || "");
     assert.equal(host.global("probe"), "undefined", `${name} is not reachable from a handler`);
   }
-  // A module that cannot be read says which one, rather than failing as if the script were wrong.
   const imported = await host.run('import { x } from "./nowhere.js";\nclient.log(x);');
   assert.equal(imported.ok, false);
   assert.match(imported.error, /nowhere/);

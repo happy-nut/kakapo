@@ -12,17 +12,6 @@ import {
 import { ByteBudgetCache, decodeTextBuffer, formatBytes, hashText, isContainedRelativePath, isLikelyBinary, languageForPath, readTextFile, stripDiffPath, unquoteGitPath } from "./util.js";
 import { canonicalWorkspaceRoot, git, isGitRepository, workspaceGitPrefix, RAW_PATHS } from "./git.js";
 
-// File content + signature cache, keyed by path and validated on (mtime, size). Under `watch` the app
-// rebuilds every second; without this, collectSourceFiles re-reads + re-hashes EVERY tracked source
-// file each tick (~1.3s for ~6k files on a large repo), pinning the Electron main process and starving
-// IPC. With it an unchanged file costs a single statSync — the per-tick cost collapses to stat-only.
-// Bounded, because the key is an absolute path and the value is the whole file: without a cap it retained the
-// text of every file the process ever indexed, across every workspace, for as long as the app ran — heap that
-// only ever grew as the reviewer moved between worktrees. Insertion order makes the Map its own LRU queue: a
-// hit re-inserts, and an overflowing insert drops from the front.
-// ponytail: one global byte budget, evicting oldest-first. Enough to hold the workspace you are actually in
-// (the watch path is what this cache exists for); per-root budgets only if alternating two huge repos ever
-// shows up as re-read cost.
 type SourceContentEntry = { mtimeMs: number; size: number; content: string; signature: string };
 // ponytail: one global budget, evicting oldest-first. Enough to hold the workspace you are actually in, which
 // is what the watch path needs; per-root budgets only if alternating two huge repos shows up as re-read cost.
@@ -30,36 +19,16 @@ const sourceContentCache = new ByteBudgetCache<SourceContentEntry>(64_000_000, (
 
 export function readUnifiedDiff(options: {
   base?: string;
-  // Right/new side. When set, the review compares two revisions A..B (base vs target) instead of
-  // base-vs-working-tree — used to review already-committed/merged patch sets. base is required here.
   target?: string;
   staged: boolean;
   context: number;
   includeUntracked: boolean;
   ignoreWhitespace?: boolean;
-  /**
-   * How much whitespace difference counts as a difference, as IntelliJ's diff offers it:
-   *   none — every byte matters
-   *   trim — a change in the AMOUNT of whitespace, or at end of line, is not a change (`-b`)
-   *   all  — whitespace is not a difference at all (`-w`)
-   * `ignoreWhitespace` is the older boolean and means "all"; this wins when both are given.
-   */
   whitespace?: WhitespaceMode;
   root?: string;
-  /**
-   * Limit the diff to these repository-relative paths. Used by Copy as Patch, which wants one file's
-   * hunks exactly as git would write them — reconstructing them from the rendered rows would be wrong the
-   * moment a hunk is folded, and a patch that is subtly wrong is worse than no patch at all.
-   */
   paths?: string[];
 }): string {
-  // Run Git from the folder the user opened and ask it to rebase paths to that folder. Git still reads
-  // the enclosing repository/index, but a monorepo package now behaves as an independent review
-  // workspace: sibling changes are excluded and UI paths start at the selected folder.
   const root = canonicalWorkspaceRoot(options.root ?? process.cwd());
-  // A folder that is not a repository has no diff — that is an answer, not a failure. kakapo opens plain
-  // folders and single files too (a design note under ~/.claude, a scratch directory), and those reviews are
-  // the source tree with an empty diff. Throwing here left the window on its loading mark, silently.
   if (!isGitRepository(root)) return "";
   // --no-ext-diff and --no-textconv: both `diff.<driver>.command` and `diff.<driver>.textconv` are config
   // the reviewed repository can set (.gitattributes picks the driver), and git runs them as commands.
@@ -68,16 +37,12 @@ export function readUnifiedDiff(options: {
   if (whitespace === "all") args.push("--ignore-all-space");
   else if (whitespace === "trim") args.push("--ignore-space-change", "--ignore-space-at-eol");
   if (options.target) {
-    // Two-revision compare: no working tree/index side, so no --cached and no untracked append.
     args.push(options.base ?? "HEAD", options.target);
   } else if (options.staged) {
     args.push("--cached");
   } else {
     args.push(options.base ?? "HEAD");
   }
-  // `--` then the pathspecs. A caller that names paths gets those; everything else gets the whole folder,
-  // which is what `--relative` above rebases onto. A path is passed verbatim after `--`, so it can never
-  // be read as an option.
   args.push("--");
   if (options.paths && options.paths.length) args.push(...options.paths);
   else args.push(".");
@@ -107,10 +72,6 @@ function readUntrackedDiff(root: string): string {
 
   for (const file of files) {
     const absolute = join(root, file);
-    // lstat, not stat: a symlink is a change in its own right, and statSync FOLLOWS it — so a link whose
-    // target is missing (or lives outside this worktree) threw here and the file was dropped without a
-    // trace. Git listed it as untracked, kakapo showed "no changed files", and the two disagreed with no
-    // way to tell why. Git stores a symlink as a blob holding its target, so that is what the diff shows.
     let stats: Stats;
     try {
       stats = lstatSync(absolute);
@@ -119,7 +80,7 @@ function readUntrackedDiff(root: string): string {
     }
     if (stats.isSymbolicLink()) {
       let target = "";
-      try { target = readlinkSync(absolute); } catch { /* unreadable link — still worth showing the path */ }
+      try { target = readlinkSync(absolute); } catch { }
       chunks.push([
         `diff --git a/${file} b/${file}`,
         "new file mode 120000",
@@ -146,8 +107,6 @@ function readUntrackedDiff(root: string): string {
     if (lines[lines.length - 1] === "") {
       lines.pop();
     }
-    // A wholly-new (untracked) file is all additions — there are no context lines to trim, so every line is
-    // emitted as a `+` hunk regardless of the context setting.
     chunks.push([
       `diff --git a/${file} b/${file}`,
       "new file mode 100644",
@@ -171,19 +130,10 @@ export function parseUnifiedDiff(content: string): DiffFile[] {
   for (const line of content.split(/\r?\n/)) {
     if (line.startsWith("diff --git ")) {
       const rest = line.slice("diff --git ".length);
-      // Git writes `a/<path> b/<path>`, and a path may contain a space — including the substring ` b/`, as
-      // `docs/plan b/diagram.png` does. The pattern below is greedy, so it splits at the LAST ` b/` and
-      // invents two paths that are both wrong. Everywhere but a rename the two halves are the SAME path, so
-      // try that split first: a rename is corrected by its own `rename from`/`rename to` lines, and a text
-      // file by its `---`/`+++` pair, but a binary file has neither and was listed at a path that does not
-      // exist — a phantom row in the Changes list, and the real changed image nowhere.
       const span = rest.length >= 5 && (rest.length - 5) % 2 === 0 ? (rest.length - 5) / 2 : -1;
       const half = span >= 0 ? rest.slice(2, 2 + span) : "";
       const same = span >= 0 && rest === `a/${half} b/${half}` ? half : "";
       const match = same ? null : line.match(/^diff --git a\/(.+) b\/(.+)$/);
-      // A path git had to quote puts the `a/`…`b/` pair INSIDE the quotes — `diff --git "a/quo\"te.ts"
-      // "b/quo\"te.ts"` — so the plain pattern misses it entirely and the file was named "unknown" until a
-      // later `+++` line happened to correct it. Binary files have no such line.
       const quoted = same || match ? null : rest.match(/^("(?:[^"\\]|\\.)*"|\S+) ("(?:[^"\\]|\\.)*"|\S+)$/);
       const oldPath = same ? same : match?.[1] ?? (quoted ? stripDiffPath(quoted[1]) : "unknown");
       const newPath = same ? same : match?.[2] ?? (quoted ? stripDiffPath(quoted[2]) : oldPath);
@@ -204,8 +154,6 @@ export function parseUnifiedDiff(content: string): DiffFile[] {
       continue;
     }
 
-    // `@@` opens a hunk. Every content line of a file carries a `+`, `-` or space prefix, so no content
-    // line can start with `@@` — this is safe to try before the dispatch below.
     const hunkMatch = line.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$/);
     if (hunkMatch) {
       oldLine = Number(hunkMatch[1]);
@@ -221,17 +169,6 @@ export function parseUnifiedDiff(content: string): DiffFile[] {
       continue;
     }
 
-    // Inside a hunk every remaining line is that hunk's CONTENT, and the metadata patterns below must not
-    // be tried against it. Git writes a file's metadata before its first `@@`, so only a new hunk (above) or
-    // a new file (`diff --git`) ends one.
-    //
-    // Reading content as metadata was not cosmetic. A deleted `-- note` line — an ordinary comment in SQL,
-    // Lua, Haskell, Ada, or a `-- ` signature delimiter — reaches the parser as `--- note`, which was taken
-    // for the `--- a/path` header: the deletion vanished from the hunk, every old line number after it
-    // shifted up by one (so comments anchored past it pointed at the wrong line), and oldPath became the
-    // comment's text. An added `++ b/…` line was worse than wrong: it set displayPath, and displayPath is a
-    // path collectSourceFiles joins to the root and reads, so `++ b/../../secret` put a file from outside
-    // the review into the index.
     if (hunk) {
       if (line.startsWith("+")) {
         hunk.lines.push({ kind: "add", newLine, text: line.slice(1) });
@@ -244,7 +181,6 @@ export function parseUnifiedDiff(content: string): DiffFile[] {
         oldLine += 1;
         newLine += 1;
       }
-      // Anything else here is `\ No newline at end of file`, which occupies no line on either side.
       continue;
     }
 
@@ -283,23 +219,13 @@ export function parseUnifiedDiff(content: string): DiffFile[] {
       current.binary = true;
       continue;
     }
-
   }
 
-  // A file git bothered to name is in the review even when it has no hunks, because several ordinary
-  // changes produce none: a 100%-similarity rename, a mode-only change (`chmod +x`), and an added or
-  // deleted empty file. Dropping those meant `git mv a.ts b.ts` plus `chmod +x m.sh` painted "No diff to
-  // review" — the reviewer's conclusion being that the agent had done nothing at all.
   return files.filter((file) => (
     file.binary || file.hunks.length > 0 || file.modeChanged || file.status !== "modified"
   ));
 }
 
-// Files that get an inline base64 preview instead of source text: raster images, and PDFs — Chromium renders
-// those itself, so "view the PDF" costs a mime type here and an <embed> in the renderer rather than a PDF
-// library. SVG is intentionally excluded: it is text/markup, so it stays embedded as source (and can be
-// syntax-highlighted / commented). Everything this returns a mime for is carried on SourceFile.image, which
-// is also what tells find-in-files and diagnostics to leave the file alone — true for a PDF as much as a PNG.
 function previewMimeForPath(path: string): string | null {
   const dot = path.lastIndexOf(".");
   const ext = dot >= 0 ? path.slice(dot + 1).toLowerCase() : "";
@@ -318,25 +244,16 @@ function previewMimeForPath(path: string): string | null {
   }
 }
 
-// Working-tree git status per path (git status --porcelain) for IntelliJ-style sidebar coloring:
-// untracked => "new" (red), index/staged change => "staged" (green, git add'd), unstaged worktree
-// change => "edited" (blue). "git add까지 되었으면" the index column wins, so staged > new/edited.
 function gitStatusMap(cwd: string): Map<string, "new" | "edited" | "staged"> {
   const map = new Map<string, "new" | "edited" | "staged">();
   let out = "";
   try {
-    // Porcelain's leading index/worktree columns are significant. The general git() helper trims stdout,
-    // which removes the first line's leading space and corrupts its status/path; preserve raw output here.
     const result = spawnSync("git", [...RAW_PATHS, "status", "--porcelain", "--", "."], { cwd, encoding: "utf8" });
     if (result.status !== 0) return map;
     out = result.stdout ?? "";
   } catch {
     return map;
   }
-  // The repo-root-relative prefix depends only on cwd — compute it ONCE. It used to be recomputed per
-  // status line inside workspaceRelativeStatusPath, and each recompute spawned a `git rev-parse`
-  // subprocess; a 120-file change therefore ran ~120 git spawns (~420ms) in this map alone. The shared
-  // helper memoizes by root, so the cost is one spawn per process rather than one per status map.
   const workspace = canonicalWorkspaceRoot(cwd);
   const statusPrefix = workspaceGitPrefix(workspace);
   for (const line of out.split(/\r?\n/)) {
@@ -345,9 +262,7 @@ function gitStatusMap(cwd: string): Map<string, "new" | "edited" | "staged"> {
     const y = line[1];
     let path = line.slice(3);
     const arrow = path.indexOf(" -> ");
-    if (arrow >= 0) path = path.slice(arrow + 4); // rename: color the new path
-    // Porcelain quotes the same paths `diff` does, escapes included: stripping the quotes without decoding
-    // the escapes left `quo\"te.ts`, which matched no diff path, so the file never got its vcs colour.
+    if (arrow >= 0) path = path.slice(arrow + 4);
     path = unquoteGitPath(path);
     path = statusPathRelativeToPrefix(statusPrefix, path);
     if (!path) continue;
@@ -360,27 +275,17 @@ function gitStatusMap(cwd: string): Map<string, "new" | "edited" | "staged"> {
   return map;
 }
 
-// Strip the monorepo-subdir prefix off a repo-root-relative git-status path so it matches the diff's
-// `--relative` paths. Pure string math — the caller computes `prefix` once per status map (see gitStatusMap).
 function statusPathRelativeToPrefix(prefix: string, gitPath: string): string {
   const normalized = gitPath.replace(/\\/g, "/").replace(/^\.\//, "");
   if (!prefix || prefix === ".") return normalized;
   return normalized === prefix ? "" : normalized.startsWith(prefix + "/") ? normalized.slice(prefix.length + 1) : "";
 }
 
-// The change set derived purely from the diff: which paths changed and, per path, the added line numbers.
-// Split from tree enumeration and content collection (below) so a future partial rebuild can pair a fresh
-// change set with a cached project index instead of re-deriving the whole tree every watch tick.
 export function computeChangeSet(diffFiles: DiffFile[]): { changed: Set<string>; changedLinesByPath: Map<string, number[]> } {
   const changed = new Set<string>();
   const changedLinesByPath = new Map<string, number[]>();
   for (const file of diffFiles) {
     if (!file.displayPath || file.displayPath === "/dev/null") continue;
-    // This is where a diff path becomes a path the index joins to the root and reads, so it is where a path
-    // that leaves the root stops. Git never writes `..` or an absolute path in a diff header, which is why
-    // nothing checked — until a hunk's own content could reach a header (see parseUnifiedDiff) and one line
-    // of a reviewed file chose what the index read. The parser no longer allows that; this is the boundary
-    // that makes it not matter.
     if (!isContainedRelativePath(file.displayPath)) continue;
     changed.add(file.displayPath);
     const nums: number[] = [];
@@ -392,17 +297,9 @@ export function computeChangeSet(diffFiles: DiffFile[]): { changed: Set<string>;
   return { changed, changedLinesByPath };
 }
 
-// Enumerate the source paths to index: the project's tracked + untracked source candidates plus any changed
-// path (review evidence must stay openable even under a filtered directory), sorted for stable output. This
-// tree walk is the piece a cached project index would own across ticks — it rarely changes tick-to-tick.
-// Directories a filesystem walk must not descend into. `git ls-files` gets this from .gitignore; outside a
-// repository there is nothing to ask, and a single node_modules would turn opening a folder into a crawl.
 const UNWALKED_DIRECTORIES = new Set([".git", "node_modules", ".venv", "venv", "__pycache__", "dist", "build", "target", ".next", ".cache", ".gradle", ".idea", "vendor"]);
 const WALK_FILE_LIMIT = 20_000;
 
-// The fallback for a root with no git behind it: walk the tree. Bounded on both axes — the skip list above
-// and a hard file cap — because this runs on the way to first paint and an accidentally-opened home
-// directory must not hang the app.
 function walkProjectPaths(root: string): string[] {
   const out: string[] = [];
   const queue: string[] = [""];
@@ -411,7 +308,7 @@ function walkProjectPaths(root: string): string[] {
     let entries;
     try { entries = readdirSync(join(root, relativeDir), { withFileTypes: true }); } catch { continue; }
     for (const entry of entries) {
-      if (entry.name.startsWith(".") && entry.name !== ".claude") continue; // dotfiles are noise in a browse tree
+      if (entry.name.startsWith(".") && entry.name !== ".claude") continue;
       const path = relativeDir ? `${relativeDir}/${entry.name}` : entry.name;
       if (entry.isDirectory()) {
         if (!UNWALKED_DIRECTORIES.has(entry.name)) queue.push(path);
@@ -433,8 +330,6 @@ export function enumerateProjectPaths(root: string, changed: Set<string>): strin
     const path = file.trim();
     if (path && isSourceCandidate(path)) paths.add(path);
   }
-  // Add changed paths even when isSourceCandidate would filter them (e.g. agent config under .claude/.omc):
-  // the file under review must remain openable from Cmd+1, while unchanged siblings stay filtered above.
   for (const path of changed) paths.add(path);
   return Array.from(paths).sort((a, b) => a.localeCompare(b));
 }
@@ -447,12 +342,7 @@ export function collectSourceFiles(
     deferSourceContent?: boolean;
     maxTotalBytes?: number;
     maxFiles?: number;
-    // A→B compare: serve the source content of each changed file from this revision (commit B) instead of
-    // the working tree, so comments (remap / anchor / Cmd+1) reconcile against B. app-only path.
     target?: string;
-    // Diff-first startup: index ONLY the changed files (skip the whole-tree `git ls-files` + per-file stat)
-    // so the first paint isn't blocked on enumerating a large repo. The full index is built in a second
-    // pass and pushed to the renderer (see buildDiffReview's deferFullIndex + app-main's phase 2).
     changedPathsOnly?: boolean;
   } = {},
 ): SourceFile[] {
@@ -462,14 +352,11 @@ export function collectSourceFiles(
   const { changed, changedLinesByPath } = computeChangeSet(diffFiles);
   const root = canonicalWorkspaceRoot(rootArg ?? process.cwd());
   const target = options.target;
-  // In A→B compare there is no working-tree status; color the Changes list from the diff's own file status.
   const vcsByPath = target ? diffStatusVcsMap(diffFiles) : gitStatusMap(root);
   for (const file of diffFiles) {
     const kind = vcsByPath.get(file.displayPath);
-    if (kind) file.vcs = kind; // color the Changes list from the same status map
+    if (kind) file.vcs = kind;
   }
-  // changedPathsOnly restricts the index to the diff's own files (they bypass isSourceCandidate anyway, so
-  // no filtering is lost); the full-tree enumeration is deferred to the second pass.
   const orderedPaths = options.changedPathsOnly
     ? Array.from(changed).sort((a, b) => a.localeCompare(b))
     : enumerateProjectPaths(root, changed);
@@ -492,25 +379,13 @@ export function collectSourceFiles(
       vcs: vcsByPath.get(path),
     };
 
-    // A→B compare: changed files are served from commit B on demand (materializeDeferredSourceFile reads the
-    // blob). Deferring keeps the read off the build path and reuses the existing lazy get-source IPC. Files
-    // deleted in the working tree but present in B are therefore NOT skipped here.
     if (target && base.changed) {
       sourceFiles.push({ ...base, embedded: true, deferred: true, signature: hashText(`${path}\0target\0${target}`) });
       continue;
     }
 
-    // One stat, not existsSync()+statSync() (two syscalls per file across the whole tree): statSync throws
-    // for an absent/unreadable path — the same "missing" outcome existsSync guarded — and this also closes
-    // the delete-between-the-two-calls race.
     let stats: Stats;
     try {
-      // lstat, not stat — the same choice readUnifiedDiff makes above, and for the same reason. A symlink
-      // is a change in its own right and git stores it as a blob holding its TARGET PATH, which is what
-      // the diff shows. statSync FOLLOWED the link here, so the Files view read the target's bytes and
-      // its size and printed them under the LINK's name: `link.txt  93 B` with six lines of somebody
-      // else's markdown under it, nothing saying which of the two files you were looking at, and a
-      // comment written on line 4 anchored to a line that does not exist in the file it names.
       stats = lstatSync(absolute);
     } catch {
       const skippedReason = "file is not present in the working tree";
@@ -518,10 +393,8 @@ export function collectSourceFiles(
       continue;
     }
     if (stats.isSymbolicLink()) {
-      // What git has, which is what the diff beside this shows: the target path, as the file's one line.
-      // Read through readlinkSync rather than the file, because reading the file is following the link.
       let link = "";
-      try { link = readlinkSync(absolute); } catch { /* raced away between the lstat and here */ }
+      try { link = readlinkSync(absolute); } catch { }
       sourceFiles.push({
         ...base,
         size: Buffer.byteLength(link),
@@ -542,12 +415,6 @@ export function collectSourceFiles(
         const skippedReason = `file larger than ${formatBytes(IMAGE_MAX_BYTES)}`;
         sourceFiles.push({ ...base, size: stats.size, signature: hashText(`${path}\0image-large\0${stats.size}`), skippedReason, skippedKind: "imageLarge" });
       } else if (options.deferSourceContent) {
-        // Read the bytes only when the reviewer opens the image. Nothing needs the data URI before then:
-        // get-project-index strips `image` and sourceFileMetadata blanks it, so the renderer sees it for the
-        // first time in a get-source reply. Embedding it eagerly also escaped the byte budget below outright
-        // — this branch `continue`s past that check — so every image in the tree, changed or not, sat in the
-        // main process once per open window at 4/3 its file size. On a 44MB repo that measured 81MB of
-        // base64 per window, more than the entire text index (47MB). Same lazy path as deferred text.
         sourceFiles.push({
           ...base,
           size: stats.size,
@@ -556,15 +423,12 @@ export function collectSourceFiles(
           signature: hashText(`${path}\0image-deferred\0${stats.size}\0${stats.mtimeMs}`),
         });
       } else {
-        // Standalone HTML has no per-file IPC to fetch through: its images must ship inside the document.
         const dataUri = `data:${previewMime};base64,${readFileSync(absolute).toString("base64")}`;
         sourceFiles.push({ ...base, size: stats.size, image: dataUri, signature: hashText(`${path}\0image\0${stats.size}`) });
       }
       continue;
     }
 
-    // A file we already cached as text (same mtime+size) can't have turned binary — skip the binary
-    // sniff (an open+read per file, ~635ms across this repo) on the hot watch path.
     const cacheKey = absolute;
     const cached = sourceContentCache.get(cacheKey);
     const fresh = Boolean(cached && cached.mtimeMs === stats.mtimeMs && cached.size === stats.size);
@@ -580,15 +444,8 @@ export function collectSourceFiles(
       continue;
     }
 
-    // The budget is spent walking the tree in lexicographic order, so on a large repo it was exhausted by
-    // whatever sorted first and the changed files — the entire point of the review — were starved of it: 196
-    // of 280 on a 30-commit range here. A changed file is bounded by the diff and capped per-file by
-    // maxFileBytes above, so it is read and kept regardless of what the walk has already spent.
     const changedFile = options.deferSourceContent && base.changed;
     if (!changedFile && (embeddedFiles >= maxFiles || embeddedBytes + stats.size > maxTotalBytes)) {
-      // Electron already has a per-file IPC bridge. Once the eager cache budget is exhausted, retain an
-      // openable metadata record instead of permanently disabling every later file in lexical order.
-      // The main process reads only the explicitly opened file via materializeDeferredSourceFile().
       if (options.deferSourceContent) {
         sourceFiles.push({
           ...base,
@@ -607,7 +464,7 @@ export function collectSourceFiles(
     let content: string;
     let signature: string;
     if (fresh) {
-      content = cached!.content; // unchanged since last build — skip the read + hash
+      content = cached!.content;
       signature = cached!.signature;
     } else {
       content = readTextFile(absolute);
@@ -616,15 +473,6 @@ export function collectSourceFiles(
     }
     embeddedFiles += 1;
     embeddedBytes += stats.size;
-    // In Electron `content` is only ever a read cache for the get-source IPC — nothing else in the main
-    // process reads it (get-project-index strips it, and the symbol index walks the tree from disk itself).
-    // Since the budget above is spent in lexicographic order, that cache was 47MB per window of whichever
-    // files happened to sort first, rather than the ones a review opens. Keep the changed files and hand the
-    // rest over as deferred: identical to a budget-exhausted record, except it carries the content-derived
-    // signature computed just above. That distinction is load-bearing — the deferred records above are files
-    // this build never read, so they can only be signed by mtime+size, while the review signature (and the
-    // watch fast-path built on it) must stay a function of content alone, or an untouched checkout in a
-    // different directory would look like a change.
     if (options.deferSourceContent && !base.changed) {
       sourceFiles.push({ ...base, size: stats.size, embedded: true, deferred: true, signature });
       continue;
@@ -641,7 +489,6 @@ export function collectSourceFiles(
   return sourceFiles;
 }
 
-// Sidebar VCS badge for A→B compare, derived from the diff's own file status (no working-tree concept).
 function diffStatusVcsMap(diffFiles: DiffFile[]): Map<string, "new" | "edited" | "staged"> {
   const map = new Map<string, "new" | "edited" | "staged">();
   for (const file of diffFiles) {
@@ -651,22 +498,6 @@ function diffStatusVcsMap(diffFiles: DiffFile[]): Map<string, "new" | "edited" |
   return map;
 }
 
-/**
- * Does `target` still name a commit in this repository?
- *
- * Asked only when a blob read has already FAILED, so the happy path pays nothing for it. The two failures
- * look identical to `git show` and are not the same thing at all: a file that is not in the revision, and
- * a revision that is not there. Reported as one, every file in the review says "not in the revision being
- * read" and the review blames each file in turn for something none of them did.
- *
- * It happens after a build, not during one — a build against a revision that does not resolve throws and
- * is reported as a build error. The ref goes away afterwards: a branch deleted or renamed, a
- * `fetch --prune`, a rebase, or a session restored onto a compare target that has since gone. The diff is
- * already drawn by then, so the review looks healthy and only the source previews are dead, for good,
- * with nothing on screen naming the cause.
- */
-// The revision this review is pinned to is gone. Named, because "a revision" is not something the reader
-// can act on and `origin/feature-x` is: the compare picker (⌥C) is where it gets changed.
 function missingTargetSource(file: SourceFile, target: string): SourceFile {
   const skippedReason = `revision ${target} is no longer in this repository`;
   return {
@@ -683,8 +514,6 @@ function revisionExists(root: string, target: string): boolean {
   return out.status === 0;
 }
 
-// Read one file's content from commit `target` (A→B compare) instead of the working tree. Returns a fully
-// materialized SourceFile: image data URI, text content, or a skipped record (absent-in-B / binary / large).
 function readTargetBlobSource(root: string, file: SourceFile, target: string): SourceFile {
   const prefix = workspaceGitPrefix(root);
   const spec = `${target}:${prefix ? prefix + "/" : ""}${file.path}`;
@@ -709,14 +538,7 @@ function readTargetBlobSource(root: string, file: SourceFile, target: string): S
     const skippedReason = "file is not present in this revision";
     return { ...file, content: "", embedded: false, deferred: false, skippedReason, skippedKind: "missingRevision", signature: hashText(`${file.path}\0missing-target\0${target}`) };
   }
-  // Decode by BOM, exactly as the working-tree read does. Taking the blob as UTF-8 both mojibakes a UTF-16
-  // file and leaves it full of NULs, which the check below then reports as "binary file" — the same file
-  // reads fine on the left of an A→B compare and is refused on the right.
   const content = decodeTextBuffer((out.stdout as Buffer | undefined) ?? Buffer.alloc(0));
-  // The same two measurements the working-tree read makes, so the same file is not accepted on the left of
-  // an A→B compare and refused on the right. isLikelyBinary sniffs the first 8KB (git's heuristic) — scanning
-  // the whole text instead refused a readable file for one NUL at the far end of it — and both budgets here
-  // are in BYTES, which a JS string's length is not once the file is not ASCII.
   const bytes = Buffer.byteLength(content, "utf8");
   if (content.slice(0, 8192).includes("\0")) {
     const skippedReason = "binary file";
@@ -729,11 +551,6 @@ function readTargetBlobSource(root: string, file: SourceFile, target: string): S
   return { ...file, content, size: bytes, embedded: true, deferred: false, skippedReason: undefined, signature: hashText(`${file.path}\0${content}`) };
 }
 
-// Materialize an app-only deferred source record after the reviewer opens it. The path is accepted only
-// after app-main has resolved it from the window's sourceFiles map, so callers cannot use this helper as
-// an arbitrary filesystem reader. Per-file size and binary guards remain enforced at request time in case
-// the working-tree file changed since the project metadata was collected. In A→B compare, `target` serves
-// the file's content from commit B instead of the working tree.
 export function materializeDeferredSourceFile(rootArg: string, file: SourceFile, target?: string): SourceFile {
   if (!file.deferred) return file;
   const root = canonicalWorkspaceRoot(rootArg);
@@ -748,9 +565,6 @@ export function materializeDeferredSourceFile(rootArg: string, file: SourceFile,
     const skippedReason = "not a regular file";
     return { ...file, content: "", embedded: false, deferred: false, skippedReason, skippedKind: "notFile", signature: hashText(`${file.path}\0not-file`) };
   }
-  // Images are deferred like everything else now, so this is where their data URI is built — before the
-  // binary sniff below, which would otherwise reject every PNG as "binary file". Mirrors the A→B blob path
-  // in readTargetBlobSource; the size guard is re-checked here in case the file grew since it was indexed.
   const previewMime = previewMimeForPath(file.path);
   if (previewMime) {
     if (stats.size > IMAGE_MAX_BYTES) {
@@ -806,38 +620,16 @@ export function collectReviewFileStates(diffFiles: DiffFile[], sourceFiles: Sour
     .sort((a, b) => a.path.localeCompare(b.path));
 }
 
-// Reads IntelliJ-style HTTP Client environment files from the project root and
-// merges them into { envName: { varName: value } }. The private file overrides
-// the public one so secrets stay out of source control.
-/**
- * Environments for the .http runner, from IntelliJ's two env files.
- *
- * They are looked for beside each .http file as well as at the repository root, because that is where
- * they live: a project keeps its requests in a folder and its env file next to them. Scanning only the
- * root meant an env file sitting beside the requests was never read, every {{variable}} stayed a literal,
- * and the request went out as "{{host}}/get" — which the sender rejects with "unsupported URL scheme",
- * naming the symptom and hiding the cause.
- *
- * Nearer files win per key, so a folder can override a value the root defines. Two sibling folders that
- * define the same environment name are merged rather than kept apart; a request cannot say which folder
- * it meant, and one merged environment is a better answer than silently picking a folder.
- */
 export function collectHttpEnvironments(root: string, httpPaths: string[] = []): Record<string, Record<string, string>> {
   const result: Record<string, Record<string, string>> = {};
   const dirs: string[] = [""];
   for (const path of httpPaths) {
-    // The paths here are already repository-relative; guard anyway so nothing can walk out of the root.
     const normalized = String(path).replace(/\\/g, "/");
     if (!normalized || normalized.startsWith("/") || normalized.split("/").includes("..")) continue;
     const relativeDir = normalized.replace(/\/[^/]*$/, "");
     if (relativeDir && relativeDir !== normalized && !dirs.includes(relativeDir)) dirs.push(relativeDir);
   }
-  // Shallowest first, so a deeper file's keys land on top of the ones it shares with its parents.
   dirs.sort((a, b) => a.split("/").length - b.split("/").length || a.localeCompare(b));
-  // `$shared` and `$dotenv` ride in the same payload under their own keys rather than in a second island:
-  // both are variable scopes the runner consults, the dropdown hides every `$`-prefixed key, and the
-  // build -> viewer contract keeps its one shape. $shared is the base every environment overrides;
-  // $dotenv is a separate namespace, reachable only as {{$dotenv.NAME}}.
   const assign = (target: Record<string, string>, rawVars: Record<string, unknown>): void => {
     for (const [key, value] of Object.entries(rawVars)) {
       if (typeof value === "string") target[key] = value;
@@ -851,13 +643,11 @@ export function collectHttpEnvironments(root: string, httpPaths: string[] = []):
       const target = result.$dotenv ?? (result.$dotenv = {});
       try {
         for (const line of readFileSync(filePath, "utf8").split(/\r?\n/)) {
-          // KEY=VALUE, with dotenv's `export ` prefix, `#` comments and optional quotes. Nothing more:
-          // this is a variable lookup, not a shell.
           const match = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/.exec(line);
           if (!match || line.trim().startsWith("#")) continue;
           target[match[1]] = match[2].trim().replace(/^(['"])([\s\S]*)\1$/, "$2");
         }
-      } catch { /* an unreadable .env is simply not a source of variables */ }
+      } catch { }
     }
     for (const fileName of ["http-client.env.json", "http-client.private.env.json"]) {
       const filePath = join(root, dir, fileName);
@@ -871,14 +661,9 @@ export function collectHttpEnvironments(root: string, httpPaths: string[] = []):
       if (!parsed || typeof parsed !== "object") continue;
       for (const [envName, rawVars] of Object.entries(parsed as Record<string, unknown>)) {
         if (!rawVars || typeof rawVars !== "object") continue;
-        // SSLConfiguration and the other non-variable blocks IntelliJ puts inside an environment are not
-        // variables; keeping them out stops `{{SSLConfiguration}}` resolving to "[object Object]".
         const target = result[envName] ?? (result[envName] = {});
         const { SSLConfiguration: ssl, Security: _security, ...variables } = rawVars as Record<string, unknown>;
         assign(target, variables);
-        // The TLS block is not a variable, but the runner needs to know it exists: a request in this
-        // environment goes out over a client certificate. Only the fact and the paths travel — the
-        // certificate itself is read in main, at send time, from inside the review.
         if (ssl && typeof ssl === "object") {
           const store = result.$ssl ?? (result.$ssl = {});
           store[envName] = JSON.stringify(ssl);

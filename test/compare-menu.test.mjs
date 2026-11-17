@@ -1,6 +1,3 @@
-// CORE USER FLOW: the compare dropdown on the toolbar pill. Two rows — everything on this branch, and what
-// is not committed yet — plus the branch the first of them is measured against. ⌥C flips between the two
-// without opening anything. These guard the wiring (what reaches the main process) rather than the styling.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { makeReviewHtml, cleanupFixtures } from "./helpers/fixture.mjs";
@@ -14,7 +11,6 @@ before(async () => {
 });
 after(cleanupFixtures);
 
-// `calls` is every setCompareMode(mode, ref) the menu asked for — the whole observable behaviour.
 function installCompareBridge(v, state = {}) {
   const calls = [];
   const data = {
@@ -22,9 +18,6 @@ function installCompareBridge(v, state = {}) {
     ref: "origin/main",
     defaultRef: "origin/main",
     branches: ["main", "origin/main", "feature/dropdown", "origin/release-1"],
-    // `feature/dropdown` is a LOCAL branch with a slash in it. Without this list the panel reads the text
-    // before the slash as a remote and invents a third side called "feature" — which is what the first
-    // version of the scope split did, and what the assertion on the stage rows below caught.
     remotes: ["origin"],
     ...state,
   };
@@ -47,12 +40,6 @@ test("the pill opens a menu that marks the mode the review is actually in", asyn
 
   assert.equal(v.$("#compare-menu").classList.contains("hidden"), false, "the menu opened");
   const rows = v.$all("#compare-menu .compare-menu-row[data-mode]");
-  // Three questions the control answers: what this branch has done since it left another (a merge-base),
-  // what is not committed yet (HEAD), and how this tree differs from a branch's tip (the ref itself).
-  // Four rows in the markup, three of them always offered: what this branch has done since it left another
-  // (a merge-base), what is not committed yet (HEAD), and how this tree differs from a branch's tip (the
-  // ref itself). The fourth — what arrived since the reviewer last handed the review off — is in the
-  // document whether or not there is a mark to go to, and hides itself when there is not.
   assert.deepEqual(rows.map((r) => r.dataset.mode), ["since", "all", "uncommitted", "tip"]);
   assert.equal(rows[0].classList.contains("hidden"), true, "no hand-off yet, so nothing to read since one");
   assert.equal(rows[2].getAttribute("aria-checked"), "true", "the row the review is on is the checked one");
@@ -63,9 +50,6 @@ test("the pill opens a menu that marks the mode the review is actually in", asyn
 });
 
 test("the tip row is the checked one when that is the question the review is asking", async () => {
-  // Tip mode cannot be told from "all" by looking at base/baseLabel — the ref sits under its own name in
-  // both whenever it is an ancestor of HEAD — so main reports it from the flag its own writer set
-  // (state.compareTip). A wrong tick here is a reader sent off to read a different diff than they think.
   const v = await loadViewer(html);
   const calls = installCompareBridge(v, { mode: "tip", ref: "origin/main", defaultRef: "origin/main", pinned: true });
 
@@ -75,7 +59,6 @@ test("the tip row is the checked one when that is the question the review is ask
   assert.deepEqual(rows.filter((r) => r.getAttribute("aria-checked") === "true").map((r) => r.dataset.mode),
     ["tip"], "the tip row, and only it");
 
-  // And picking it carries no ref of its own: the branch is whatever the picker already recorded.
   v.$('#compare-menu .compare-menu-row[data-mode="all"]').dispatchEvent(new v.window.MouseEvent("click", { bubbles: true }));
   await v.settle(30);
   assert.deepEqual(calls, [["all", null]], "switching away from tip reaches main as its own mode");
@@ -96,9 +79,6 @@ test("picking a row switches the mode and closes the menu", async () => {
   v.close();
 });
 
-// Reach a branch row by name. The panel opens on the scope question (local / origin), and typing is the
-// way past it — for a reader who can already spell the branch, and for a test whose subject is what a PICK
-// does rather than how the list is reached. The stages themselves are covered by the test below.
 async function openBranchNamed(v, query) {
   v.$(".compare-menu-branch-open").dispatchEvent(new v.window.MouseEvent("click", { bubbles: true }));
   await v.settle(30);
@@ -107,9 +87,6 @@ async function openBranchNamed(v, query) {
 }
 
 test("the branch panel asks which side first, then lists that side", async () => {
-  // `listBranches` hands over local refs and then every remote-tracking one in ONE list — `main` and
-  // `origin/main` as two unrelated rows, correctly (they are different commits the moment either side
-  // moves) and unreadably, up to 600 of them. So the panel asks where before it lists anything.
   const v = await loadViewer(html);
   const calls = installCompareBridge(v);
 
@@ -124,15 +101,13 @@ test("the branch panel asks which side first, then lists that side", async () =>
 
   assert.deepEqual(scopes(), ["local", "origin"], "the first stage is the two sides, local first");
   assert.deepEqual(names(), [], "and nothing is listed yet");
-  // The count is what makes the row worth reading rather than a label you have to open to size up.
   assert.match(rows()[0].querySelector(".compare-branch-note").textContent, /2/,
     "the local row says how many it holds");
 
-  rows()[1].dispatchEvent(new v.window.MouseEvent("click", { bubbles: true })); // origin
+  rows()[1].dispatchEvent(new v.window.MouseEvent("click", { bubbles: true }));
   await v.settle(20);
   assert.deepEqual(names(), ["origin/main", "origin/release-1"],
     "the second stage is that side only — a local branch here would be the flat list again");
-  // The repository default is marked, so a long list still says which branch you get by choosing nothing.
   assert.deepEqual(rows().filter((b) => b.querySelector(".compare-branch-note")).map((b) => b.dataset.ref),
     ["origin/main"]);
 
@@ -141,8 +116,6 @@ test("the branch panel asks which side first, then lists that side", async () =>
   await v.settle(20);
   assert.deepEqual(scopes(), ["local", "origin"], "back returns to the question");
 
-  // Typing crosses both sides and skips the stage: a reader who can spell the branch should not have to
-  // guess which side holds it.
   v.typeInto(v.$("#compare-branch-search"), "feat");
   await v.settle(20);
   assert.deepEqual(names(), ["feature/dropdown"], "the list narrows to the typed text, from any side");
@@ -156,8 +129,6 @@ test("the branch panel asks which side first, then lists that side", async () =>
   v.close();
 });
 
-// Two keys naming the two states, not one key toggling between them: a toggle only tells you where you land
-// if you already know where you started, and not knowing that is why you reached for the key.
 test("Option+A and Option+U pick a mode outright, without opening the menu", async () => {
   const v = await loadViewer(html);
   const calls = installCompareBridge(v);
@@ -167,10 +138,6 @@ test("Option+A and Option+U pick a mode outright, without opening the menu", asy
   assert.deepEqual(calls, [["all", null]], "Option+A asks for all changes");
   assert.equal(v.$("#compare-menu").classList.contains("hidden"), true, "and nothing opened");
 
-  // Not a toggle: pressing it again is still "all changes", never the other mode. It no longer asks the
-  // backend a second time — rebuilding the review for the state it is already in costs a git diff and a
-  // source re-index — but it still ANSWERS, because the toast is the only thing a keyboard press shows
-  // and these are two keys rather than one toggle precisely so the reader can ask where they are.
   v.$all("#mc-toasts .mc-toast").forEach((toast) => toast.remove());
   v.key("a", { altKey: true, code: "KeyA" });
   await v.settle(30);
@@ -218,12 +185,6 @@ test("Escape backs out of the branch panel first, then out of the menu", async (
   v.close();
 });
 
-// The bar's "전체" and the menu's "모든 변경사항" are the same thing and now take the same route — but the
-// route has to run BELOW the "already there?" guard, not above it. `auto` is produced by that one option
-// and nothing else, so a branch placed in front of the guard means the guard was written for a ref it can
-// never see: clicking the option already in force ran a full rebuild, a git diff and a source re-index,
-// for a state that did not change. Asserted by counting calls rather than by reading the source, because
-// the defect was WHERE the branch sat and a regex over the bundle cannot see that.
 test("the bar's “all” does nothing when it is already in force, and switches when it is not", async () => {
   const v = await loadViewer(html);
   try {
@@ -240,13 +201,11 @@ test("the bar's “all” does nothing when it is already in force, and switches
       scoped: false, activeBase, activeTarget: "worktree",
     })}, 1`);
 
-    // The review is AT the branch point, so "all" is the option already in force.
     setBar("54d784f0000");
     v.window.selectPatchSet("base", "auto");
     await v.settle(20);
     assert.deepEqual(calls, [], "clicking the option already in force asks for no rebuild");
 
-    // Now the review is on a patch set, so the same click is a real change.
     setBar("1fe2700");
     v.window.selectPatchSet("base", "auto");
     await v.settle(20);
@@ -257,10 +216,6 @@ test("the bar's “all” does nothing when it is already in force, and switches
   }
 });
 
-// The row ticks before the rebuild answers, because a rebuild can take a second on a large tree. That
-// optimism became load-bearing the moment a no-op guard started reading the same state: a failed call
-// left it claiming a mode the review never reached, so the guard answered the reader's retry with
-// silence — the one press that had to work after a failure was the one that could not.
 test("a failed switch can be tried again", async () => {
   const v = await loadViewer(html);
   try {
@@ -289,7 +244,6 @@ test("a failed switch can be tried again", async () => {
     assert.equal(calls.length, 2, "so the retry reaches the backend instead of being screened as a no-op");
     assert.equal(v.window.eval("compareMenuState.mode"), "all", "and this one took");
 
-    // …while a press on the mode the review IS in is still screened.
     v.window.__kakapoCompareMenu.pick("all");
     await v.settle(30);
     assert.equal(calls.length, 2, "no rebuild for a state that does not change");
@@ -298,17 +252,8 @@ test("a failed switch can be tried again", async () => {
   }
 });
 
-// The branch list marks one row as the repository's default, and until anyone picks a branch the effective
-// ref IS that default. So a click on the marked row matched the no-op guard's equality check and was
-// screened — the menu closed, nothing reached set-compare-mode, and `state.compareRef` was never written.
-//
-// Screening it is right once the branch is recorded and wrong before: the reader's explicit choice of the
-// branch they were already on left no trace, and the next time the automatic answer moved — an upstream
-// appears, the default branch is renamed — the review moved off it with no record that it had been chosen.
-// `pinned` is the fact main has that the renderer did not.
 test("picking the branch the review already defaults to records the choice", async () => {
   const v = await loadViewer(html);
-  // mode 'all' on origin/main, arrived at by resolution rather than by a pick: pinned is false.
   const calls = installCompareBridge(v, { mode: "all", ref: "origin/main", defaultRef: "origin/main", pinned: false });
 
   v.$("#compare-pill").dispatchEvent(new v.window.MouseEvent("click", { bubbles: true }));
@@ -325,8 +270,6 @@ test("picking the branch the review already defaults to records the choice", asy
 });
 
 test("picking the branch already recorded is still screened from the rebuild", async () => {
-  // The other half, and the behaviour the guard exists for: a rebuild is a git diff plus a source re-index,
-  // and asking for the state you are already in should not cost one. `pinned` is what separates the two.
   const v = await loadViewer(html);
   const calls = installCompareBridge(v, { mode: "all", ref: "origin/main", defaultRef: "origin/main", pinned: true });
 
@@ -342,8 +285,6 @@ test("picking the branch already recorded is still screened from the rebuild", a
   v.close();
 });
 
-// A second pick, of a DIFFERENT branch, still has to go through — the optimistic pin must not make the
-// guard screen it. This is the failure mode the optimistic update introduced the last time it was added.
 test("the optimistic pin does not screen a pick of a different branch", async () => {
   const v = await loadViewer(html);
   const calls = installCompareBridge(v, { mode: "all", ref: "origin/main", defaultRef: "origin/main", pinned: false });
@@ -368,11 +309,6 @@ test("the optimistic pin does not screen a pick of a different branch", async ()
   v.close();
 });
 
-// ===== The read mark: "what arrived since I handed this off" ========================================
-// The question this workflow is actually built around. An agent works in a worktree while the reviewer is
-// elsewhere; coming back to it, the first thing they want is the part they have not seen. The mark is HEAD
-// as of their last hand-off, so the row needs no branch and no commit picked — which is the whole point,
-// because naming either of those means already knowing where you stopped.
 test("the read-mark row appears only once there is a mark, and says how far the branch has moved", async () => {
   const v = await loadViewer(html);
   const calls = installCompareBridge(v, {
@@ -386,7 +322,6 @@ test("the read-mark row appears only once there is a mark, and says how far the 
   assert.equal(row.classList.contains("hidden"), false, "a mark exists, so the row is offered");
   assert.match(v.$("#compare-menu-since-note").textContent, /3/, "and says how many commits arrived");
 
-  // It carries no ref: the base is the mark, which main resolves again for itself.
   row.dispatchEvent(new v.window.MouseEvent("click", { bubbles: true }));
   await v.settle(30);
   assert.deepEqual(calls, [["since", null]], "the pick reaches main as its own mode");
@@ -410,12 +345,8 @@ test("the read-mark row is the checked one while the review is measured from the
 });
 
 test("Option+N with no mark says why instead of doing nothing", async () => {
-  // A key that answers by doing nothing is indistinguishable from a key that does not work — this file's
-  // own reason for the ⌥A toast. Here it matters more: the two cases that leave no mark are "you have not
-  // handed anything off in this worktree" and "an agent rebased the commit you stopped at off the branch",
-  // and the second one happens by itself while the reviewer is away.
   const v = await loadViewer(html);
-  const calls = installCompareBridge(v); // no readMark
+  const calls = installCompareBridge(v);
 
   v.key("Dead", { altKey: true, code: "KeyN" });
   await v.settle(30);

@@ -6,28 +6,12 @@ import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { errorMessage, executable, languageForPath, readTextFile } from "./util.js";
 
-/**
- * One entry of a file's structure: what `textDocument/documentSymbol` returns, flattened.
- *
- * Flattened with a `depth` rather than kept as a tree, because every reader of it wants a list: the
- * structure popup renders one indented column, the breadcrumb takes the innermost that contains the caret,
- * and next/previous-method walks it in order. A tree would be rebuilt into this by all three.
- */
-/** One foldable region of a file, as `textDocument/foldingRange` reports it. */
 export type AnalysisFoldingRange = {
   startLine: number;
   endLine: number;
-  /** LSP's own words where the server gives one: "comment", "imports", "region". Empty means a block. */
   kind: string;
 };
 
-/**
- * One link of the chain `textDocument/selectionRange` answers with: the constructs enclosing a position,
- * innermost first. IntelliJ's Extend Selection walks outward along it and Shrink Selection walks back.
- *
- * A chain, not a set, and the order is the whole content of the answer — LSP gives it as a linked list of
- * `parent` pointers and this is that list flattened.
- */
 export type AnalysisSelectionRange = {
   startLine: number;
   startCharacter: number;
@@ -35,66 +19,48 @@ export type AnalysisSelectionRange = {
   endCharacter: number;
 };
 
-/** One occurrence of the symbol under the caret inside its own file, and what the file does with it. */
 export type AnalysisHighlight = {
   lineIndex: number;
   startColumn: number;
   endColumn: number;
-  /** "read" | "write" | "text" — LSP's DocumentHighlightKind, which is what the usage filters need. */
   kind: "read" | "write" | "text";
 };
 
-/** One Code Vision line: what the server has to say ABOVE a declaration, and which line it belongs to. */
 export type AnalysisCodeLens = {
   lineIndex: number;
   title: string;
 };
 
-/** One inlay hint: a label the server wants drawn INSIDE a line, at a column, as if it were written there. */
 export type AnalysisInlayHint = {
   lineIndex: number;
   column: number;
   label: string;
-  /** "type" | "parameter" | "" — LSP's InlayHintKind, which is what makes them separately switchable. */
   kind: "type" | "parameter" | "";
   paddingLeft: boolean;
   paddingRight: boolean;
 };
 
-/**
- * The token types this client asks for, in LSP's own order and spelling.
- *
- * A server answers with indexes into ITS legend, not into this list — this is only what the client says it
- * understands, and a server is free to send a legend with more, fewer or differently ordered entries. The
- * legend that arrives at initialize is what decodes the stream.
- */
 export const SEMANTIC_TOKEN_TYPES = [
   "namespace", "type", "class", "enum", "interface", "struct", "typeParameter", "parameter", "variable",
   "property", "enumMember", "event", "function", "method", "macro", "keyword", "modifier", "comment",
   "string", "number", "regexp", "operator", "decorator",
 ];
 
-/** One semantic token: a run inside one line, and what the server that parsed the file says it is. */
 export type AnalysisSemanticToken = {
   lineIndex: number;
   startColumn: number;
   length: number;
-  /** The legend's own word — "keyword", "string", "property"… The viewer maps it to a class. */
   type: string;
 };
 
 export type AnalysisSymbol = {
   name: string;
-  /** The server's own one-line summary (a signature, a type), when it offers one. */
   detail?: string;
-  /** A short name for the icon/filter: "function", "class", "method", … See LSP_SYMBOL_KINDS. */
   kind: string;
   lineIndex: number;
   column: number;
-  /** Last line of the symbol's whole range — what "jump past this method" needs. */
   endLineIndex: number;
   depth: number;
-  /** `containerName` from the flat shape: the only nesting signal a server that sends it gives. */
   container?: string;
 };
 
@@ -107,20 +73,10 @@ export type AnalysisLocation = {
   name?: string;
   kind?: number;
   text?: string;
-  // The definition lives outside the review root — a dependency, a stdlib, a bundled type stub. `path` is
-  // then an absolute filesystem path instead of a repo-relative one, and the file opens read-only.
   library?: true;
-  // The definition is not a file at all: a compiled class inside a JDK image (`jrt:`) or a dependency
-  // archive (`jar:`), which is what a JVM language server answers with for anything outside the project.
-  // `path` is the URI verbatim. There is no source to show, and saying so is the whole point of the flag —
-  // the alternative is reporting "definition not found" for an answer the server did give.
   external?: true;
 };
 
-// `jrt:/…/jbr/Contents/Home!/java.base/java/time/Instant.class` -> `java.base/java/time/Instant.class`,
-// `jar:file:/…/guava-33.jar!/com/google/common/base/Joiner.class` -> `guava-33.jar / com/google/…`.
-// Everything before the `!` is where the archive happens to live on this machine, which tells the reviewer
-// nothing about the symbol.
 export function externalLocationLabel(uri: string): string {
   const bang = uri.indexOf("!/");
   if (bang < 0) return uri.replace(/^[a-z]+:\/*/i, "");
@@ -129,47 +85,28 @@ export function externalLocationLabel(uri: string): string {
   return archive && /\.(jar|zip)$/i.test(archive) ? `${archive} / ${inner}` : inner;
 }
 
-// Every path a language server has pointed at outside the review root. Following a definition into library
-// code reads a file the review root does not contain, so the renderer is never allowed to name one itself:
-// it may only ask for a path a server already returned in this session. Navigation stays unrestricted —
-// this only keeps the library reader from becoming a general "read any absolute path" IPC.
 const libraryPaths = new Set<string>();
 
-/** True for a path some language server reported as a definition outside the review root. */
 export function isKnownLibraryPath(path: string): boolean {
   return libraryPaths.has(path.replace(/\\/g, "/"));
 }
 
-/**
- * The same rule for a definition that is not a path at all.
- *
- * A JDK class and a class inside a dependency jar are answered as `jdt://contents/...` or `jrt:/...`, and
- * only the server that produced one can say what is in it. So the renderer may ask for the contents of a
- * URI this session has already been handed, and nothing else — the reader is otherwise a "decompile any
- * URI you like" channel into a language server that will happily open archives anywhere on the disk.
- */
 const externalUris = new Set<string>();
 
-/** True for a non-file definition target some language server reported in this session. */
 export function isKnownExternalUri(uri: string): boolean {
   return externalUris.has(uri);
 }
 
-/** Which language's server can read a scheme, by the one sample filename that resolves to it. */
 const EXTERNAL_URI_SAMPLE_FILE: Record<string, string> = {
-  // Eclipse JDT answers both: `jdt://` for a class inside a jar on the classpath, `jrt:/` for one in a
-  // JDK image. Its `java/classFileContents` request reads either.
   jdt: "Library.java",
   jrt: "Library.java",
 };
 
-/** The sample path whose language server owns this URI's scheme, or undefined when nothing does. */
 export function externalUriSampleFile(uri: string): string | undefined {
   const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(uri)?.[1]?.toLowerCase();
   return scheme ? EXTERNAL_URI_SAMPLE_FILE[scheme] : undefined;
 }
 
-/** Test seam: forget the session's library paths. */
 export function resetKnownLibraryPaths(): void {
   libraryPaths.clear();
   externalUris.clear();
@@ -177,9 +114,6 @@ export function resetKnownLibraryPaths(): void {
 
 export type DiagnosticSeverity = "error" | "warning" | "weak";
 
-// A language-server diagnostic normalized to Kakapo's 0-based line/column model. The renderer draws these
-// as wavy underlines and lets the reviewer step between them. Essential Highlighting (Shift+Opt+E) narrows
-// what is drawn to errors; everything else is drawn by default.
 export type LspDiagnostic = {
   lineIndex: number;
   column: number;
@@ -191,11 +125,6 @@ export type LspDiagnostic = {
   code?: string;
 };
 
-// LSP's four severities land on three tiers: Information and Hint are one mark, the weak tier, which is
-// IntelliJ's Weak Warning. Keeping them apart would mean two names for one colour, and every gutter class,
-// sort order, tooltip word and Problems badge downstream would have to know both — five copies to drift.
-// This tier is where an unused declaration, a line after a return and a deprecated call arrive; tsserver
-// publishes all three unasked, so it is never empty for a TypeScript or JavaScript review.
 const DIAGNOSTIC_SEVERITY: DiagnosticSeverity[] = ["error", "warning", "weak", "weak"];
 
 function nonNegativeInt(value: unknown): number | null {
@@ -203,7 +132,6 @@ function nonNegativeInt(value: unknown): number | null {
   return Math.floor(value);
 }
 
-// LSP `code` may be a string, a number, or a { value } object depending on the server. Normalize to a string.
 function diagnosticCode(raw: unknown): string {
   if (typeof raw === "string") return raw;
   if (typeof raw === "number") return String(raw);
@@ -214,33 +142,13 @@ function diagnosticCode(raw: unknown): string {
   return "";
 }
 
-// Import/module-resolution diagnostics depend on the project's runtime environment — the venv, node_modules, or
-// interpreter — which Kakapo deliberately does not own: it runs bundled analyzers, never the project's
-// toolchain, and does not configure a Python interpreter for Pyright. In a review context these fire on
-// perfectly-installed packages ("Import 'pandas' could not be resolved"), so they are dropped as unreliable.
-// Everything that does NOT need a resolved environment — syntax errors, undefined names, type mismatches within
-// the file — still surfaces. Matched by rule/code first, with a message fallback for server-version drift.
 const IMPORT_RESOLUTION_CODES = new Set([
-  "reportMissingImports",      // Pyright: "Import \"X\" could not be resolved"
-  "reportMissingModuleSource", // Pyright: an installed stub whose source module isn't found
-  "2307",                      // tsserver: "Cannot find module 'x' or its type declarations"
-  "2792",                      // tsserver: "Cannot find module 'x'. Did you mean to set 'moduleResolution'?"
+  "reportMissingImports",
+  "reportMissingModuleSource",
+  "2307",
+  "2792",
 ]);
-// The same environment, one step further in. An unresolved @types package does not only break `import`
-// statements — it takes the AMBIENT declarations with it, and those fire on ordinary code that names a
-// global. Measured on this project's own src/lsp.ts with node_modules absent: 63 errors, of which 42 were
-// "Cannot find name 'process'. Do you need to install type definitions for node?" and 12 were "Cannot find
-// namespace 'NodeJS'" — 54 of 63 markers, every one of them an artifact of kakapo running a bundled
-// tsserver that does not own the project's node_modules. That is the exact condition the codes above were
-// chosen for; these messages just were not in the net, so the policy held for imports and leaked
-// everywhere else.
-//
-// Matched on the MESSAGE, not the code: 2591 is "Cannot find name 'x'" in general, which is a real error
-// worth seeing. The sentence tsserver appends when it is a missing type package is what distinguishes the
-// two, and it is the same sentence in every version that emits it.
 const MISSING_TYPE_PACKAGE = /do you need to install type definitions|try `?npm i --save-dev @types\//i;
-// Ambient namespaces that only exist because of a type package. Listed rather than pattern-matched: a
-// namespace this project's own code defines and misspells should still be reported.
 const AMBIENT_TYPE_NAMESPACES = /cannot find namespace '(NodeJS|jest|Mocha|Chai|Cypress|Express|React)'/i;
 function isImportResolutionDiagnostic(code: string, message: string): boolean {
   if (code && IMPORT_RESOLUTION_CODES.has(code)) return true;
@@ -248,9 +156,6 @@ function isImportResolutionDiagnostic(code: string, message: string): boolean {
   return /could not be resolved|cannot find module/i.test(message);
 }
 
-// Translate raw LSP `PublishDiagnosticsParams.diagnostics` into the compact renderer shape. Diagnostics with
-// no usable range or empty message are dropped rather than guessed at. LSP severity is 1..4 (Error..Hint);
-// a missing severity defaults to Error, matching how mainstream editors treat unlabeled diagnostics.
 export function mapLspDiagnostics(raw: unknown): LspDiagnostic[] {
   if (!Array.isArray(raw)) return [];
   const mapped: LspDiagnostic[] = [];
@@ -268,7 +173,7 @@ export function mapLspDiagnostics(raw: unknown): LspDiagnostic[] {
     const message = typeof item.message === "string" ? item.message.trim() : "";
     if (!message) continue;
     const code = diagnosticCode(item.code);
-    if (isImportResolutionDiagnostic(code, message)) continue; // environment-dependent noise, not a real defect
+    if (isImportResolutionDiagnostic(code, message)) continue;
     const endLineIndex = nonNegativeInt(item?.range?.end?.line) ?? lineIndex;
     const endColumn = nonNegativeInt(item?.range?.end?.character) ?? column;
     const severityIndex = typeof item.severity === "number" && item.severity >= 1 && item.severity <= 4
@@ -328,16 +233,8 @@ type LspLocationLike = {
 };
 
 const REQUEST_TIMEOUT_MS = 8_000;
-// Starting a bundled native server is materially heavier than an interactive navigation request. Under the
-// full parallel test suite (and on a busy review workstation) Phpactor/JDT may spend more than eight seconds
-// loading their runtime before replying to initialize. Give startup its own budget while keeping normal
-// definition/reference requests fail-fast so a broken server cannot freeze navigation for twenty seconds.
 const INITIALIZE_TIMEOUT_MS = 20_000;
-// How long a stopped server may take to exit on its own before it is killed outright.
 const STOP_GRACE_MS = 2_000;
-// How long a first read may wait for a compiler-backed check to finish (see waitForFirstCheck). Measured
-// 3.7s for rust-analyzer's flycheck on a one-file crate with a warm registry; a first `cargo check` on a
-// real workspace compiles its dependencies, so the budget is sized for that and not for the fixture.
 const CHECK_BUDGET_MS = 60_000;
 const APP_ROOT = fileURLToPath(new URL("..", import.meta.url));
 const DEFAULT_BUNDLED_SERVER_ROOT = join(APP_ROOT, "vendor", "language-servers");
@@ -376,12 +273,6 @@ const SERVER_SPECS: Record<string, ServerSpec[]> = {
   php: [{ binary: "phpactor", args: ["language-server"] }],
 };
 
-// No --max-old-space-size here, deliberately. Capping a node-hosted server's heap looks like an easy win and
-// is not one: over repeat runs on a 3200-file Python repo, pyright's footprint spread 675-956 MB uncapped and
-// 722-859 MB under 2048 — the run-to-run spread is wider than the gap between the settings, so the cap buys
-// nothing measurable. What it does buy is an abort: 512 dies of heap exhaustion, and a server that dies stays
-// dead for the session (failedServers). V8's own default already ceilings the heap.
-
 /**
  * What IntelliJ does when you follow a symbol into a dependency, expressed in jdtls's own settings.
  *
@@ -397,28 +288,10 @@ const JAVA_LIBRARY_SETTINGS = {
   maven: { downloadSources: true },
   eclipse: { downloadSources: true },
   references: { includeDecompiledSources: true },
-  // jdtls ships a disassembler and, when the Fernflower-backed provider is present, a decompiler. Naming a
-  // preference is harmless when it is absent — the request falls back to whatever provider is registered.
   contentProvider: { preferred: "fernflower" },
 };
 
-// Per-family LSP initializationOptions, applied whether the server came from the bundle or from PATH.
-// typescript-language-server's automatic type acquisition spawns a third process (typingsInstaller, 34 MB)
-// that npm-installs @types packages and watches node_modules for changes — a background download and a pile
-// of fs watchers in aid of a read-only review. A whole process gone is a real saving, unlike a heap flag.
 const INIT_OPTIONS: Record<string, Record<string, unknown>> = {
-  // jdtls takes its configuration at the handshake under `settings`, and the push below repeats it: a cold
-  // server has already resolved the classpath by the time didChangeConfiguration lands, and whether it
-  // attached sources jars was decided then.
-  //
-  // `classFileContentsSupport` is the one that decides whether there is anything to configure at all. JDT
-  // will not NAME a class file as a definition target unless the client has declared it can render one:
-  // without this flag its navigation handler drops those targets and answers with an empty array, which is
-  // indistinguishable from "no such symbol". Measured on a Maven project whose file jdtls was already
-  // diagnosing cleanly (so the JDK was resolved and `java.util.List` was known): go-to-definition on
-  // `List`, on `names.add` and on `String` each came back with zero locations, twenty attempts over two
-  // minutes, server `ready` and `indexed`. The settings below were already being sent and could not help —
-  // they govern what the content REQUEST returns, and the request was never reachable.
   java: {
     extendedClientCapabilities: { classFileContentsSupport: true },
     settings: { java: JAVA_LIBRARY_SETTINGS },
@@ -436,16 +309,6 @@ const INIT_OPTIONS: Record<string, Record<string, unknown>> = {
   },
 };
 
-// What the server is told the workspace wants, sent as workspace/didChangeConfiguration right after
-// `initialized`. Until this existed the notification carried `{}`, and typescript-language-server takes
-// that notification's `settings` AS the workspace configuration — so Code Vision and inlay hints, which it
-// reads from exactly these keys, were off for every TypeScript and JavaScript review. The requests went
-// out, the server answered `ok` with an empty array, and both features painted nothing: nothing in the
-// client was broken, it had simply never asked.
-//
-// The hint set is IntelliJ's reading of inlay hints — parameter names and the types it inferred for you —
-// minus the one IntelliJ also leaves out, a parameter name that merely repeats the argument's. Code Vision
-// is on for all declarations because that is what IntelliJ shows above one. ⇧⌥V and ⇧⌥H turn either off.
 const TS_READING_SETTINGS = {
   implementationsCodeLens: { enabled: true },
   referencesCodeLens: { enabled: true, showOnAllFunctions: true },
@@ -460,33 +323,11 @@ const TS_READING_SETTINGS = {
   },
 };
 
-// What one file's Code Vision is allowed to cost. A lens resolve is a references lookup, so the bound is
-// on the file rather than on the project: a 2000-line file with a declaration every ten lines asks for 200
-// of them, and the reader is looking at one screen of it.
 const CODE_LENS_LIMIT = 300;
 const CODE_LENS_BATCH = 24;
 
-// Settings reach a server by two roads and a server need only walk one of them. typescript-language-server
-// reads the `settings` payload this client PUSHES with workspace/didChangeConfiguration; gopls ignores that
-// and PULLS what it wants with a workspace/configuration request, and it is not alone. Both roads are served
-// from this one table — the push sends the family's whole object, the pull is answered per section by
-// configurationSection — because a setting that only arrives on one road is a setting that is off for half
-// the languages and looks on in the source. The pull used to be answered with `{}` for every section, which
-// is why nothing below could be configured before.
 const WORKSPACE_SETTINGS: Record<string, Record<string, unknown>> = {
-  // One object, both sections: the server picks the section by the document's language, and a .js file in
-  // a TypeScript project should read the same as the .ts file beside it.
   typescript: { typescript: TS_READING_SETTINGS, javascript: TS_READING_SETTINGS },
-  // gopls answers "does it compile" out of the box and keeps its inspections behind a flag. staticcheck is
-  // the body of them (the S/SA/ST checks: a comparison to a bool constant, a value assigned and never read,
-  // a loop that cannot run) and `analyses` holds the ones its own default leaves off. Measured on a
-  // twenty-line file: one finding before, three after. None of this runs the reviewed code — Go has no
-  // build scripts and gopls type-checks rather than executes — so it needs no opt-in.
-  // Semantic highlighting and inlay hints are gopls's too, and both are off until told: measured on a
-  // twenty-line file, 0 tokens and 0 hints before, 51 and 5 after. Unlike pyright — which answers "I do
-  // not implement that" and lets this app say so — gopls registers all three providers and then returns
-  // an empty array, so a Go file was read with the fallback tokenizer and nothing anywhere said why.
-  // The hint set matches the TypeScript one above: the types it inferred for you and the parameter names.
   go: {
     gopls: {
       staticcheck: true,
@@ -503,21 +344,10 @@ const WORKSPACE_SETTINGS: Record<string, Record<string, unknown>> = {
       },
     },
   },
-  // rust-analyzer's own analysis answers "does this name resolve"; every warning a Rust reader expects —
-  // an unused binding, unreachable code, a type that does not line up — comes from rustc itself, which it
-  // reaches by running `cargo check` as a subprocess (flycheck). Both of these are the server's defaults,
-  // written down because a bundled toolchain's defaults are a thing that changes under you and the whole
-  // Rust diagnostic surface hangs off them. `clippy` would be the closer analogue of IntelliJ's own
-  // inspections, and it is in the bundle, but it re-compiles the crate graph with its own lint pass:
-  // measured at over 150 seconds on a ten-line file against `check`'s 3.7, so `check` is what ships.
   rust: { "rust-analyzer": { checkOnSave: true, check: { command: "check" } } },
-  // The pull road for the same object: jdtls asks for section "java".
   java: { java: JAVA_LIBRARY_SETTINGS },
 };
 
-// Resolve one pulled configuration section against a family's settings. A server asks for what it wants
-// by name — `gopls`, `rust-analyzer`, `typescript.inlayHints` — and gets the sub-object at that dotted path,
-// or `{}` when this client has nothing to say about it. An absent section means "all of it".
 export function configurationSection(settings: Record<string, unknown>, section: unknown): unknown {
   if (typeof section !== "string" || !section) return settings;
   let cursor: unknown = settings;
@@ -549,7 +379,6 @@ function projectCacheKey(root: string): string {
   return createHash("sha256").update(resolve(root)).digest("hex").slice(0, 16);
 }
 
-// Native sidecars may need OS tools such as git, but never inherit arbitrary user PATH entries.
 const SYSTEM_TOOL_PATH = "/usr/bin:/bin:/usr/sbin:/sbin";
 
 function bundledNativeCommand(family: string, context: BundledServerContext): LanguageServerCommand | undefined {
@@ -596,8 +425,6 @@ function bundledNativeCommand(family: string, context: BundledServerContext): La
   if (family === "clang") {
     const command = join(base, "bin", "clangd");
     if (!executable(command)) return undefined;
-    // The macOS clangd archive is self-contained; only the Ubuntu build needed LD_LIBRARY_PATH pointed
-    // at the runtime closure beside it, and that build went with the Linux packaging.
     return resolvedCommand(family, "clangd", command, [], "bundled");
   }
   if (family === "java") {
@@ -641,11 +468,6 @@ function bundledNativeCommand(family: string, context: BundledServerContext): La
     return executable(command)
       ? resolvedCommand(family, "sorbet", command, [
         "--lsp", "--disable-watchman", "--cache-dir", join(tmpdir(), "kakapo-sorbet", projectCacheKey(context.root)), "--dir", ".",
-        // ⌘F7, which sorbet refuses outright without this: "The `Highlight` LSP feature is experimental and
-        // disabled by default." Measured with the flag on a ten-line file: a local, a class name and a
-        // method name each answered with both of their occurrences; only instance variables come back
-        // empty. It carries no read/write kinds, so the two colours collapse into one — still the file's
-        // real occurrences rather than the text search that is the alternative.
         "--enable-experimental-lsp-document-highlight",
       ], "bundled")
       : undefined;
@@ -707,23 +529,12 @@ export function resolveBundledLanguageServer(
       command: process.execPath,
       args: [nodeServer.entry, ...nodeServer.args],
       source: "bundled",
-      // Electron's executable becomes a Node-compatible sidecar host without relying on a GUI app's PATH.
       env: { ELECTRON_RUN_AS_NODE: "1" },
     };
   }
   return bundledNativeCommand(family, { root, env, platform, arch });
 }
 
-// An explicit developer override wins. Normal app execution is bundle-first so semantic analysis never
-// depends on the shell PATH inherited by a GUI process.
-//
-// The project-local fallback below — `<root>/node_modules/.bin`, `<root>/.venv/bin`, `<root>/bin` — is a
-// developer convenience for a source checkout whose platform sidecar bundle is not installed yet, and it
-// resolves an executable from INSIDE the repository being reviewed. kakapo's whole premise is reading code
-// you have not read yet, and the analysis prewarm starts a server on its own after the review paints, so a
-// repo shipping `bin/gopls` would have run with no click at all. It now takes an explicit opt-in: a
-// reviewer who means to run a checkout's own servers says so once, in the environment, the same way the
-// per-family KAKAPO_LSP_* overrides work. Without it, "no server available" is the answer.
 const PROJECT_SERVERS_OPT_IN = "KAKAPO_LSP_PROJECT_SERVERS";
 export function resolveLanguageServer(
   root: string,
@@ -767,31 +578,22 @@ export function lspLanguageId(path: string): string {
   return languageForPath(path);
 }
 
-// Process-group leaders of every running server. Quitting tears the app down without visiting each window's
-// dispose path, and on POSIX a child outlives its parent — that is how weeks of use accumulate orphaned
-// JVMs. An 'exit' handler must be synchronous, so kill the groups outright: the app is already leaving.
 const liveServerGroups = new Set<number>();
 process.once("exit", () => {
   for (const pid of liveServerGroups) {
     try {
       process.kill(-pid, "SIGKILL");
-    } catch { /* already gone */ }
+    } catch { }
   }
   reapEscapedGradleDaemons();
 });
 
-// The bundled Kotlin server's project import runs Gradle, and a Gradle daemon puts itself in a new session
-// (observed PPID 1, PGID = its own pid) precisely so it outlives the build that started it. Signalling the
-// server's process group therefore cannot reach it: issue #24 left one holding 500 MB for hours, and this
-// machine had accumulated 15 daemon logs from our JVM. Nothing but Kakapo runs the JVM we bundle, so match on
-// that path — and only on daemons, since a daemon is a restartable cache while a language server is not.
 export function reapEscapedGradleDaemons(bundleDir = bundledKotlinDir()): void {
-  // Synchronous by necessity: this also runs from an 'exit' handler, where nothing async can still land.
   const found = spawnSync("pgrep", ["-f", `^${bundleDir}/.*GradleDaemon`], { encoding: "utf8" });
   for (const line of found.stdout?.split("\n") ?? []) {
     const pid = Number(line.trim());
     if (!pid) continue;
-    try { process.kill(pid, "SIGKILL"); } catch { /* already gone */ }
+    try { process.kill(pid, "SIGKILL"); } catch { }
   }
 }
 
@@ -799,22 +601,6 @@ function bundledKotlinDir(): string {
   return join(bundledRoot(process.env), `${process.platform}-${process.arch}`, "kotlin");
 }
 
-/**
- * A lens title that says nothing is there. These are dropped rather than drawn.
- *
- * `decoration()` in analysis.ts promises one thing — never draw a guess as if the compiler had said it —
- * and "0 references" over a function with two call sites is that guess. It happens whenever the server has
- * no project for the file: typescript-language-server gives a file outside `tsconfig.json#include` its own
- * inferred single-file project, so every cross-file reference is invisible to it and it answers zero,
- * truthfully about that project and falsely about the repository. kakapo reads arbitrary repositories, so
- * a file outside the TS program is the common case, not the exotic one — measured here, 66 of 121 lenses
- * in src/viewer/11-render-http.js read "0 references" while the index found three call sites for the first
- * symbol alone and the Find Usages panel beside it said one.
- *
- * This costs a true zero on a genuinely unused declaration, because nothing in the answer distinguishes
- * the two. IntelliJ makes the same trade and draws no row, which is the right way round: a reader who sees
- * nothing goes and looks, a reader who sees "0 references" deletes the function.
- */
 export function assertsNothing(title: string): boolean {
   const numbers = title.match(/\d[\d.,]*/g);
   return numbers !== null && numbers.every((number) => Number(number.replace(/[.,]/g, "")) === 0);
@@ -826,31 +612,17 @@ export class LspClient {
   private buffer = Buffer.alloc(0);
   private pending = new Map<number, PendingRequest>();
   private started?: Promise<void>;
-  // `end` is the last position in the document as the server counts them. A range request that names a
-  // line the file does not have is not clamped by every server: rust-analyzer rejects the whole request
-  // with "Invalid offset LineCol { line: 2000, col: 0 }", which is how inlay hints came back empty for
-  // every Rust file in the app while working everywhere else.
   private opened = new Map<string, { mtimeMs: number; version: number; end: { line: number; character: number } }>();
   private documentSync = new Map<string, Promise<void>>();
-  /** The server's own legend, captured at initialize. null means it registered no semantic tokens. */
   private semanticTokenTypes: string[] | null = null;
   private stopped = false;
   private workspaceQuiescent = false;
   private workspaceWaiters = new Set<() => void>();
   private startupGrace?: Promise<void>;
   private initialNavigationSettled = false;
-  // Diagnostics are pushed by the server via textDocument/publishDiagnostics, not pulled per request. Keep the
-  // latest set per document URI plus per-URI waiters so a first read can await the initial publish once.
   private diagnostics = new Map<string, unknown[]>();
   private publishedUris = new Set<string>();
   private diagnosticWaiters = new Map<string, Set<() => void>>();
-  // A server that gets its diagnostics from a compiler subprocess publishes twice: an empty set as soon as
-  // the document opens, then the real findings when the compiler returns. Measured on rust-analyzer with a
-  // three-problem file: empty publish at 1.6s, `experimental/serverStatus` quiescent at 3.3s, flycheck
-  // STARTS at 3.6s and publishes four diagnostics at 3.7s. So neither of this class's two existing
-  // readiness signals means the file has been checked — the first publish is empty and quiescence lands
-  // before the check even begins — and a Rust review was answered with a confident empty list every time.
-  // The flycheck work-done progress is the one signal that does mean it.
   private checksRunning = 0;
   private checkCompleted = false;
   private checkWaiters = new Set<() => void>();
@@ -860,7 +632,6 @@ export class LspClient {
     readonly server: LanguageServerCommand,
   ) {}
 
-  /** PID of the live server process, if any — the memory watchdog (app-main.ts) weighs fleets by these. */
   serverPid(): number | undefined {
     const child = this.child;
     return child && child.pid && child.exitCode === null && child.signalCode === null ? child.pid : undefined;
@@ -891,20 +662,11 @@ export class LspClient {
         this.initialNavigationSettled = true;
         return locations;
       }
-      // Both servers may acknowledge initialize while their first workspace scan is still committing its
-      // index. An empty first answer is ambiguous, so retry it briefly once per client; later genuine misses
-      // remain immediate and never turn ordinary navigation into a polling loop.
       await new Promise((resolveDelay) => setTimeout(resolveDelay, 400 * (attempt + 1)));
     }
     return [];
   }
 
-  /**
-   * The open file's structure. Servers answer in either of two shapes and both are accepted: the
-   * hierarchical `DocumentSymbol[]` (what every bundled server returns) and the older flat
-   * `SymbolInformation[]`, whose nesting is only implied by `containerName` and is therefore reported as
-   * one level — a wrong indent is worse than none.
-   */
   async documentSymbols(path: string): Promise<AnalysisSymbol[]> {
     await this.ensureDocument(path);
     await this.waitForWorkspaceReady();
@@ -913,15 +675,6 @@ export class LspClient {
     return normalizeDocumentSymbols(result);
   }
 
-  /**
-   * Where this file folds, according to the server that parses it.
-   *
-   * The viewer folded on brace pairs before this, which is a guess that is right about C-like languages and
-   * silent about every other one: Python, YAML and Markdown have no braces and so had no folds at all, and
-   * even in a braced file an import block or a comment header is a region the braces cannot see. A server
-   * that does not implement the request says so by MethodNotFound, which is reported as `supported: false`
-   * rather than "this file does not fold" — the brace walk is still there to fall back to.
-   */
   async foldingRanges(path: string): Promise<{ supported: boolean; ranges: AnalysisFoldingRange[] }> {
     await this.ensureDocument(path);
     await this.waitForWorkspaceReady();
@@ -948,17 +701,6 @@ export class LspClient {
     return { supported: true, ranges };
   }
 
-  /**
-   * The constructs enclosing one position, innermost first — what IntelliJ's Extend Selection walks.
-   *
-   * LSP answers `SelectionRange[]`, one per position asked about, each a node whose `parent` is the next
-   * construct out. Only one position is ever asked here, and the chain is flattened on the way out: the
-   * viewer wants an array it can index with "how many times has ⌥↑ been pressed", and a linked list of
-   * parents would make that a walk at every keystroke.
-   *
-   * `seen` guards against a server returning a cycle. Nothing in the spec forbids one and a bad answer
-   * here would hang the main process rather than produce a wrong selection.
-   */
   async selectionRanges(path: string, line: number, character: number): Promise<{ supported: boolean; chain: AnalysisSelectionRange[] }> {
     await this.ensureDocument(path);
     await this.waitForWorkspaceReady();
@@ -998,14 +740,6 @@ export class LspClient {
     return { supported: true, chain };
   }
 
-  /**
-   * Every occurrence of the symbol under the caret in its own file, each labelled read, write or neither.
-   *
-   * `textDocument/references` answers the same question across the workspace and without the labels, which
-   * is why the in-file highlight used to ask it and then throw most of the answer away. The labels are the
-   * point: the usage view's Show Read Access / Show Write Access filters are a property of an occurrence,
-   * and no amount of reference-hunting recovers it.
-   */
   async documentHighlights(
     path: string, lineIndex: number, column: number,
   ): Promise<{ supported: boolean; highlights: AnalysisHighlight[] }> {
@@ -1040,18 +774,6 @@ export class LspClient {
     return { supported: true, highlights };
   }
 
-  /**
-   * The file's tokens as the parser that owns the language sees them.
-   *
-   * The source view highlights with a hand-written tokenizer, which is why its language coverage and the
-   * diff's (highlight.js) differ — a `.yml` file was plain in one and coloured in the other. A server that
-   * implements this request knows the answer exactly, including the cases no regex reaches: a type used as
-   * a value, a property that shares a name with a keyword, a template literal's embedded expression.
-   *
-   * The wire format is five integers per token, each line and column RELATIVE to the previous token, which
-   * is decoded here so that nothing downstream has to know it. Tokens never span lines (LSP guarantees it),
-   * so a line's tokens are all the caller needs to draw that line.
-   */
   async semanticTokens(path: string): Promise<{ supported: boolean; tokens: AnalysisSemanticToken[] }> {
     await this.ensureDocument(path);
     await this.waitForWorkspaceReady();
@@ -1077,7 +799,6 @@ export class LspClient {
       const typeIndex = Number(data[i + 3]);
       if (!Number.isFinite(deltaLine) || !Number.isFinite(deltaStart) || !Number.isFinite(length)) break;
       line += deltaLine;
-      // The column is relative to the previous token only while on the SAME line; a new line restarts it.
       column = deltaLine === 0 ? column + deltaStart : deltaStart;
       const type = legend[typeIndex];
       if (!type || length <= 0) continue;
@@ -1086,19 +807,6 @@ export class LspClient {
     return { supported: true, tokens };
   }
 
-  /**
-   * What the server has to say above each declaration — IntelliJ's Code Vision.
-   *
-   * Unresolved lenses are resolved, in bounded batches. A server is allowed to answer `textDocument/codeLens`
-   * with `{range, data}` and no title, expecting one `codeLens/resolve` per lens — and that is not an edge
-   * case: typescript-language-server answers EVERY lens that way (measured: 133 of 133 on one file of this
-   * repository), so dropping them, which is what this did at first, left Code Vision permanently blank in
-   * the language this app is written in. Blank is not cheaper than slow; it is the feature not existing.
-   *
-   * The cost it was avoiding is real, so it is bounded rather than ignored: at most CODE_LENS_LIMIT lenses
-   * per file, CODE_LENS_BATCH resolves in flight, and a resolve that fails drops only its own lens. The
-   * answer is cached per analysis generation by the caller, so a file pays this once.
-   */
   async codeLenses(path: string): Promise<{ supported: boolean; lenses: AnalysisCodeLens[] }> {
     await this.ensureDocument(path);
     await this.waitForWorkspaceReady();
@@ -1125,26 +833,19 @@ export class LspClient {
           const title = (resolved as { command?: { title?: unknown } })?.command?.title;
           return typeof title === "string" ? title.trim() : "";
         } catch {
-          return ""; // one declaration without its count is not a reason to lose the other hundred
+          return "";
         }
       }));
       batch.forEach((row, index) => {
         const line = Number(row?.range?.start?.line);
         if (!Number.isFinite(line) || !titles[index]) return;
-        if (assertsNothing(titles[index])) return; // see assertsNothing: a zero here is not a fact
+        if (assertsNothing(titles[index])) return;
         lenses.push({ lineIndex: Math.max(0, Math.trunc(line)), title: titles[index] });
       });
     }
     return { supported: true, lenses };
   }
 
-  /**
-   * The labels the server would write into the code if the code had been written that way — parameter
-   * names at a call site, an inferred type after a binding. LSP's `textDocument/inlayHint`.
-   *
-   * A hint's label is either a string or a list of parts (each of which may carry its own tooltip and
-   * location); only the text is kept, because this app draws them and does not make them clickable.
-   */
   async inlayHints(
     path: string, fromLine: number, toLine: number,
   ): Promise<{ supported: boolean; hints: AnalysisInlayHint[] }> {
@@ -1153,9 +854,6 @@ export class LspClient {
     const uri = pathToFileURL(resolve(this.root, path)).href;
     let result: unknown;
     try {
-      // The caller asks for a window; the document decides how much of it exists. Clamping here rather
-      // than at the caller because this is the only place that knows both, and because a server is within
-      // its rights to refuse a range it cannot resolve — one of the bundled ones does.
       const documentEnd = this.opened.get(uri)?.end;
       const start = { line: Math.max(0, Math.trunc(fromLine)), character: 0 };
       const wanted = { line: Math.max(start.line, Math.trunc(toLine)), character: 0 };
@@ -1198,14 +896,6 @@ export class LspClient {
     return { supported: true, hints };
   }
 
-  /**
-   * Who calls this, or what this calls — `textDocument/prepareCallHierarchy` then one of its follow-ups.
-   *
-   * Two round trips by design: prepare resolves the position to the symbol the server considers to be
-   * there, and the follow-up asks about THAT. Returns `supported: false` when the server does not offer
-   * the request, because "this server has no call hierarchy" and "nothing calls this" must not look the
-   * same to the reader.
-   */
   async callHierarchy(
     path: string, lineIndex: number, column: number, direction: "incoming" | "outgoing",
   ): Promise<{ supported: boolean; locations: AnalysisLocation[] }> {
@@ -1217,7 +907,6 @@ export class LspClient {
     );
   }
 
-  /** What this extends or implements, or what extends it — the type-hierarchy pair (LSP 3.17). */
   async typeHierarchy(
     path: string, lineIndex: number, column: number, direction: "supertypes" | "subtypes",
   ): Promise<{ supported: boolean; locations: AnalysisLocation[] }> {
@@ -1229,12 +918,6 @@ export class LspClient {
     );
   }
 
-  /**
-   * The shared shape of both hierarchies: prepare, then ask about the prepared item.
-   *
-   * `itemKey` is where the follow-up puts the item — call hierarchy wraps each answer in `{from}`/`{to}`
-   * alongside the ranges of the calls themselves, while the type hierarchy answers with bare items.
-   */
   private async hierarchy(
     path: string, lineIndex: number, column: number, prepareMethod: string, followMethod: string, itemKey: string,
   ): Promise<{ supported: boolean; locations: AnalysisLocation[] }> {
@@ -1261,9 +944,6 @@ export class LspClient {
       throw error;
     }
     const rows = Array.isArray(answer) ? answer : [];
-    // Mapped into the shape normalizeLocationResult already reads, so URI handling (a library path, a
-    // `jrt:` class inside a JDK image) stays in one place. selectionRange is the NAME — where a jump
-    // should land — and range is the body, which is the fallback.
     const normalized = rows.map((row) => {
       const item = (itemKey && row && typeof row === "object" ? (row as Record<string, unknown>)[itemKey] : row) as
         { uri?: string; name?: string; kind?: number; detail?: string; range?: unknown; selectionRange?: unknown } | undefined;
@@ -1284,13 +964,6 @@ export class LspClient {
     return normalizeLocationResult(result, this.root);
   }
 
-  /**
-   * `textDocument/hover` — the one question in this file whose answer is PROSE rather than a position.
-   *
-   * Everything else here (definition, references, the two hierarchies, the symbols) answers "where", and a
-   * reader who wants to know "what IS this" had nowhere to ask. That is two IntelliJ actions at once:
-   * Quick Documentation (F1) renders the whole answer, and Expression Type (⌃⇧P) takes its first line.
-   */
   async hover(path: string, lineIndex: number, column: number): Promise<string> {
     await this.ensureDocument(path);
     await this.waitForWorkspaceReady();
@@ -1302,18 +975,8 @@ export class LspClient {
     return normalizeHoverResult(result);
   }
 
-  /**
-   * The text behind a non-file definition target — a class in a dependency jar, a class in the JDK image.
-   *
-   * `java/classFileContents` is Eclipse JDT's own request (it is not in LSP): hand it the `jdt://` or
-   * `jrt:/` URI the server itself produced and it answers with source — the library's real source when a
-   * sources jar is attached, otherwise a decompilation. An empty string means the server has nothing for
-   * that URI, which is a different answer from a thrown request and is reported as such upstream.
-   */
   async externalSourceText(uri: string): Promise<string> {
     if (this.server.family !== "java") return "";
-    // A cold JDT answers the handshake long before it has a classpath, and until it has one it reports the
-    // contents of nothing. This is the same retry the navigation requests use.
     const result = await this.requestAfterWorkspaceReady("java/classFileContents", { uri });
     return typeof result === "string" ? result : "";
   }
@@ -1323,17 +986,6 @@ export class LspClient {
     await this.waitForWorkspaceReady();
   }
 
-  /**
-   * Resolves true once the server has PUBLISHED diagnostics for `path` — which it only does after actually
-   * analysing the file, so it is the honest signal that the project index exists. `warmup` above gets a
-   * server as far as acknowledging `initialize`, and that is a different thing: a cold JDT or rust-analyzer
-   * answers the handshake in milliseconds and then spends a long time building its model, during which a
-   * definition request either times out or comes back empty.
-   *
-   * The budget is generous because nothing is waiting on this — it runs after the review has painted, to
-   * get the indexing over with before the reviewer's first keystroke rather than during it. False means the
-   * budget ran out, not that the server is broken: some servers never diagnose some files.
-   */
   async awaitAnalysed(path: string, budgetMs: number): Promise<boolean> {
     await this.ensureDocument(path);
     const uri = pathToFileURL(resolve(this.root, path)).href;
@@ -1356,8 +1008,6 @@ export class LspClient {
     });
   }
 
-  // Return the latest diagnostics for a document. Opening it triggers the server's first publish; on the very
-  // first read we wait (bounded) for that publish so the reviewer isn't shown "no problems" prematurely.
   async diagnosticsFor(path: string): Promise<LspDiagnostic[]> {
     await this.ensureDocument(path);
     await this.waitForWorkspaceReady();
@@ -1367,34 +1017,12 @@ export class LspClient {
     return mapLspDiagnostics(this.diagnostics.get(uri));
   }
 
-  /**
-   * Tell a compiler-backed server that this document is saved, because for one of them that is the only
-   * thing that runs a check. `cargo check` reads the file FROM DISK and rust-analyzer starts it on save:
-   * a didChange alone produced no check and no publish at all (measured: fifteen seconds of silence), so
-   * a reviewed file that an agent had just rewritten lost its diagnostics completely. Kakapo re-reads the
-   * file from disk and sends what it read, so the saved text and the document text are the same text —
-   * which is what makes announcing a save here true rather than a trick to poke the server.
-   *
-   * Narrow to the one family that needs it on purpose. The other bundled servers diagnose from the
-   * document they were handed, and a save notification to a server that builds on save (jdtls) buys
-   * nothing for a reader and costs a compile.
-   */
   private announceSave(uri: string, text: string): void {
     if (this.server.family !== "rust") return;
-    // The completed check describes the text that just stopped existing. Leaving this set would let the
-    // read below return on the old run before the new one has even begun.
     this.checkCompleted = false;
     this.notify("textDocument/didSave", { textDocument: { uri }, text });
   }
 
-  /**
-   * Resolve once a flycheck run has finished and none is in flight. The budget is generous because the
-   * cost of answering early is a wrong answer — "no problems" for a file nobody compiled — while the cost
-   * of waiting is a squiggle that arrives late into a paint that already happened. A first `cargo check`
-   * compiles the crate's dependencies, so on a cold target directory this is seconds, not milliseconds.
-   * When the budget runs out the read answers from whatever the server has published, which is the same
-   * thing it did before this existed.
-   */
   private waitForFirstCheck(): Promise<void> {
     if (this.checkCompleted && this.checksRunning === 0) return Promise.resolve();
     return new Promise<void>((resolveWait) => {
@@ -1422,8 +1050,6 @@ export class LspClient {
         this.diagnosticWaiters.get(uri)?.delete(done);
         resolveWait();
       };
-      // Most servers publish within milliseconds of didOpen; a clean file publishes an empty set. Cap the wait
-      // so a server that never diagnoses this document (or is still indexing) cannot stall the request.
       const timer = setTimeout(done, 2_000);
       timer.unref?.();
       let waiters = this.diagnosticWaiters.get(uri);
@@ -1435,17 +1061,11 @@ export class LspClient {
   dispose(): void {
     if (this.stopped) return;
     this.stopped = true;
-    try { this.notify("exit", null); } catch { /* best effort */ }
+    try { this.notify("exit", null); } catch { }
     this.killTree();
     this.failPending(new Error(`${this.server.name} stopped`));
   }
 
-  // Several servers are launchers that fork the real engine as their own child (the bundled Kotlin server
-  // runs a JBR JVM; typescript-language-server runs tsserver and typingsInstaller). A well-behaved one
-  // tears its children down on SIGTERM — measured: tsserver's two children always went with it. One that
-  // does not left the engine running on PPID 1, which is how issue #24 caught a 253 MB Kotlin process
-  // outliving by hours the app session that started it. Signalling the group covers both kinds, so a
-  // server's cleanup manners stop being load-bearing.
   private killTree(): void {
     const child = this.child;
     if (!child?.pid || child.exitCode !== null || child.signalCode !== null) return;
@@ -1453,7 +1073,7 @@ export class LspClient {
     const signalGroup = (signal: NodeJS.Signals) => {
       try {
         process.kill(-pid, signal);
-      } catch { /* already gone */ }
+      } catch { }
     };
     signalGroup("SIGTERM");
     const timer = setTimeout(() => signalGroup("SIGKILL"), STOP_GRACE_MS);
@@ -1468,20 +1088,10 @@ export class LspClient {
     const pending = this.documentSync.get(uri);
     if (pending) { await pending; return; }
     const sync = Promise.resolve().then(() => {
-      // lstat, so a symlink is seen as itself. Following it handed the server the TARGET's whole text under
-      // the LINK's uri, and every answer then came back at a line number the rendered body does not have —
-      // the page shows a symlink as the one line git stores for it, the target path. Lenses, inlay hints
-      // and diagnostics were quietly dropped by the `[data-line-index]` lookup and by setSourceCursor's
-      // clamp, so the file looked merely unsupported. One rule holds it together: the text the server is
-      // given is the text the reader is shown.
       const stat = lstatSync(absolute);
       const opened = this.opened.get(uri);
       if (opened?.mtimeMs === stat.mtimeMs) return;
-      // LSP versions are monotonically increasing signed integers. A millisecond epoch exceeds the
-      // 32-bit integer accepted by JetBrains' Kotlin server, so keep mtime only for change detection.
       const version = opened ? opened.version + 1 : 1;
-      // Same decode the viewer uses, or a BOM shifts every column on line 1 — and for a link, the same
-      // one line the viewer shows (collectSourceFiles, src/diff.ts), which is the blob git stores.
       const text = stat.isSymbolicLink() ? readlinkSync(absolute) : readTextFile(absolute);
       const lines = text.split("\n");
       const end = { line: Math.max(0, lines.length - 1), character: (lines[lines.length - 1] ?? "").length };
@@ -1490,11 +1100,6 @@ export class LspClient {
         this.announceSave(uri, text);
       } else {
         this.notify("textDocument/didChange", { textDocument: { uri, version }, contentChanges: [{ text }] });
-        // The diagnostics held for this uri describe the version that just stopped existing, at ITS line
-        // numbers. Keeping them — and keeping the uri in publishedUris, which is what tells diagnosticsFor
-        // not to wait — meant the next read answered from the previous version: an agent fixed a type error,
-        // the watch rebuild re-read the file, and the squiggle stayed, parked on whatever line had moved
-        // into its place. Forget both, so the next read waits for the server's fresh publish.
         this.diagnostics.delete(uri);
         this.publishedUris.delete(uri);
         this.announceSave(uri, text);
@@ -1518,8 +1123,6 @@ export class LspClient {
         env: { ...process.env, ...this.server.env },
         stdio: ["pipe", "pipe", "pipe"],
         windowsHide: true,
-        // Own process group, so killTree() can reap the server's own children (tsserver, the Kotlin JVM)
-        // instead of orphaning them. stdio stays piped, so this is not a true detach.
         detached: true,
       });
       this.child = child;
@@ -1530,7 +1133,6 @@ export class LspClient {
       }
       child.stdout.on("data", (chunk: Buffer) => this.consume(chunk));
       child.stderr.on("data", (chunk: Buffer) => {
-        // Opt-in diagnostics are useful for validating a newly bundled server without polluting the app UI.
         if (process.env.KAKAPO_LSP_DEBUG === "1") process.stderr.write(`[${this.server.name}] ${chunk.toString("utf8")}`);
       });
       child.stdin.on("error", (error) => {
@@ -1557,31 +1159,16 @@ export class LspClient {
         workspaceFolders: [{ uri: rootUri, name: this.root.split(/[\\/]/).pop() || "workspace" }],
         capabilities: {
           workspace: { configuration: true, workspaceFolders: true, symbol: {} },
-          // Declared for exactly one reason: rust-analyzer reports its `cargo check` run as work-done
-          // progress and reports it only to a client that says it can read progress. Without this line the
-          // notification below never arrives and there is no way to tell "checked, clean" from "not yet
-          // checked" — see the flycheck state on the class for what that cost.
           window: { workDoneProgress: true },
-          // Servers push textDocument/publishDiagnostics on didOpen regardless; declaring the client capability
-          // just advertises support so servers that gate the notification on it still send it.
           textDocument: {
             definition: { linkSupport: true },
             references: {},
             implementation: { linkSupport: true },
             publishDiagnostics: { relatedInformation: false },
-            // Declared because these two are gated on the client capability by servers that register
-            // their providers dynamically; the requests above are answered whether or not they are named.
             foldingRange: { lineFoldingOnly: true },
             documentHighlight: {},
-            // Code Vision and inlay hints. `resolveSupport` is deliberately NOT declared: a lens or hint
-            // this client cannot draw without a second round trip is skipped instead, and saying otherwise
-            // would invite servers to send unresolved stubs.
             codeLens: {},
             inlayHint: {},
-            // Declared in full because semantic tokens are gated on it: a server will not register the
-            // provider (and so sends no legend) unless the client says which shapes it can read. Only the
-            // whole-file request and the relative encoding — no deltas, no ranges, because this app
-            // re-reads a file when it changes rather than patching a token stream.
             semanticTokens: {
               requests: { full: true, range: false },
               formats: ["relative"],
@@ -1591,9 +1178,6 @@ export class LspClient {
           },
         },
       }).then((result) => {
-        // The semantic-token legend is the one thing in the initialize RESULT this client needs: the token
-        // stream is integers, and `tokenTypes[n]` is the only place that says what integer n means. It was
-        // being discarded with the rest of the result, which is why the stream could not be read.
         const provider = (result as { capabilities?: { semanticTokensProvider?: { legend?: { tokenTypes?: unknown } } } })
           ?.capabilities?.semanticTokensProvider;
         const types = provider?.legend?.tokenTypes;
@@ -1639,9 +1223,6 @@ export class LspClient {
       } catch (error) {
         lastError = error;
         const message = errorMessage(error);
-        // Native servers such as rust-analyzer acknowledge initialize before their workspace model is
-        // loaded. Treat only their explicit transient responses as retryable; transport failures still
-        // quarantine the process immediately in ProjectAnalysis.
         if (!/file not found|workspace (?:is )?still loading|not (?:yet )?indexed|content modified/i.test(message)) throw error;
         await new Promise((resolveDelay) => setTimeout(resolveDelay, 150 * (attempt + 1)));
       }
@@ -1691,9 +1272,6 @@ export class LspClient {
       clearTimeout(pending.timer);
       this.pending.delete(message.id);
       if (message.error) {
-        // The CODE matters, not only the message: -32601 (method not found) is a server saying it does not
-        // offer this request at all, which is a different answer from "I looked and found nothing" — and
-        // the difference is exactly what a hierarchy view has to tell the reader.
         const failure = new Error(message.error.message || "language server request failed") as Error & { code?: number };
         failure.code = Number(message.error.code);
         pending.reject(failure);
@@ -1715,7 +1293,7 @@ export class LspClient {
     } else if (message.method === "workspace/applyEdit") {
       result = { applied: false, failureReason: "Kakapo analysis is read-only" };
     }
-    try { this.send({ jsonrpc: "2.0", id: message.id, result }); } catch { /* process failure is handled elsewhere */ }
+    try { this.send({ jsonrpc: "2.0", id: message.id, result }); } catch { }
   }
 
   private handleNotification(message: JsonRpcMessage): void {
@@ -1734,8 +1312,6 @@ export class LspClient {
     }
     if (message.method === "$/progress") {
       const params = message.params as { token?: unknown; value?: { kind?: unknown } } | undefined;
-      // rust-analyzer's token is `rust-analyzer/flycheck/<n>`, one per workspace it checks, so count the
-      // runs rather than tracking a single flag: readiness is "a check has finished and none is running".
       if (typeof params?.token !== "string" || !params.token.includes("flycheck")) return;
       const kind = params.value?.kind;
       if (kind === "begin") this.checksRunning += 1;
@@ -1758,9 +1334,6 @@ export class LspClient {
   }
 
   private async waitForWorkspaceReady(): Promise<void> {
-    // These bundled servers do not publish a portable "workspace ready" notification. Their initialize
-    // response only means the protocol is live, not that definitions are queryable. Keep the grace in the
-    // background prewarm path so first-use navigation is deterministic on slower workstations.
     const startupGraceMs = this.server.family === "php" ? 6_000 : this.server.family === "kotlin" ? 75_000 : 0;
     if (startupGraceMs) {
       this.startupGrace ??= new Promise<void>((resolveReady) => {
@@ -1773,8 +1346,6 @@ export class LspClient {
     await new Promise<void>((resolveReady) => {
       const timer = setTimeout(() => {
         this.workspaceWaiters.delete(done);
-        // Older rust-analyzer builds do not emit experimental/serverStatus to every client. One bounded
-        // grace period is enough for initial cargo metadata; never charge the delay again in this process.
         this.workspaceQuiescent = true;
         resolveReady();
       }, 3_000);
@@ -1798,16 +1369,12 @@ export class LspClient {
   }
 }
 
-/** A server answering "I do not implement that request" (JSON-RPC MethodNotFound), not "nothing found". */
 export function isMethodNotFound(error: unknown): boolean {
   const code = (error as { code?: number } | undefined)?.code;
   if (code === -32601) return true;
-  // Some servers answer an unknown method with a plain error instead of the code; their wording is
-  // consistent enough to recognise, and the cost of a false positive here is a clearer message.
   return /unhandled method|method not found|unsupported method|no handler/i.test(errorMessage(error));
 }
 
-/** LSP SymbolKind (1-26) -> the short name the UI filters and labels by. */
 const LSP_SYMBOL_KINDS = [
   "file", "module", "namespace", "package", "class", "method", "property", "field", "constructor",
   "enum", "interface", "function", "variable", "constant", "string", "number", "boolean", "array",
@@ -1830,30 +1397,6 @@ type LspDocumentSymbolLike = {
   children?: unknown;
 };
 
-/**
- * Flattens either documentSymbol shape into one list, in the order the file reads, with nesting.
- *
- * BOTH of those have to be derived rather than trusted, because the flat shape gives neither. Asked of the
- * real typescript-language-server, `src/store.ts` came back as `SymbolInformation[]`: every symbol at the
- * top level and `makeStore` listed before the class it is declared after. So:
- *
- *   order   sorted by start line. A parent always starts before its children, so this keeps the
- *           hierarchical shape's depth-first order and fixes the flat shape's arbitrary one.
- *   depth   counted from RANGE CONTAINMENT, not from `containerName` (a string that may name a type in
- *           another file) and not from the reply's structure (which the flat shape does not have).
- */
-/**
- * A hover answer, as Markdown. Three wire shapes are in the field and all three are accepted:
- *
- *   `MarkupContent`           `{ kind: "markdown" | "plaintext", value }` — what every current server sends
- *   `MarkedString`            a bare string, or `{ language, value }` — the 3.0 shape, still sent by some
- *   `MarkedString[]`          a list of either, which is how a signature and its doc arrive separately
- *
- * A `{ language, value }` entry becomes a fenced block rather than being flattened: it IS the signature,
- * and the renderer highlights a fenced block with the same tokenizer the source view uses. Plaintext is
- * fenced for the same reason — it is code far more often than it is a sentence, and fencing it stops a
- * leading `#` or `*` in a C comment from being read as Markdown.
- */
 export function normalizeHoverResult(result: unknown): string {
   const value = result as { contents?: unknown } | undefined;
   if (!value || typeof value !== "object") return "";
@@ -1875,7 +1418,6 @@ export function normalizeHoverResult(result: unknown): string {
       out.push(marked.value);
     }
   }
-  // Servers repeat themselves: tsserver answers a signature and then the same signature inside the doc.
   const seen = new Set<string>();
   return out.filter((entry) => {
     const key = entry.trim();
@@ -1893,16 +1435,9 @@ export function normalizeDocumentSymbols(result: unknown): AnalysisSymbol[] {
     depth: flat.filter((other) => other !== symbol
       && other.lineIndex <= symbol.lineIndex
       && symbol.endLineIndex <= other.endLineIndex
-      // A symbol cannot contain another that spans exactly the same lines — that is the same place, and
-      // one of the two would otherwise be reported as inside itself.
       && (other.lineIndex < symbol.lineIndex || symbol.endLineIndex < other.endLineIndex)).length,
   }));
   if (byContainment.some((symbol) => symbol.depth > 0)) return byContainment;
-  // Containment found nothing. Either the file genuinely has no nesting (Go: a method is not inside its
-  // struct), or the server reported each symbol's range as its NAME rather than its body — which is what
-  // Eclipse JDT LS does, leaving every Java class and its methods looking like siblings. `containerName`
-  // is the second signal, used only here, and only one level deep because a single string cannot describe
-  // more than "inside that one".
   const names = new Set(flat.map((symbol) => symbol.name));
   return byContainment.map((symbol) => ({
     ...symbol,
@@ -1916,8 +1451,6 @@ function flattenDocumentSymbols(result: unknown, depth: number): AnalysisSymbol[
   for (const value of values) {
     const name = typeof value?.name === "string" ? value.name : "";
     if (!name) continue;
-    // selectionRange is the NAME's position (where a jump should land); range is the whole body (how far
-    // the symbol extends). SymbolInformation has neither and carries one location instead.
     const selection = value.selectionRange?.start ?? value.range?.start ?? value.location?.range?.start;
     const end = value.range?.end ?? value.location?.range?.end;
     const lineIndex = Math.max(0, Number(selection?.line) || 0);
@@ -1946,19 +1479,6 @@ export function normalizeLocationResult(result: unknown, root: string): Analysis
     const uri = value.targetUri || value.uri || nested?.uri;
     const range = value.targetSelectionRange || value.targetRange || value.range || nested?.range;
     if (!uri || !range?.start) continue;
-    // A non-file URI is not a path, and treating it as one is how this failed: resolve() read
-    // "jrt:/…/Instant.class" as a RELATIVE path and prefixed the working directory, producing
-    // "<repo>/jrt:/…/Instant.class" — a path that exists nowhere. The read that followed came back empty,
-    // and the text filter in navigationLocations dropped the location for having no visible characters.
-    // So Kotlin and Java reported "definition not found" for every stdlib and dependency symbol, while the
-    // server had answered correctly every time.
-    // `phar:///…/phpactor.phar/vendor/…/date.php` IS a path, scheme notwithstanding: the archive is a real
-    // file and the rest of it names an entry inside (archive-source.ts reads those). Phpactor answers every
-    // stdlib definition with this scheme, and classifying it as "not a path" sent all of them to the
-    // external reader — which can only ask a language server for the text, and no server speaks `phar`. So
-    // they ended at "compiled, with no source to open" while the source sat in the archive. Rewritten here,
-    // once, so the rest travels the ordinary library route: allowlisted below, read in main, opened
-    // read-only. One spelling reaches the renderer, which is what isKnownLibraryPath has to match.
     const target = uri.startsWith("phar://") ? `file://${uri.slice("phar://".length)}` : uri;
     if (!target.startsWith("file:")) {
       externalUris.add(target);
@@ -1975,26 +1495,20 @@ export function normalizeLocationResult(result: unknown, root: string): Analysis
     }
     let absolute: string;
     try { absolute = fileURLToPath(target); } catch { continue; }
-    // Language servers commonly canonicalize symlinks (macOS also reports /private/var for /var).
-    // Compare canonical paths so an in-workspace result is reported relative to the root, and anything
-    // outside it is kept as a library location — an absolute path the reviewer can read but not edit.
     let canonicalRoot: string;
     let canonicalAbsolute: string;
     try { canonicalRoot = realpathSync(root); } catch { canonicalRoot = resolve(root); }
     try { canonicalAbsolute = realpathSync(absolute); } catch { canonicalAbsolute = resolve(absolute); }
-    if (canonicalAbsolute === canonicalRoot) continue; // the root directory itself is not a location
+    if (canonicalAbsolute === canonicalRoot) continue;
     const rel = relative(canonicalRoot, canonicalAbsolute).replace(/\\/g, "/");
     const inside = Boolean(rel) && !rel.startsWith("../") && resolve(canonicalRoot, rel) === canonicalAbsolute;
-    const libraryPath = canonicalAbsolute.replace(/\\/g, "/"); // one spelling, so a renderer round-trip still matches
+    const libraryPath = canonicalAbsolute.replace(/\\/g, "/");
     if (!inside) libraryPaths.add(libraryPath);
     out.push({
       path: inside ? rel : libraryPath,
       ...(inside ? {} : { library: true as const }),
       lineIndex: nonNegativeInt(range.start.line) ?? 0,
       column: nonNegativeInt(range.start.character) ?? 0,
-      // `?? fallback`, not `|| fallback`: a range legitimately ENDS at character 0 of the next line, and
-      // treating that 0 as missing reported the end at the start's column instead, overshooting the
-      // highlight by however far into the line the symbol began.
       endLineIndex: nonNegativeInt(range.end?.line) ?? nonNegativeInt(range.start.line) ?? 0,
       endColumn: nonNegativeInt(range.end?.character) ?? nonNegativeInt(range.start.character) ?? 0,
       name: value.name,

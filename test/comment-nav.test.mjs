@@ -1,10 +1,3 @@
-// CORE USER FLOW: reaching and acting on review-comment boxes with the keyboard.
-//
-// A comment attached to a line is a selectable "stop" the caret lands on while arrowing through a file.
-// Once a box is selected it can be deleted (Backspace), edited (e), or stepped off (arrow / Escape). This
-// must behave identically in the diff view and the source view. Guards the regression where the diff view's
-// caret handler had NO comment-box logic at all, so every diff comment — whether made by dragging a range
-// or by a single-line caret — was unreachable by keyboard (and therefore un-editable via `e`).
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -39,7 +32,6 @@ async function diffCommentOnFirstLine(v, text) {
   await v.writeAndSave(text);
 }
 
-// ---------- diff view ----------
 test("diff: ArrowDown lands on the comment box attached to the caret line", async () => {
   const v = await loadViewer(html);
   await diffCommentOnFirstLine(v, "q1");
@@ -53,10 +45,10 @@ test("diff: ArrowDown lands on the comment box attached to the caret line", asyn
 test("diff: ArrowUp from the line below the comment re-selects the box", async () => {
   const v = await loadViewer(html);
   await diffCommentOnFirstLine(v, "q1");
-  v.key("ArrowDown"); await v.settle(20); // onto the box
-  v.key("ArrowDown"); await v.settle(20); // step off, caret on the next code line
+  v.key("ArrowDown"); await v.settle(20);
+  v.key("ArrowDown"); await v.settle(20);
   assert.equal(v.selectedCommentBox(), null, "stepped off the box");
-  v.key("ArrowUp"); await v.settle(20); // back up onto the box from below
+  v.key("ArrowUp"); await v.settle(20);
   assert.ok(v.selectedCommentBox(), "box re-selected from below with ArrowUp");
   v.close();
 });
@@ -106,15 +98,11 @@ test("diff: e opens the editor prefilled with the existing comment text", async 
   v.close();
 });
 
-// Coming back UP onto a comment is how you reach one you have already read past. That entry used to land on
-// the row's LAST card — the "Continue this thread" stub, which is an affordance, not a turn — so Backspace
-// and `e` hit a card with nothing to delete or edit: the first press did nothing and the comment only went
-// away on the second.
 test("diff: ArrowUp onto a comment selects the comment itself, so one Backspace deletes it", async () => {
   const v = await loadViewer(html);
   await diffCommentOnFirstLine(v, "delete me from below");
-  v.key("ArrowDown"); await v.settle(20); // onto the comment
-  v.key("ArrowDown"); await v.settle(20); // off the row, onto the next code line
+  v.key("ArrowDown"); await v.settle(20);
+  v.key("ArrowDown"); await v.settle(20);
   assert.equal(v.selectedCommentBox(), null, "stepped off the row");
 
   v.key("ArrowUp"); await v.settle(20);
@@ -150,7 +138,6 @@ test("diff (lazy-LOAD): single-line comment is selectable and editable", async (
   v.close();
 });
 
-// ---------- source view (must behave identically) ----------
 test("source: ArrowDown selects the comment box (parity with diff)", async () => {
   const v = await loadViewer(html);
   await v.openSourceFile("src/app.ts");
@@ -175,16 +162,8 @@ test("source: e opens the editor prefilled (parity with diff)", async () => {
   v.close();
 });
 
-// ---------- stepping OFF the box has to clear whatever is in the way ----------
-//
-// The step off a selected box used to read exactly one sibling row and, if that row was not a line it could
-// address, put the caret back where it started — so ArrowDown did nothing at all, with no hint why. Two
-// rows that are routinely next to a comment box hit that: a code-vision note, which is painted ABOVE the
-// line it annotates and is therefore the row below every box on the line before one; and, in the diff, any
-// row belonging to the other pane's reality (a placeholder, a hunk header, a fold, a comment spacer).
 test("source: stepping off a box clears a code-vision row and reaches the next line", async () => {
   const v = await loadViewer(html, {
-    // A lens on line 2 (lineIndex 1) puts its row between the box on line 1 and line 2 itself.
     analysisBridge: (request) => {
       const base = { ok: true, generation: 0, engine: "lsp", confidence: "semantic", locations: [] };
       if (request.kind === "codeLens") return { ...base, lenses: [{ lineIndex: 1, title: "2 references" }] };
@@ -201,8 +180,6 @@ test("source: stepping off a box clears a code-vision row and reaches the next l
   v.key("ArrowDown"); await v.settle(20);
   const box = v.selectedCommentBox();
   assert.ok(box, "box selected");
-  // Re-read the row here: saving a comment re-renders the body, so a lens element captured before the save
-  // is a detached node and comparing against it would pass this test for the wrong reason.
   const below = box.nextElementSibling;
   assert.ok(below && below.classList.contains("code-vision-row"),
     `the lens row really is what the step has to walk past (got ${below && below.className})`);
@@ -212,10 +189,6 @@ test("source: stepping off a box clears a code-vision row and reaches the next l
   v.close();
 });
 
-// A comment on a DELETED line lives in the left pane. The step resolved every sibling against the right
-// pane's row list, where no left-pane row has an index, so it answered "cannot address that" for the next
-// code line as readily as for a placeholder: the commonest review comment there is could not be left with
-// an arrow key at all.
 test("diff: stepping off a box on a deleted line moves down that same pane", async () => {
   const { html: deletion } = await makeReviewHtml([
     { path: "src/keep.ts", before: "export const keep = 1;\n", after: "export const keep = 1;\n" },
@@ -243,8 +216,6 @@ test("diff: stepping off a box on a deleted line moves down that same pane", asy
   v.close();
 });
 
-// F8 / Shift+F8 step between review comments the way F7 steps between changes — changes on one key, comments
-// on the next one over. Cmd+F7 does the same and stays for muscle memory.
 test("F8 and Shift+F8 walk the comments, mirroring F7 for changes", async () => {
   const v = await loadViewer(html);
   await v.openSourceFile("src/app.ts");
@@ -258,8 +229,6 @@ test("F8 and Shift+F8 walk the comments, mirroring F7 for changes", async () => 
   await v.settle(60);
   assert.equal(v.storedComments().length, 2, "two comments to walk between");
 
-  // caretLine, not the source row: a comment on a changed line is shown in the diff now, whichever view the
-  // walk started in (revealComment), so reading only the source view reads the view and not the step.
   const cursorLine = () => v.caretLine();
   const [a, b] = v.storedComments().map((c) => c.line).sort((x, y) => x - y);
 
@@ -278,9 +247,6 @@ test("F8 and Shift+F8 walk the comments, mirroring F7 for changes", async () => 
   v.close();
 });
 
-// The diff shows one file at a time, everything else display:none. Stepping to a comment in ANOTHER file
-// placed the caret inside that hidden wrapper: the chrome updated — the base-version label named the target —
-// while the reader kept looking at the previous file and nothing appeared to happen.
 test("F8 to a comment in another file switches the diff to that file", async () => {
   const { html: twoFiles } = await makeReviewHtml([
     { path: "src/a.ts", before: "export const a = 1;\n", after: "export const a = 2;\n" },
@@ -291,8 +257,6 @@ test("F8 to a comment in another file switches the diff to that file", async () 
     const wrapper = v.$("#diff2html-container .d2h-file-wrapper:not(.df-inactive)");
     return wrapper ? (wrapper.querySelector(".d2h-file-name")?.textContent || "").trim() : null;
   };
-  // clickFirstDiffLine() always takes the first wrapper in the DOM; this comment has to land in the file the
-  // jump comes FROM being a different one, so click inside the file that is actually on screen.
   await v.openDiffFor("src/b.ts");
   assert.equal(shownFile(), "src/b.ts");
   const shown = v.$("#diff2html-container .d2h-file-wrapper:not(.df-inactive)");
@@ -316,10 +280,6 @@ test("F8 to a comment in another file switches the diff to that file", async () 
   v.close();
 });
 
-// An agent's explanation and a reviewer's question are the same thing to someone walking a file: a note on
-// a line. They used to be two keys — F8 for comments, a second one for notes — so F8 silently skipped every
-// explanation the agent had left. One list now, sorted together, a note ahead of a comment on a line they
-// share (the order the thread itself renders them in), and one key that walks all of it.
 test("the comment navigation list contains both kinds", () => {
   const comments = readFileSync(new URL("../src/viewer/07-comments.js", import.meta.url), "utf8");
   assert.match(comments, /function sortedNavThread\(\)\s*\{\s*\n\s*return sortedNavComments\(\);/,
@@ -332,10 +292,6 @@ test("the comment navigation list contains both kinds", () => {
     "and every card on it is reached by its own id — the same tail a notification click uses");
 });
 
-// F8 stepped to the first note and then stopped dead. commentNavOrder ranks only files the DIFF contains —
-// fine while every comment was anchored to a change, but an agent's codebase map anchors notes in files that
-// are not part of the diff at all. Those all collapsed to rank Infinity, the current file came back unranked,
-// and stepAnchor answered every press with list[0]. Every anchor needs a place in the order.
 test("stepping keeps working through notes in files the diff does not contain", () => {
   const comments = readFileSync(new URL("../src/viewer/07-comments.js", import.meta.url), "utf8");
   assert.match(comments, /function navOrderFor\(list\)/, "the order is built from the list, not only from the diff");
@@ -345,15 +301,11 @@ test("stepping keeps working through notes in files the diff does not contain", 
     "and stepping uses it, so the current file is rankable too");
 });
 
-// One comment per thread. The "Continue this thread" box that used to sit under the last card is gone, so a
-// thread holds exactly one turn of the reviewer's — and asking for a comment on a line that already has one
-// re-opens THAT comment rather than starting a second beside it.
 test("diff: a thread holds one comment; asking again edits it instead of adding another", async () => {
   const v = await loadViewer(html);
   await diffCommentOnFirstLine(v, "q1");
   assert.equal(v.storedComments().length, 1);
 
-  // The caret is still on the commented line: ask again there.
   await v.openComposer("q");
   const box = v.visibleComposerInput();
   assert.ok(box, "the composer opened");
@@ -362,16 +314,12 @@ test("diff: a thread holds one comment; asking again edits it instead of adding 
   assert.equal(v.storedComments().length, 1, "still one comment on this thread");
   assert.equal(v.storedComments()[0].text, "q1 revised", "the existing one was edited");
 
-  v.key("ArrowDown"); await v.settle(20); // the comment
-  v.key("ArrowDown"); await v.settle(20); // straight off the row: there is nothing else in the thread
+  v.key("ArrowDown"); await v.settle(20);
+  v.key("ArrowDown"); await v.settle(20);
   assert.equal(v.selectedCommentBox(), null, "the thread has one card and the arrows step past it");
   v.close();
 });
 
-// F8 went to the next note and then came BACK. Centring a thread row retries for a few frames, because the
-// row can be built late (a long file, lazily rendered rows) — but the retry did not check that it was still
-// the target anyone wanted. So a row that finally arrived two presses later dragged the view back to a note
-// the reader had already left. jsdom has no scrollIntoView and no layout, so this is pinned at the source.
 test("a thread-centring retry gives up as soon as a newer one is asked for", () => {
   const source = readFileSync(new URL("../src/viewer/07-comments.js", import.meta.url), "utf8");
   const fn = source.match(/function centerThreadRow\([\s\S]*?\n\}/)?.[0];
@@ -384,17 +332,10 @@ test("a thread-centring retry gives up as soon as a newer one is asked for", () 
     "the retry passes its own claim on, rather than minting a new one");
 });
 
-// "F8 moved to the file but the comment is nowhere." Going to a comment opened the file and placed the caret
-// one frame later — but on a lazy review that frame is spent fetching, so setSourceCursor found no content,
-// returned without doing anything, and the body then finished painting at the TOP of the file. The card was
-// in the DOM the whole time, four hundred lines below the fold, with nothing ever coming back for it. Here
-// the note sits at line 50 of a file whose content arrives on a delay, exactly as an IPC read does.
 test("going to a comment waits for a lazily fetched file instead of placing the caret a frame early", async () => {
   const line = (n, head) => [`const head = ${head};`, ...Array.from({ length: n - 1 }, (_, i) => `const v${i + 2} = ${i + 2};`)].join("\n") + "\n";
   const files = [
     { path: "src/app.ts", before: "const a = 1;\n", after: "const a = 9;\n" },
-    // Changed at line 1 only, so with the fixture's 12 lines of context no hunk reaches line 50: the walk
-    // has to fall out of the diff and into the source view, which is where the race lives.
     { path: "src/far.ts", before: line(60, 1), after: line(60, 9) },
   ];
   const build = await makeReviewHtml(files, { lazyLoad: true, app: true });
@@ -410,15 +351,11 @@ test("going to a comment waits for a lazily fetched file instead of placing the 
       deferred: false,
     }), 60)),
   });
-  await v.openSourceFile("src/app.ts"); // the reader is already browsing, so the index is here
+  await v.openSourceFile("src/app.ts");
 
   const seq = v.agentSays({ kind: "note", path: "src/far.ts", line: 50, group: 1, text: "far down a file that is still being fetched" });
   await v.settle(40);
   v.window.revealComment(seq);
-  // Not settle(400): the chain this waits on is fetch -> repaint -> frame -> caret, and its wall clock
-  // depends on what else the runner is doing, so a fixed sleep failed here roughly one run in six. Waiting
-  // for the landing itself keeps the guard — a build that never places the caret runs the cap out and the
-  // assertions below still fail.
   await v.until(() => v.caretLine() === 50 && v.$all("#source-body .source-row").length === 61);
 
   assert.equal(v.$("#source-viewer")?.dataset.openPath, "src/far.ts", "the file opened");
@@ -428,11 +365,6 @@ test("going to a comment waits for a lazily fetched file instead of placing the 
   v.close();
 });
 
-// Two notes on ONE line. Notes accumulate in the repository's shared knowledge file, so a second explanation
-// of the same code puts a second note on the same anchor — and the walk could not tell them apart, because a
-// caret is a line and a line does not name a card. It always resolved to the first one, so stepping off the
-// second computed its way back to the first and handed the second straight back: F8 pressed forever without
-// moving, with the other note unreachable.
 test("F8 steps between two notes that share one line, and still treats a thread as one stop", async () => {
   const { html } = await makeReviewHtml([
     { path: "src/app.ts", before: "const a = 1;\nconst b = 2;\nconst c = 3;\n", after: "const a = 9;\nconst b = 8;\nconst c = 7;\n" },
@@ -456,7 +388,6 @@ test("F8 steps between two notes that share one line, and still treats a thread 
   await v.settle(40);
   assert.equal(seqOf(), first, "and comes back — two notes on one line are two stops");
 
-  // A question and the answer to it DO share an anchor, and they are one conversation, so they stay one stop.
   v.window.addComment("q", "src/app.ts", 2, "const b = 8;", "why?");
   await v.settle(40);
   const question = v.storedComments().find((c) => c.text === "why?").seq;
@@ -472,9 +403,6 @@ test("F8 steps between two notes that share one line, and still treats a thread 
   v.close();
 });
 
-// Where you were is part of where the comment is. Going back used to prefer the diff whenever the diff could
-// show the line at all, so a comment written while reading the whole file came back as two narrow hunk panes —
-// the context it was made in taken away by the act of returning to it.
 test("a comment comes back in the view it was written in, and survives the thread-file round trip", async () => {
   const { html } = await makeReviewHtml([
     { path: "src/app.ts", before: "const a = 1;\nconst b = 2;\n", after: "const a = 9;\nconst b = 8;\n" },
@@ -482,7 +410,6 @@ test("a comment comes back in the view it was written in, and survives the threa
   const v = await loadViewer(html);
   const w = v.window;
 
-  // Written while reading the FILE — on a changed line, so the diff could perfectly well show it.
   await v.openSourceFile("src/app.ts");
   assert.equal(w.isSourceViewerVisible(), true, "in the file view to start with");
   w.addComment("q", "src/app.ts", 1, "const a = 9;", "read the whole file to ask this");
@@ -490,7 +417,6 @@ test("a comment comes back in the view it was written in, and survives the threa
   const fromFile = v.storedComments().find((c) => c.text === "read the whole file to ask this").seq;
   assert.equal(v.storedComments().find((c) => c.seq === fromFile).view, "source", "the view is recorded with the line");
 
-  // Written in the DIFF, on the other changed line.
   w.showDiffView(false);
   await v.settle(40);
   assert.equal(w.isDiffViewVisible(), true);
@@ -499,17 +425,14 @@ test("a comment comes back in the view it was written in, and survives the threa
   const fromDiff = v.storedComments().find((c) => c.text === "asked beside the change").seq;
   assert.equal(v.storedComments().find((c) => c.seq === fromDiff).view, "diff");
 
-  // From the diff, the file-view comment goes back to the file view — even though the diff has its line.
   w.revealComment(fromFile);
   await v.settle(80);
   assert.equal(w.isSourceViewerVisible(), true, "back to the file it was read in, not to the hunks");
 
-  // …and the other one goes the other way, from wherever you are.
   w.revealComment(fromDiff);
   await v.settle(80);
   assert.equal(w.isDiffViewVisible(), true, "and a comment made beside the change comes back beside it");
 
-  // Every save re-serialises the whole thread, so a field not written back is a field the next comment deletes.
   v.agentSays({ kind: "note", path: "src/app.ts", line: 2, text: "an unrelated note, forcing a rewrite" });
   await v.settle(60);
   assert.equal(v.storedComments().find((c) => c.seq === fromFile).view, "source", "the view survives the round trip");
@@ -517,12 +440,6 @@ test("a comment comes back in the view it was written in, and survives the threa
   v.close();
 });
 
-// A comment can name a file this review does not have. An agent writes a note about a path that was never
-// in the diff; a reply arrives orphaned and carries no path at all. `revealComment` reported success for
-// those because it had found the RECORD, so F8 chose one, nothing opened, the caret did not move — and the
-// next press, which works out where it is FROM the caret, chose the same one again. One such note made
-// every real comment in the review unreachable from the keyboard, in both directions, with the same
-// sentence on screen each time and no surface saying which record was eating the key.
 test("stepping walks past a comment whose file this review does not have", async () => {
   const v = await loadViewer(html);
   try {
@@ -530,7 +447,6 @@ test("stepping walks past a comment whose file this review does not have", async
     const real = v.window.reviewComments[0];
     assert.ok(real, "the premise: there is one reachable comment");
 
-    // The shape an agent writes into comments.jsonl, naming a file nobody has.
     v.window.reviewComments.push({
       seq: 99, kind: "note", by: "agent", path: "src/does-not-exist.ts", line: 3,
       from: 3, to: 3, side: null, code: "", anchorCode: "", text: "about a file that is not here",
@@ -540,8 +456,6 @@ test("stepping walks past a comment whose file this review does not have", async
     assert.equal(v.window.commentIsReachable({ path: "src/does-not-exist.ts" }), false, "and it is not reachable");
     assert.equal(v.window.commentIsReachable(real), true, "while the real one is");
 
-    // Six presses in each direction: the walk must keep landing on the reachable comment rather than
-    // stopping on the one it cannot open.
     for (const delta of [1, 1, 1, -1, -1, -1]) {
       v.window.gotoComment(delta);
       await v.settle(20);
@@ -553,18 +467,11 @@ test("stepping walks past a comment whose file this review does not have", async
   }
 });
 
-// `sourceByPath` is not the review's file list on the desktop. A lazy review seeds the page with the
-// CHANGED files and fetches the rest only when the Files tab is first opened — which is not where F8 is
-// pressed, because a lazy review opens on the diff. Asked before that fetch, "does the review have this
-// file" answered no for every unchanged one, so the walk dropped the reviewer's own comments and told
-// them the review has none of their files. An apparent miss is a reason to FETCH and ask again, which is
-// what openPathReference does a few lines away for the same reason.
 test("stepping reaches a comment on a file the lazy review has not fetched yet", async () => {
   const UNCHANGED = "src/untouched.ts";
   const v = await loadViewer(lazy.html, {
     lazySourceData: lazy.sourceData,
     getDiffBody: (index) => lazy.bodies[index] || "",
-    // The index holds the whole project; the page starts with only what changed.
     projectIndexBridge: () => ({
       sourceFilesMeta: [
         { path: "src/app.ts", name: "app.ts", content: "", embedded: true },
@@ -584,18 +491,11 @@ test("stepping reaches a comment on a file the lazy review has not fetched yet",
     v.window.refreshComments();
     await v.settle(20);
 
-    // Two presses inside one round trip. stepAnchor reads the LIVE caret, so both would run afterwards
-    // from the same position and land on the same comment — the second press looking like it did nothing
-    // while actually having been spent. One fetch, one step; the index is loaded by the time the reader
-    // can press again, and every press after that is immediate.
-    // Count the LANDINGS, not the requests: ensureProjectIndex memoizes its promise, so the request count
-    // is 1 either way and an assertion on it watches nothing. What the guard decides is how many steps
-    // run when the fetch resolves.
     v.window.eval(`window.__reveals = 0; var __reveal = revealComment;
       revealComment = function (seq) { window.__reveals += 1; return __reveal(seq); };`);
     v.window.gotoComment(1);
     v.window.gotoComment(1);
-    await v.settle(80); // the index fetch is a round trip
+    await v.settle(80);
     assert.equal(v.window.lastRevealedSeq, 77,
       "the walk fetched the index and found the file, rather than declaring it absent");
     assert.equal(v.window.__reveals, 1,
@@ -605,10 +505,6 @@ test("stepping reaches a comment on a file the lazy review has not fetched yet",
   }
 });
 
-// And when something IS reachable, the press does not wait for that fetch. The index walk is the whole
-// repository — the work a diff-first launch exists to defer — and one comment on an unchanged file is
-// enough to look like a miss, so holding the key press for it put a repo walk in front of a caret move
-// that had somewhere to go all along. Land now, fetch for the presses after.
 test("a press that has somewhere to go does not wait for the index", async () => {
   const v = await loadViewer(lazy.html, {
     lazySourceData: lazy.sourceData,
@@ -623,7 +519,6 @@ test("a press that has somewhere to go does not wait for the index", async () =>
     const real = v.window.reviewComments[0];
     assert.ok(real, "the premise: one comment sits on a changed file");
 
-    // …beside one that looks unreachable until the index arrives.
     v.window.reviewComments.push({
       seq: 88, kind: "c", by: "me", path: "src/untouched.ts", line: 1, from: 1, to: 1, side: null,
       code: "", anchorCode: "", text: "on a file the page has not been told about",
@@ -633,29 +528,13 @@ test("a press that has somewhere to go does not wait for the index", async () =>
 
     v.window.lastRevealedSeq = 0;
     v.window.gotoComment(1);
-    // No settle: the point is that the caret moved on the press, not after a round trip.
     assert.equal(v.window.lastRevealedSeq, real.seq, "it landed without waiting for the index");
-    // The press started a fetch for the NEXT one; let it land before the window goes, or its continuation
-    // runs against a torn-down document and the suite reports an unhandled rejection from a passing test.
     await v.settle(80);
   } finally {
     v.close();
   }
 });
 
-// F8 and Shift-F8 are one deferral and two intents.
-//
-// A press that cannot land waits for the project index, and the latch that holds it answers every press
-// during the wait with the same sentence rather than swallowing it — right, because stepAnchor reads the
-// live caret and two deferred steps would land on one comment. But the latch kept the FIRST press's
-// direction, which makes it right for a repeat and wrong for a reversal: press F8, wait out a 1.6 s repo
-// walk, change your mind, press Shift-F8, and the jump that finally arrives goes forwards. The press being
-// waited for is "go to a comment"; its direction is whatever was asked last.
-//
-// Its own fixture, with TWO unchanged files, because the direction only shows up with two places to go.
-// They have to be files the REVIEW has and the lazy page has not fetched yet — a comment on a file outside
-// the review is something main filters out before the renderer sees it (notesForWorkspace), and reaching
-// for one here hangs the page rather than failing it, which is a worse test than no test.
 const PAIR_FILES = [
   { path: "src/pair-a.ts", before: "export const a = 1;\n", after: "export const a = 1;\n" },
   { path: "src/pair-b.ts", before: "export const b = 2;\n", after: "export const b = 2;\n" },
@@ -671,14 +550,10 @@ before(async () => {
   pair = { html: r.html, bodies: await renderLazyBodies(r.build), sourceData: r.build.lazySourceData };
 });
 
-// Where a sequence of presses lands when every one of them has to wait for the index. Returns the seq, so
-// two sequences can be compared — asserting on one alone would pass if the direction were ignored and the
-// forward step happened to land in the same place.
 async function deferredLanding(deltas) {
   const v = await loadViewer(pair.html, {
     lazySourceData: pair.sourceData,
     getDiffBody: (index) => pair.bodies[index] || "",
-    // The index holds the whole project; the lazy page starts with only what changed.
     projectIndexBridge: () => ({
       sourceFilesMeta: PAIR_FILES.map((f) => ({
         path: f.path, name: f.path.split("/").pop(), content: "", embedded: true,
@@ -698,7 +573,7 @@ async function deferredLanding(deltas) {
     assert.equal(v.window.eval(`sourceByPath.has("src/pair-a.ts")`), false,
       "the premise: neither file has been fetched, so every press defers");
     for (const delta of deltas) v.window.gotoComment(delta);
-    await v.settle(120); // the index fetch is a round trip
+    await v.settle(120);
     return v.window.lastRevealedSeq;
   } finally {
     v.close();

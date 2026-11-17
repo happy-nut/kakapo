@@ -1,8 +1,3 @@
-// Library navigation: ⌘↓ on a symbol from a dependency used to go nowhere. Two separate things stopped it —
-// a definition outside the review root was dropped on the way out of the language server, and one inside
-// node_modules survived that but had no record to paint, because the project index skips node_modules on
-// purpose. These pin both halves, plus the boundary: the renderer may follow a definition anywhere a server
-// points, and may not name a file of its own.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -99,8 +94,6 @@ test("an absolute path no language server reported is refused", async () => {
 
     assert.equal(await h.ipc.invoke("kakapo:get-source", { path: secret }), null, "the renderer cannot name a file itself");
 
-    // Positive control: the same path, once a server has actually pointed at it, does open — so the refusal
-    // above is the allow-list working and not the file being unreadable for some other reason.
     locationFor(secret, h.root);
     const record = await h.ipc.invoke("kakapo:get-source", { path: secret });
     assert.ok(record && record.library, "a path a server reported is served");
@@ -121,9 +114,6 @@ test("a relative path still cannot escape the review root", async () => {
 });
 
 test("a phar definition target is a path, not a URI only a language server could read", () => {
-  // Phpactor answers every PHP stdlib definition with this scheme. Treating `phar://` as "not a path" sent
-  // them all to the external reader, which asks the naming server for the text — and no server speaks
-  // `phar`, so each one ended at "compiled, with no source to open" with the source sitting in the archive.
   const uri = "phar:///opt/php/phpactor.phar/vendor/jetbrains/phpstorm-stubs/date/date.php";
   const expected = "/opt/php/phpactor.phar/vendor/jetbrains/phpstorm-stubs/date/date.php";
   const [location] = normalizeLocationResult(

@@ -1,22 +1,5 @@
 import { git } from "./git.js";
 
-// Does the work under review collide with work that has landed on its base?
-//
-// This is the one thing GitKraken charges for that kakapo did not have and that fits what kakapo is: the
-// answer comes from the local object database, needs no network, no account, and never touches the working
-// tree, the index or a ref.
-//
-// `git merge-tree` is the obvious tool and the wrong one here. It compares two COMMITS, and the changes
-// kakapo exists to read are usually not committed yet — an agent has just written them — so it would be
-// silent in exactly the case that matters. (Its human-readable output is localized, too: on a Korean system
-// the conflict lines read "충돌 (내용)", so parsing its prose would be a bug waiting for a locale change.)
-//
-// What works for committed and uncommitted work alike is to ask both sides the same question against the
-// point where they diverged. Line numbers only mean something inside one revision, so both sides are read in
-// MERGE-BASE coordinates — the `-` ranges of each diff — and compared there. Overlapping ranges are what git
-// itself would call a conflict; the same file touched in different places is not a conflict, but it is worth
-// knowing about, so it is reported separately rather than folded into the same word.
-
 export type FileCollision = {
   path: string;
   /** "conflict": both sides changed the same lines. "diverged": same file, different lines. */
@@ -26,9 +9,7 @@ export type FileCollision = {
 };
 
 export type BaseDivergence = {
-  /** Where the review's base and its working tree parted company. */
   mergeBase: string;
-  /** Files the base changed since then that the review also changes. */
   collisions: FileCollision[];
 };
 
@@ -51,8 +32,6 @@ function oldRanges(diffText: string): Range[] {
   return ranges;
 }
 
-// Lines present in both sets of ranges. A zero-width range (an insertion) collides with any range that
-// contains the line it was inserted after, and with another insertion at the same point.
 function overlappingLines(ours: Range[], theirs: Range[]): number[] {
   const hit = new Set<number>();
   for (const a of ours) {
@@ -89,8 +68,6 @@ export function detectBaseDivergence(root: string, base: string, paths: string[]
   if (!base || !paths.length) return undefined;
   const mergeBase = git(root, ["merge-base", base, "HEAD"]);
   if (!mergeBase) return undefined;
-  // No separate "has the base moved?" question: when it has not, it IS the merge base, and the diff below
-  // is empty — which lands in the same `collisions: []` by the same path, one process cheaper.
   const touchedByBase = new Set(
     git(root, ["diff", "--name-only", `${mergeBase}..${base}`])
       .split("\n")
@@ -102,8 +79,6 @@ export function detectBaseDivergence(root: string, base: string, paths: string[]
 
   const collisions: FileCollision[] = [];
   for (const path of candidates) {
-    // Both diffs start at the merge base, so their `-` ranges are in the same coordinate system. The second
-    // has no second revision: that is the working tree, which is the whole reason merge-tree cannot do this.
     const theirs = oldRanges(git(root, ["diff", "--unified=0", `${mergeBase}..${base}`, "--", path]));
     const ours = oldRanges(git(root, ["diff", "--unified=0", mergeBase, "--", path]));
     if (!theirs.length || !ours.length) continue;

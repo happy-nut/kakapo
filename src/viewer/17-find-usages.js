@@ -1,27 +1,4 @@
-// Find Usages: the half of IntelliJ's code exploration that the structure port (16-structure.js) left out.
-//
-// ⌘B already answers "who uses this" as a caret popup — that is IntelliJ's Show Usages, and it is a flat
-// list. What it cannot say is WHAT each usage is, and that is the question a reviewer actually arrives
-// with: this symbol has forty references, which of them WRITE to it, which are imports, which are a line
-// of prose in a comment. IntelliJ answers it by grouping the usage view by usage type, so that is what
-// ⌥F7 does here.
-//
-// The type names are not invented. They are IntelliJ's own, read out of
-// `platform/usageView/resources/messages/UsageViewBundle.properties` in intellij-community — "Value read",
-// "Usage in extends/implements clause", "New instance creation" — and the ids below are that file's keys
-// with the `usage.type.` prefix dropped. A type IntelliJ has and a line of text cannot decide (field vs
-// local declaration needs to know whether the enclosing scope is a class body) is simply not in the table:
-// the alternative is a group header that is right about half the time, which is worse than no header.
-//
-// Ceiling, stated once: everything here classifies ONE LINE at a time, because one line of text is what an
-// analyzer answer carries. A block comment opened on a previous line is therefore invisible to it, and so
-// is a multi-line string. The comment/string zone scan below is honest about the line it is given and
-// nothing more.
-// ponytail: line-local zones. If this ever needs to be right about a `/*` three lines up, the masked
-// copy main already builds (maskNonCode in analysis-index.ts) is the thing to ask, not a bigger regex.
 
-// Which characters open a comment, by language family. `#` is not a comment in C and `//` is not one in
-// Python, and guessing wrong turns real code into a "Usage in comments" group.
 var USAGE_HASH_LANGUAGES = {
   python: 1, ruby: 1, bash: 1, shell: 1, sh: 1, zsh: 1, yaml: 1, yml: 1, toml: 1, perl: 1, r: 1,
   makefile: 1, dockerfile: 1, elixir: 1, julia: 1, nim: 1, ini: 1, properties: 1, conf: 1, gitignore: 1,
@@ -34,12 +11,6 @@ function usageLanguageOf(path) {
   return String((file && file.language) || '').toLowerCase();
 }
 
-/**
- * Which zone of the line column `column` sits in: 'code', 'comment' or 'string'.
- *
- * One left-to-right walk with a quote state, which is the only way to tell `"// not a comment"` from a
- * real one — and telling those apart is the whole reason this exists rather than a `line.indexOf('//')`.
- */
 function usageZoneAt(line, column, language) {
   var text = String(line || '');
   var limit = Math.max(0, Math.min(Number(column) || 0, text.length));
@@ -64,35 +35,19 @@ function usageZoneAt(line, column, language) {
   return quote ? 'string' : 'code';
 }
 
-// Every usage type this can decide, in the order the groups are shown — IntelliJ's own order: what the
-// usage IS, then the value accesses, then the ones that are not code at all.
 var USAGE_TYPE_ORDER = [
-  // First, and its own group: a declaration is not a usage. IntelliJ keeps the target's declaration apart
-  // from the usages it found, and a language server hands one back anyway — tsserver answers
-  // `references` with the `export class Store {` line whether or not includeDeclaration was asked for.
-  // Labelling that "Value read" was wrong in the real app, which is where it was caught.
   'declaration',
   'import', 'extends', 'new', 'annotation', 'instanceof', 'cast', 'type.parameter',
   'parameter.declaration', 'return', 'local.declaration', 'write', 'read', 'unclassified',
   'string.constant', 'comment',
 ];
-// The two IntelliJ puts under its "Non-code usages" node.
 var USAGE_NON_CODE = { 'string.constant': 1, comment: 1 };
 
 var USAGE_IMPORT_LINE = /^\s*(?:import\b|from\s|export\s+(?:\*|\{)|use\s|using\s|require\b|#include\b|package\b|@import\b|load\()/;
 var USAGE_EXTENDS_BEFORE = /\b(?:extends|implements|with)\s+(?:[A-Za-z0-9_$.<>,\s]*,\s*)?$/;
 var USAGE_CLASS_HEADER = /^\s*(?:(?:public|private|protected|internal|abstract|final|open|sealed|data|static|export|default|pub(?:\([^)]*\))?)\s+)*(?:class|interface|struct|trait|enum|object|record|protocol)\b/;
-// A declaring keyword immediately before THIS name — `export class Store`, `let count`, `def run`. Not
-// `const subject = Store`, where the keyword declares something else and Store is read.
 var USAGE_DECLARES_BEFORE = /\b(?:class|interface|struct|trait|enum|type|function|func|fn|def|val|var|let|const|object|record|protocol|namespace|module)\s+$/;
 
-/**
- * What kind of usage the occurrence of `name` at `column` in `text` is — one of USAGE_TYPE_ORDER.
- *
- * Decided from the characters on either side, in the order a narrower rule beats a wider one. Returns
- * 'unclassified' for a plain call, which is what IntelliJ does too: a call site has no usage type of its
- * own there, and it shows under the file rather than under a header.
- */
 function classifyUsage(name, text, column, path) {
   var line = String(text || '');
   var at = Math.max(0, Number(column) || 0);
@@ -107,25 +62,19 @@ function classifyUsage(name, text, column, path) {
   if (USAGE_IMPORT_LINE.test(line) && !/^\s*\(/.test(after)) return 'import';
   if (/\bnew\s+$/.test(before)) return 'new';
   if (/\binstanceof\s+$/.test(before) || /\bisinstance\s*\([^,)]*,\s*$/.test(before)) return 'instanceof';
-  // `extends`/`implements`, and a class header's `:` or `(` list — Kotlin's `class A : B`, Python's
-  // `class A(B)`. Gated on the line being a class header so that an ordinary `x: Type` does not land here.
   if (USAGE_EXTENDS_BEFORE.test(before) && USAGE_CLASS_HEADER.test(line)) return 'extends';
   if (/\bclass\s+[A-Za-z0-9_$]+\s*\([A-Za-z0-9_$.,\s]*$/.test(before)) return 'extends';
   if (/\bimpl\b[^{]*\bfor\s+$/.test(before)) return 'extends';
   if (/\bas\s+$/.test(before) || (/\(\s*$/.test(before) && /^\s*\)\s*[A-Za-z0-9_$]/.test(after))) return 'cast';
   if (/<\s*(?:[A-Za-z0-9_$.<>,\s]*,\s*)?$/.test(before) && /^\s*[,>]/.test(after)) return 'type.parameter';
-  // `(a: Name, …)` and `): Name` / `-> Name` read the same way round: a colon or arrow, then whether the
-  // text before it is still inside the parameter list or already past its closing paren.
   if (/(?::|->)\s*$/.test(before)) {
-    if (USAGE_CLASS_HEADER.test(line)) return 'extends'; // Kotlin's `class A : B`, Scala's `: B with C`
+    if (USAGE_CLASS_HEADER.test(line)) return 'extends';
     if (/\)\s*(?::|->)\s*$/.test(before)) return 'return';
     if (/\([^)]*$/.test(before)) return 'parameter.declaration';
     if (/\b(?:let|const|var|val)\s+[A-Za-z0-9_$]+\s*:\s*$/.test(before)) return 'local.declaration';
   }
   if (/^\s*(?:=(?![=>])|\+=|-=|\*=|\/=|%=|\|\|=|&&=|\?\?=|\|=|&=|\^=|<<=|>>=)/.test(after)) return 'write';
   if (/(?:\+\+|--)\s*$/.test(before) || /^\s*(?:\+\+|--)/.test(after)) return 'write';
-  // A call. IntelliJ leaves these without a type, and a header reading "Value read" over forty call sites
-  // would be a lie about every one of them.
   if (/^\(/.test(after) || /^<[^<>]*>\s*\(/.test(after)) return 'unclassified';
   return 'read';
 }
@@ -134,13 +83,6 @@ function usageTypeLabel(type) {
   return t('usagetype.' + type);
 }
 
-// ---- ⌥F7: the usage view ----------------------------------------------------------------------------
-// A mode of the quick-open shell, like the structure list and the two hierarchies, and for the same
-// reason: its filter box, its keyboard handling and its preview pane are already written, and a fourth
-// list surface would be a fourth copy of all three. The one thing this mode adds is group headers, which
-// are rendered between the rows and carry no index of their own — `data-index` stays the index into
-// `quickItems`, so arrows, Enter and the preview keep working untouched.
-
 var usageViewName = '';
 var usageViewLoc = null;
 var usageViewRows = [];
@@ -148,12 +90,8 @@ var usageViewBusy = false;
 var usageViewEngine = '';
 var usageViewNote = '';
 var usageViewSeq = 0;
-// IntelliJ's Show Usages in Comments is one checkbox of its filtering toolbar. kakapo already has a
-// toggle that means exactly "comments and tests are noise" — Find in Files' ⌥P — so that one keeps its
-// chord and its button, and the three access filters below it are the rest of that toolbar.
 var usageViewHideNoise = false;
 
-/** ⌥F7: every usage of the symbol under the caret, grouped by what kind of usage it is. */
 function openFindUsages() {
   var symbol = symbolUnderCursor();
   if (!symbol || !symbol.name) { showSemanticNavigationFailure('symbol'); return false; }
@@ -162,7 +100,6 @@ function openFindUsages() {
   usageViewRows = [];
   usageViewNote = '';
   usageViewBusy = true;
-  // Folds belong to the answer that was on screen, not to the next one.
   collapsedUsageGroups = {};
   usageViewEngine = '';
   openQuickOpen('usages', true);
@@ -185,8 +122,6 @@ function loadFindUsages() {
       return;
     }
     usageViewEngine = response && response.engine === 'lsp' ? (response.server || 'LSP') : 'index';
-    // The declaration the caret is sitting on is not one of its own usages — same filter ⌘B applies, for
-    // the same reason: a server that reports it would otherwise put the line you are already on at the top.
     usageViewRows = ((response && response.locations) || []).filter(function (item) {
       return item && item.path && !(loc && item.path === loc.path && Number(item.lineIndex) === Number(loc.lineIndex));
     }).map(function (item) {
@@ -198,22 +133,11 @@ function loadFindUsages() {
         text: text,
         type: classifyUsage(usageViewName, text, item.column, item.path),
         isTest: semanticTestPath(item.path),
-        // What the project says this file is, decided once per row rather than once per regrouping:
-        // 14-project-layout.js reads the declared test roots, and a module is a prefix match.
         scope: projectScopeOf(item.path),
         module: projectModuleName(item.path),
         moduleGroup: (projectModuleOf(item.path) || {}).group || '',
       };
     });
-    // The analyzer's own `fallbackReason` is an internal English sentence ("Language server returned no
-    // semantic locations") and was being printed verbatim under a Korean heading. While a server is still
-    // coming up the honest line is the translated one that says so; otherwise the reason is at least
-    // specific, so it stays for the case where nothing better exists.
-    // The commonest case of all — a symbol with no usages — reached the last branch and printed
-    // "Language server returned no semantic locations" under a Korean heading that had just said the same
-    // thing in Korean. `serverAnswered` tells the two apart at the boundary that knows: a server that
-    // ANSWERED has already been reported by the heading above, and the reason only earns its place when
-    // the question could not be put at all and nothing else explains why.
     usageViewNote = usageViewRows.length ? ''
       : analysisStillArriving() ? t('monaco.analysisPending').replace('{symbol}', usageViewName)
         : response && response.noServer ? t('monaco.noServer')
@@ -229,12 +153,8 @@ function loadFindUsages() {
   });
 }
 
-/** The rows the filters leave: the typed query, ⌥P's noise toggle, and the three access filters. */
 function usageRowVisible(row) {
   if (usageViewHideNoise && (row.isTest || USAGE_NON_CODE[row.type] === 1)) return false;
-  // IntelliJ's filtering toolbar, one rule each: ReadAccessFilteringRule, WriteAccessFilteringRule,
-  // ImportUsageFilteringRule. A declaration that initialises is a write there and here (usageMarksIn
-  // reads it the same way), so hiding writes hides it too.
   if (!usageFiltering.read && row.type === 'read') return false;
   if (!usageFiltering.write && row.type === 'write') return false;
   if (!usageFiltering.imports && row.type === 'import') return false;
@@ -243,8 +163,6 @@ function usageRowVisible(row) {
 
 function visibleUsageRows(query) {
   var needle = String(query || '').trim().toLowerCase();
-  // The matcher gets the query AS TYPED — `needle` stays lower-cased for this list's own
-  // substring work, because camel humps are case and a lower-cased pattern has none.
   var queries = queryVariants(String(query || '').trim());
   return usageViewRows.filter(function (row) {
     if (!usageRowVisible(row)) return false;
@@ -254,25 +172,9 @@ function visibleUsageRows(query) {
   });
 }
 
-// ---- IntelliJ's grouping stack -----------------------------------------------------------------------
-// The usage view is not a list, it is a tree, and what it is a tree OF is a stack of grouping rules with
-// ranks — `UsageGroupingRulesDefaultRanks` in intellij-community: non-code 0, scope 100, usage type 200,
-// module 300, directory 400, file 500, outermost first. The ranks are why that order is not a matter of
-// taste: a module inside a usage type and a usage type inside a module are different answers to the same
-// question, and IntelliJ picked one.
-//
-// Defaults are IntelliJ's own (UsageViewSettings.kt): usage type, module and file on, modules flattened,
-// Production/Test off. One deliberate difference — `isGroupByPackage` is true there and `directory` is
-// false here. IntelliJ's tree collapses; this list does not, so a directory level would be a third header
-// above two rows whose path is already printed on the file header. Turning it on makes the file header
-// show the bare name instead, which is the point at which a directory header says something new.
 var usageGrouping = { scope: false, type: true, module: true, flatten: true, directory: false, file: true };
-// IntelliJ's filtering toolbar: Show Read Access / Show Write Access / Show Import Statements, all on.
 var usageFiltering = { read: true, write: true, imports: true };
 
-// UsageScopeGroupingRule's own codes: production 0, test 1, library 2. 'generated' is this app's addition
-// — IntelliJ makes generated code a FILTER rather than a scope, and a reviewer who has asked for the
-// division wants build output in a bucket of its own rather than mixed into production code.
 var USAGE_SCOPE_ORDER = ['production', 'test', 'library', 'generated'];
 
 function usageDirectoryOf(path) {
@@ -281,15 +183,6 @@ function usageDirectoryOf(path) {
   return slash > 0 ? normalized.slice(0, slash) : '';
 }
 
-/**
- * The rules in force, in rank order.
- *
- * Takes the rows because two of the rules need to know what is in the whole answer before they can say
- * whether their own heading is worth drawing: a "Non-code usages" divider with no code above it divides
- * nothing, and "Unclassified" over a list that is nothing but call sites is the same furniture the flat
- * version had. A rule whose `labelOf` returns '' still groups and still orders — it just draws no header
- * and costs no indentation.
- */
 function usageGroupingRules(rows) {
   var rules = [];
   var hasCode = rows.some(function (row) { return USAGE_NON_CODE[row.type] !== 1; });
@@ -305,8 +198,6 @@ function usageGroupingRules(rows) {
       id: 'scope',
       keyOf: function (row) { return row.scope || 'production'; },
       orderOf: function (key) { return USAGE_SCOPE_ORDER.indexOf(key); },
-      // Shown even when every row is in one scope: the toggle was pressed to ask which scope these are
-      // in, and "all of them are production" is that answer rather than furniture.
       labelOf: function (key) { return t('usagescope.' + key); },
       classOf: function (key) { return ' usage-group-scope-' + key; },
     });
@@ -322,12 +213,8 @@ function usageGroupingRules(rows) {
       labelOf: function (key) { return onlyUnclassified ? '' : usageTypeLabel(key); },
     });
   }
-  // A single-module repository is most repositories, and a module header every row is under is not a
-  // division. projectHasModules() is the same guard the file tree uses.
   if (usageGrouping.module && projectHasModules()) {
     if (!usageGrouping.flatten) {
-      // ModuleGroupingRule returns the module's group path as parent groups when modules are not
-      // flattened — `node.group.module.group`, the `group=` attribute of modules.xml.
       rules.push({
         id: 'moduleGroup',
         keyOf: function (row) { return row.moduleGroup || ''; },
@@ -355,16 +242,12 @@ function usageGroupingRules(rows) {
       id: 'file',
       keyOf: function (row) { return row.path; },
       orderOf: function () { return 0; },
-      // IntelliJ's showShortFilePath is on by default. The whole path when it is the only thing saying
-      // where this is; the name alone once a directory header above has already said it.
       labelOf: function (key) { return usageGrouping.directory ? sourceTabLabel(key) : key; },
     });
   }
   return rules;
 }
 
-// Which icon a group node carries. IntelliJ draws one on every node of its usage tree except the usage
-// TYPE nodes, which have none there either — so this returns '' for those and for the non-code divider.
 function usageGroupIconHtml(group) {
   if (group.id === 'scope') {
     if (group.key === 'test') return projectFolderIconHtml(projectTestFolderMark());
@@ -375,14 +258,10 @@ function usageGroupIconHtml(group) {
   if (group.id === 'moduleGroup') return projectFolderIconHtml(projectModuleGroupFolderMark());
   if (group.id === 'module') return projectFolderIconHtml(projectModuleFolderMark());
   if (group.id === 'directory') return projectFolderIconHtml('');
-  // A file node takes the icon the file tree gives that type, so one file is the same glyph everywhere.
   if (group.id === 'file') return '<span class="usage-group-icon">' + virtualTypeIcon(group.key) + '</span>';
   return '';
 }
 
-// Which group nodes are collapsed, by their path through the tree. Kept across a re-render (a filter
-// toggle regroups the same answer, and a node that was folded away should stay folded), dropped when the
-// view is opened on a different symbol.
 var collapsedUsageGroups = {};
 
 /**
@@ -405,7 +284,6 @@ function toggleUsageGroup(path) {
   return true;
 }
 
-/** Every group node that is currently drawn, so Expand/Collapse All can act on all of them. */
 function usageGroupPaths() {
   var paths = [];
   usageViewEntries(String(quickInput && quickInput.value || ''), true).forEach(function (entry) {
@@ -427,7 +305,6 @@ function usageRowOrder(a, b) {
   return a.path.localeCompare(b.path) || a.lineIndex - b.lineIndex || a.column - b.column;
 }
 
-/** Rows → a tree, one level per rule. Leaves hold the rows in file/line order. */
 function groupUsageTree(rows, rules, depth) {
   if (depth >= rules.length) return { rows: rows.slice().sort(usageRowOrder), children: [] };
   var rule = rules[depth];
@@ -457,13 +334,6 @@ function groupUsageTree(rows, rules, depth) {
   };
 }
 
-/**
- * The tree as the flat sequence the list renders: headers with a depth, then the rows under them.
- *
- * A collapsed node keeps its header and drops everything beneath it — including the rows, which is the
- * point: `quickItems` is built from what comes out of here, so the arrows and Enter never reach a row
- * that is folded away. `ignoreCollapsed` is for Expand/Collapse All, which needs the whole tree's paths.
- */
 function flattenUsageTree(node, depth, out, parentPath, ignoreCollapsed) {
   (node.children || []).forEach(function (child) {
     var shown = Boolean(child.label);
@@ -480,7 +350,6 @@ function flattenUsageTree(node, depth, out, parentPath, ignoreCollapsed) {
   (node.rows || []).forEach(function (row) { out.push({ kind: 'row', row: row, depth: depth }); });
 }
 
-/** Headers and rows in display order — the one function the renderer and the tests both read. */
 function usageViewEntries(query, ignoreCollapsed) {
   var rows = visibleUsageRows(query);
   var entries = [];
@@ -488,16 +357,6 @@ function usageViewEntries(query, ignoreCollapsed) {
   return entries;
 }
 
-/**
- * The usage line, with the occurrence itself marked — IntelliJ renders the usage in bold inside the line
- * it sits on, which is what makes a forty-row list scannable.
- *
- * Highlighted in three pieces so the mark can sit between them. The tokenizer sees each piece on its own,
- * which is sound here because the cut is at an identifier boundary: `const value = ` and `;` tokenize the
- * same whether or not `Store` is between them. Anything that does not line up — a column past the end, a
- * name that is not there — falls back to the whole line highlighted in one go, which is what this did
- * before.
- */
 function usageCodeHtml(row) {
   var text = String(row.text || '');
   var lead = text.length - text.replace(/^\s+/, '').length;
@@ -531,20 +390,13 @@ function renderFindUsagesResults(query) {
   flat.forEach(function (row) { files[row.path] = 1; });
   var tests = flat.filter(function (row) { return row.isTest; }).length;
   setQuickFilterChip(usageViewBusy, t('findusages.summary', { n: flat.length, files: Object.keys(files).length })
-    // How much of this answer is test code, before any grouping is turned on. "Forty usages" and
-    // "forty usages, thirty-one of them in tests" are different facts about a symbol.
     + (tests ? ' · ' + t('findusages.testCount', { n: tests }) : '')
     + (usageViewEngine ? ' · ' + usageViewEngine : ''));
   if (usageViewBusy) {
     showQuickLoading();
     return;
   }
-  // `entries`, not `flat`: a tree whose nodes are all folded has no rows and is not empty — it is a tree
-  // with everything folded, and replacing it with "no usages" would be an answer nobody asked for.
   if (!entries.length) {
-    // "No usages of Store" when there are nine of them and a filter is hiding all nine is a wrong answer,
-    // and it is the one a reviewer would believe. Only when nothing was typed: with a query in the box,
-    // "nothing matched" is what happened.
     var hidden = usageViewRows.length && !String(query || '').trim();
     showQuickEmpty(hidden
       ? t('findusages.allFiltered', { n: usageViewRows.length })
@@ -555,9 +407,6 @@ function renderFindUsagesResults(query) {
   var html = '';
   entries.forEach(function (entry) {
     if (entry.kind === 'group') {
-      // A tree node, the way IntelliJ draws one: a twisty, the node's icon, its name, and the count in
-      // parentheses after it ("3 usages" — `usage.name` in UsageViewBundle). The twisty is the whole
-      // reason the count is useful: a folded node still says how much is under it.
       html += '<div class="usage-group' + escapeHtml(entry.extraClass || '')
         + (entry.collapsed ? ' is-collapsed' : '') + '" data-usage-group="' + escapeHtml(entry.id) + '"'
         + ' data-usage-key="' + escapeHtml(String(entry.key)) + '"'
@@ -572,20 +421,13 @@ function renderFindUsagesResults(query) {
       return;
     }
     var row = entry.row;
-    // Under a file header the path is already on screen; the line number is the part that is not. Without
-    // one, the row carries `name:line` as it always has.
     var where = usageGrouping.file ? ':' + String(row.lineIndex + 1) : semanticFileLabel(row.path, row.lineIndex);
-    // Test code is marked on the row, not only when the scope grouping is on: the division IntelliJ draws
-    // with a green icon in every list it has. When the scope header is above it, saying it twice is noise.
     var tag = row.isTest && !usageGrouping.scope
       ? '<span class="usage-result-tag">' + escapeHtml(t('usagescope.test')) + '</span>' : '';
     html += '<button type="button" class="quick-open-item usage-result' + (index === quickActive ? ' active' : '')
       + (row.isTest ? ' is-test' : '') + '" data-index="' + index + '" data-usage-type="' + escapeHtml(row.type) + '"'
       + ' style="--depth:' + entry.depth + '"'
       + ' title="' + escapeHtml(usageTypeLabel(row.type) + ' — ' + row.path + ':' + (row.lineIndex + 1)) + '">'
-      // Where first, then the line — the order the caret popup beside this one uses (.usage-loc then
-      // .usage-code in 15-semantic-navigation.js), and the order IntelliJ's own usage rows read in. With
-      // the code first, ":1" trailed off the end of the line and read as part of it.
       + '<span class="quick-open-main">'
       + '<span class="quick-open-path">' + escapeHtml(where) + '</span>'
       + '<span class="usage-result-code">' + usageCodeHtml(row) + '</span>'
@@ -596,7 +438,6 @@ function renderFindUsagesResults(query) {
   renderQuickPreview(quickItems[quickActive]);
 }
 
-/** ⌥P inside the usage view: the same "comments and tests are noise" toggle Find in Files has. */
 function toggleUsageViewNoise() {
   usageViewHideNoise = !usageViewHideNoise;
   quickActive = 0;
@@ -605,9 +446,6 @@ function toggleUsageViewNoise() {
   return true;
 }
 
-// Every toggle of the two toolbars, by the name on its chip: which flag it owns, and which shortcut row
-// labels it. One table so the chips, the chords and the click handler cannot come to disagree — the same
-// reason src/shortcuts.ts exists.
 var USAGE_TOGGLES = [
   { name: 'scope', group: true, shortcut: 'usageGroupScope' },
   { name: 'type', group: true, shortcut: 'usageGroupType' },
@@ -624,7 +462,6 @@ function usageToggleState(toggle) {
   return toggle.group ? usageGrouping[toggle.name] === true : usageFiltering[toggle.name] === true;
 }
 
-/** The chips show what is on. Called on open and after every toggle. */
 function syncUsageViewControls() {
   var strip = document.getElementById('quick-open-usage-options');
   if (!strip) return;
@@ -634,14 +471,12 @@ function syncUsageViewControls() {
     var on = usageToggleState(toggle);
     chip.setAttribute('aria-pressed', on ? 'true' : 'false');
     chip.classList.toggle('active', on);
-    // Flattening is a property of the module grouping, so it is not a choice while that is off.
     var available = toggle.name !== 'flatten' || usageGrouping.module;
     chip.disabled = !available;
     chip.classList.toggle('unavailable', !available);
   });
 }
 
-/** One toggle, by chip name. The answer is the same rows regrouped, so nothing is re-queried. */
 function toggleUsageView(name) {
   var toggle = USAGE_TOGGLES.filter(function (item) { return item.name === name; })[0];
   if (!toggle) return false;
@@ -695,15 +530,6 @@ function handleUsageViewKey(event) {
   return false;
 }
 
-// ---- ⌘F7 / ⌘⇧F7: the same symbol, highlighted where the caret already is -----------------------------
-// IntelliJ's Find Usages in File and Highlight Usages in File. Both are editor-local there, and both are
-// one thing here: paint every occurrence in the open file, writes apart from reads, and let ⌘⌥↓/⌘⌥↑ walk
-// them. No analyzer round trip — a highlight that waits for a cold language server is a highlight that
-// arrives after the reader has moved on, and IntelliJ's own ⌃F3 (Find Word at Caret) is name-based too.
-//
-// Name-based is the honest description: two different locals that happen to share a name are highlighted
-// together. ⌥F7 is the semantic answer, and the count line says which of the two you are looking at.
-
 var USAGE_MARK_LIMIT = 5000;
 var USAGE_MARK_PAINT_LIMIT = 200;
 var usageMarks = [];
@@ -711,32 +537,17 @@ var usageMarkPath = '';
 var usageMarkName = '';
 var usageMarkActive = -1;
 var usageMarkGeneration = -1;
-// Which surface the marks were scanned from. A mark is a position in a TEXT — the source view's is a line
-// of the file, the diff's is a row of a rendered pane — so the same file on the other surface is a
-// different set, and without this the cache handed diff rows to the source painter and painted nothing.
 var usageMarkSurface = '';
 
-/**
- * Everything a scan of one symbol needs, resolved once: the file's language (which decides what counts as
- * code rather than a comment or a string) and the word-boundary matcher for the name.
- */
 function usageScanContext(path, name) {
   return {
     path: path,
     name: name,
     language: usageLanguageOf(path),
-    // An identifier occurrence, not a substring of a longer one. Captured in group 1 so the column can be
-    // recovered from the match even though the pattern had to consume the character before it.
     pattern: new RegExp('(?:^|[^A-Za-z0-9_$])(' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')(?![A-Za-z0-9_$])', 'g'),
   };
 }
 
-/**
- * Every CODE occurrence of the symbol in one line, handed to `onMark(column, write)`; returns true when the
- * callback asked to stop. One copy on purpose: deciding whether a column is code at all, and whether the
- * occurrence reads or writes, is one decision that the diff scan and the source scan must make the same way.
- * It used to be written twice, so improving the write heuristic would have improved it in one view only.
- */
 function scanUsageLine(ctx, line, onMark) {
   ctx.pattern.lastIndex = 0;
   var match = null;
@@ -745,22 +556,12 @@ function scanUsageLine(ctx, line, onMark) {
     ctx.pattern.lastIndex = column + match[1].length;
     if (usageZoneAt(line, column, ctx.language) !== 'code') continue;
     var type = classifyUsage(ctx.name, line, column, ctx.path);
-    // `let x = 1` declares AND writes; `let x` alone does not. The assignment has to follow the name, and
-    // `==`/`=>` are not assignments.
     var initialised = type === 'declaration' && /^\s*=(?![=>])/.test(line.slice(column + ctx.name.length));
     if (onMark(column, type === 'write' || initialised)) return true;
   }
   return false;
 }
 
-/**
- * Every code occurrence of `name` in a rendered diff file, both panes.
- *
- * The scan is the diff's own rows rather than the file's content, for the reason the in-file find scans
- * them too (collectDiffFindResults, 17-file-find.js): the base pane shows a version that is not in
- * `sourceByPath` at all, and half of what a reviewer wants highlighted is on that side. Each mark carries
- * its row, so the paint has the container without looking anything up.
- */
 function usageMarksInDiff(wrapper, name) {
   if (!wrapper || !name) return [];
   var path = diffWrapperPathKey(wrapper);
@@ -771,10 +572,6 @@ function usageMarksInDiff(wrapper, name) {
     return rows.some(function (row, rowIndex) {
       if (!isDiffCodeRow(row)) return false;
       return scanUsageLine(ctx, diffLineText(row), function (column, write) {
-        // Addressed, never held. A mark used to carry its <tr>, and a watch refresh replaces the whole
-        // wrapper: the next ⌘⌥↓ then painted detached nodes, built Ranges in a document fragment nobody
-        // can see, and moved the caret to a row index taken from DOM that no longer exists. The source
-        // side has always re-resolved its rows per paint (sourceFindRow) for the same reason.
         marks.push({
           path: path, side: side, rowIndex: rowIndex,
           column: column, length: name.length, write: write,
@@ -783,22 +580,17 @@ function usageMarksInDiff(wrapper, name) {
       });
     });
   });
-  // By row, not by pane. Collected pane by pane, every base-side mark precedes every working-tree one —
-  // so a symbol occurring more than USAGE_MARK_PAINT_LIMIT times in the base spent the entire paint
-  // budget there and left the working tree, the half being reviewed, with no highlight at all.
   return marks.sort(function (a, b) {
     return a.rowIndex - b.rowIndex || a.column - b.column || (a.side === 'old' ? -1 : 1);
   });
 }
 
-/** The marks on the pane the caret is in — what the diff's count and its stepping are both about. */
 function usageMarksInCaretPane() {
   if (usageMarkSurface !== 'diff') return usageMarks;
   var side = (diffCursor && diffCursor.side) || 'new';
   return usageMarks.filter(function (mark) { return mark.side === side; });
 }
 
-/** Every code occurrence of `name` in `path`'s content, with 'read'/'write' per occurrence. */
 function usageMarksIn(path, name) {
   var file = typeof sourceByPath !== 'undefined' ? sourceByPath.get(path) : null;
   if (!file || !file.embedded || file.image || !name) return [];
@@ -831,11 +623,6 @@ function clearUsageHighlights() {
   } catch (e) {}
 }
 
-/**
- * Paint the marks. The ranges go through the Custom Highlight API, as the in-file find's do (17-file-find.js
- * owns fileFindRange and sourceFindRow) — a highlight that does not touch the DOM is one that cannot
- * disturb the tokenised source it is drawn over.
- */
 function paintUsageHighlights() {
   var reads = [], writes = [];
   Array.prototype.forEach.call(document.querySelectorAll('.usage-mark-row'), function (row) {
@@ -847,9 +634,6 @@ function paintUsageHighlights() {
   indexes.forEach(function (index) {
     var mark = usageMarks[index];
     if (!mark) return;
-    // Both surfaces re-resolve the row from the live DOM: a diff mark by (side, rowIndex) through its
-    // wrapper, a source mark by line — among the rows that are painted, since a mark below a big file's
-    // built region is repainted when those rows arrive rather than building them to be marked.
     var inDiff = mark.side !== undefined;
     var row = inDiff
       ? diffRowAt(diffWrapperByPath(mark.path), mark.side, mark.rowIndex)
@@ -857,9 +641,6 @@ function paintUsageHighlights() {
     if (row) row.classList.add('usage-mark-row');
     var container = row && (inDiff ? diffCellCtn(row) : (row.querySelector('.source-code') || row));
     if (!container) return;
-    // The container's OWN text, in the same coordinates fileFindRange walks in. textContent also carries
-    // the inlay labels, so on a hinted line `start` was measured with them and resolved without them —
-    // the two ends of one offset disagreeing about what a column is.
     var shown = sourceCellText(container);
     var start = mark.column;
     if (shown.substr(start, mark.length) !== usageMarkName) start = shown.indexOf(usageMarkName);
@@ -877,17 +658,6 @@ function paintUsageHighlights() {
   return { reads: reads.length, writes: writes.length };
 }
 
-// ---- The server's own answer to "where else, in this file" -------------------------------------------
-// `textDocument/documentHighlight` is the request this feature was always about and never made. The scan
-// above finds the NAME; the server finds the SYMBOL, and it labels each occurrence read, write or neither
-// — which is the one thing `classifyUsage` can only guess at, and the thing the usage view's Show Read
-// Access / Show Write Access filters are made of.
-//
-// The text scan stays, and stays FIRST: ⌘F7 answers on the keystroke, out of the file it already has, and
-// the server's answer replaces it when it arrives. A reader never waits for a round trip to see a
-// highlight, and a language that has no server keeps the feature it had.
-// Lazily created for the same reason the fold cache above is: the app's first render runs while the bundle
-// is still loading, and a slice's `= new Map()` is not guaranteed to have run when something calls into it.
 var usageHighlightCache;
 function usageHighlightCacheMap() {
   if (!usageHighlightCache) usageHighlightCache = new Map();
@@ -915,15 +685,6 @@ function serverUsageMarks(path, symbol) {
     }).sort(function (a, b) { return a.lineIndex - b.lineIndex || a.column - b.column; }) : null;
     if (!marks) usageHighlightCacheMap().delete(key);
     else usageHighlightCacheMap().set(key, { generation: analysisGeneration(), marks: marks, pending: false });
-    // Only act if this is still the symbol on screen: the reader may have moved on, and repainting over
-    // a different symbol's highlight with this one's marks is worse than not upgrading at all.
-    //
-    // The SURFACE is part of "still": documentHighlight answers in the file's line numbers, which is what
-    // a source mark is, while a diff mark is a (side, rowIndex) into a rendered pane. A request started in
-    // the source view and landing after the reader crossed to the diff used to replace the diff's marks
-    // with line-based ones while the surface flag still said 'diff' — so the paint went into the hidden
-    // source body, and every later ⌘⌥↓ filtered on `mark.side` against marks that have none and reported
-    // "No occurrence in this pane" about a symbol sitting on screen, permanently, because the cache hit.
     if (!marks || usageMarkSurface !== 'source' || usageMarkPath !== path
       || usageMarkName !== symbol.name || !usageMarks.length) return;
     usageMarks = marks;
@@ -936,31 +697,17 @@ function serverUsageMarks(path, symbol) {
     }));
   }, function () {
     if (!pageAlive()) return;
-    usageHighlightCacheMap().delete(key); // a failed ask is not an answer — see the fold cache
+    usageHighlightCacheMap().delete(key);
   });
   return null;
 }
 
-/** Which surface's text the marks come from: '' when neither view is up. */
 function usageSurface() {
   if (isSourceViewerVisible()) return 'source';
   if (isDiffViewVisible()) return 'diff';
   return '';
 }
 
-/**
- * The marks for the symbol under the caret in the open file, computed once and reused by the step keys.
- *
- * Both surfaces, because the diff is where a reviewer spends the time. These four keys answered only in
- * the source view and said nothing at all in the diff — not "not here", nothing — while the table
- * advertised them as `where: "code"`, which is both views, and the READMEs advertised them flat.
- */
-/**
- * The file the marks belong to, the one way. The source view answers with the file it is PAINTING
- * (dataset.openPath), which is not always `viewerCursor.path` — the keymap has a branch for exactly that
- * mismatch — and the toggle below used to compare the cache's key against the caret's path instead. When
- * they differed, a second ⌘F7 on the same symbol re-highlighted rather than putting the highlight away.
- */
 function usageMarkPathFor(surface, symbol) {
   if (surface === 'source') return sourceOpenPath();
   return (symbol && symbol.path) || '';
@@ -975,9 +722,6 @@ function ensureUsageMarks() {
   if (usageMarkName === symbol.name && usageMarkPath === path && usageMarkSurface === surface
     && usageMarks.length && usageMarkGeneration === analysisGeneration()) return true;
   if (surface === 'diff') {
-    // No server upgrade here: documentHighlight answers in the working tree's coordinates, and half of
-    // these rows are the base version, where those line numbers mean a different line. The name scan is
-    // the honest answer for a two-version surface, and the count line already says it is name-based.
     usageMarks = usageMarksInDiff(diffWrapperByPath(path), symbol.name);
   } else {
     var fromServer = serverUsageMarks(path, symbol);
@@ -991,16 +735,10 @@ function ensureUsageMarks() {
   return usageMarks.length > 0;
 }
 
-/** ⌘F7 / ⌘⇧F7: highlight them, and say how many there are — including none. */
 function highlightUsagesInFile() {
   if (!usageSurface()) return false;
   var symbol = symbolUnderCursor();
   if (!symbol || !symbol.name) return false;
-  // A second press on the same symbol puts the highlight away, as Escape does. IntelliJ keeps it until
-  // Escape; a toggle is the same key answering for both, and the key is the one that is already under the
-  // finger. Same symbol in another FILE or on the other surface is a first press, not a second: those
-  // marks are a different set, and reading it as a toggle made the key look dead every other time you
-  // crossed a file — which, in the diff, is what F7 does all day.
   var surface = usageSurface();
   if (usageMarkName === symbol.name && usageMarkPath === usageMarkPathFor(surface, symbol)
     && usageMarkSurface === surface && usageMarks.length) {
@@ -1013,9 +751,6 @@ function highlightUsagesInFile() {
     return true;
   }
   var painted = paintUsageHighlights();
-  // The caret's pane, which is what ⌘⌥↓ then walks. Counting both panes double-counts every unchanged
-  // line — side-by-side prints context on both sides — so ⌘F7 said "24 in this file" and the very next
-  // ⌘⌥↓ said "1 of 12", about the same symbol, one keystroke apart. The highlight still covers both.
   var counted = usageMarksInCaretPane();
   showCaretHint(t('findusages.inFile', {
     n: counted.length,
@@ -1025,21 +760,11 @@ function highlightUsagesInFile() {
   return painted !== null;
 }
 
-/**
- * ⌘⌥↓ / ⌘⌥↑: the next or previous occurrence of the symbol under the caret — IntelliJ's
- * GotoNextElementUnderCaretUsage. Works without pressing ⌘F7 first, as IntelliJ's does: the marks are
- * computed on demand and the highlight comes with them.
- */
 function stepUsageOccurrence(delta) {
   if (!usageSurface()) return false;
   if (!ensureUsageMarks()) return false;
-  // In the diff the caret is in ONE pane, and so is the walk: IntelliJ's step is editor-local, and a step
-  // that jumped the caret across to the base version would be answering a different question. The
-  // highlight still covers both panes — seeing the symbol on both sides is the point of the diff.
   var inDiff = usageMarkSurface === 'diff';
   var walk = usageMarksInCaretPane();
-  // The symbol exists in this file but not in the pane the caret sits in — a name added by this change,
-  // with the caret in the base version. Saying so is the point; returning false here was the silent key.
   if (!walk.length) {
     showCaretHint(t('findusages.noneInPane')
       .replace('{name}', usageMarkName)
@@ -1055,7 +780,7 @@ function stepUsageOccurrence(delta) {
       var next = walk[i];
       if (at(next) > line || (at(next) === line && next.column > column)) { target = i; break; }
     }
-    if (target < 0) target = 0; // IntelliJ wraps, and so does the in-file find
+    if (target < 0) target = 0;
   } else {
     for (var j = walk.length - 1; j >= 0; j -= 1) {
       var prev = walk[j];
@@ -1069,8 +794,6 @@ function stepUsageOccurrence(delta) {
   if (inDiff) setDiffCursor(mark.path, mark.side, mark.rowIndex, mark.column, true);
   else openSourceAt(mark.path, mark.lineIndex, mark.column);
   paintUsageHighlights();
-  // `walk`, not every mark: in the diff the step is one pane's, so "3 of 12" over a pane holding six
-  // would be counting the base version's occurrences into the working tree's position.
   showCaretHint(t('findusages.occurrence', { i: target + 1, n: walk.length, name: usageMarkName }));
   return true;
 }

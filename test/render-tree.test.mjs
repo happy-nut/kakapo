@@ -1,15 +1,10 @@
-// Pure-unit characterization of render-tree.ts. This module had no direct test coverage, yet it holds the
-// initial-open selection logic (initialReviewSources) that the review-open path and any future
-// partial-rebuild work must preserve. Import the real compiled functions from dist/ and pin their contracts.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { initialReviewSources, sourceFileMetadata } from "../dist/render-tree.js";
 
-// Minimal SourceFile stand-ins — initialReviewSources only reads path/name/embedded/changed.
 const src = (path, { embedded = true, changed = false } = {}) => ({
   path, name: path.split("/").pop(), embedded, changed,
 });
-// collectSourceFiles sorts by localeCompare, so a deep "backstage/…/README.md" precedes root "README.md".
 const localeSorted = (files) => [...files].sort((a, b) => a.path.localeCompare(b.path));
 
 test("initialReviewSources: a clean tree opens the ROOT README, not the lexicographically-first deep one", () => {
@@ -56,23 +51,16 @@ test("sourceFileMetadata strips content and image but preserves the rest", () =>
   assert.deepEqual(meta.changedLines, [1, 2]);
 });
 
-// ---- the Changes tree's order IS the diff body's order -----------------------------------------------
-// The tree used to sort folders above files and then by name, which is how a PROJECT tree is laid out. In
-// a tree of CHANGES that put `src/viewer/01-core.js` at the top because it is under a folder and
-// `README.md` at the bottom because it is not — while the diff body, and therefore F7, started at
-// README.md. Two orders for one list of files, with nothing on screen saying which one you were in.
 const diffFile = (displayPath, hunks = 1) => ({
   displayPath,
   oldPath: displayPath,
   newPath: displayPath,
   hunks: Array.from({ length: hunks }, () => ({ lines: [] })),
 });
-/** The leaf rows the tree renders, in render order. */
 const treeOrder = (html) => [...html.matchAll(/data-file="([^"]+)"/g)].map((m) => m[1]);
 
 test("renderDiffTree lists files in the order the diff body has them, not folders-first", async () => {
   const { renderDiffTree } = await import("../dist/render-tree.js");
-  // Exactly the shape that was wrong: a root file, a shallow file, and a deeper one under a folder.
   const files = [
     diffFile("README.md"),
     diffFile("src/i18n.ts"),
@@ -85,8 +73,6 @@ test("renderDiffTree lists files in the order the diff body has them, not folder
 
 test("renderDiffTree: a folder takes the place of its FIRST changed file", async () => {
   const { renderDiffTree } = await import("../dist/render-tree.js");
-  // src/viewer/* is split either side of src/zz.ts in the body; the folder must lead, because its first
-  // file does — and src/zz.ts must still follow it rather than being pulled above by the name sort.
   const files = [
     diffFile("src/viewer/01-core.js"),
     diffFile("src/zz.ts"),
@@ -99,7 +85,6 @@ test("renderDiffTree: a folder takes the place of its FIRST changed file", async
 
 test("renderDiffTree: a module groups its files but does not jump the queue", async () => {
   const { renderDiffTree } = await import("../dist/render-tree.js");
-  // moduleEntryFor ignores a single module — one module is the project, not a grouping — so this needs two.
   const files = [diffFile("README.md"), diffFile("packages/ui/a.ts"), diffFile("packages/core/c.ts")];
   const modules = [
     { name: "@acme/ui", root: "packages/ui" },

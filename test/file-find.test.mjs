@@ -109,9 +109,6 @@ test("search reveals matches inside default-folded imports in File and Diff view
   await v.openDiffFor("src/folded.ts");
   assert.ok(v.$(".mc-import-fold-row"), "the diff import region starts folded too");
   v.key("f", { metaKey: true, code: "KeyF" });
-  // Before a single character is typed: restoring the panes rebuilds rows and re-runs the diff geometry, and
-  // that used to fire at exactly two characters — a stall between two keystrokes, on a boundary nobody could
-  // predict. Opening the bar is the deliberate moment; typing must never move the ground under the reviewer.
   assert.equal(v.$(".mc-import-fold-row"), null, "opening the find bar restores the folded imports");
   v.typeInto(v.$("#file-find-input"), "hiddenImport");
   await v.settle(140);
@@ -166,9 +163,6 @@ test("continued typing cancels a pending broad query instead of publishing stale
   v.close();
 });
 
-// A search belongs to the file it was opened on. Carrying the query onto the next file and re-running it
-// there reports a count for something the reviewer never asked about, under a bar that no longer describes
-// what is on screen.
 test("the find bar belongs to one file and closes when the reviewer moves to another", async () => {
   const { html } = await makeReviewHtml([
     { path: "src/first.ts", before: "export const value = 1;\n", after: "export const value = 2;\n" },
@@ -189,12 +183,6 @@ test("the find bar belongs to one file and closes when the reviewer moves to ano
   v.close();
 });
 
-// ---- what the field owes the hand typing into it -------------------------------------------------
-//
-// Everything below types one character at a time (typeChars), which is the only way these show up:
-// typeInto sets the whole value and fires one input event, so the state that a per-character refresh
-// builds up between two keys never exists.
-
 test("typing in the find field scrolls to the match without moving the caret", async () => {
   const v = await loadViewer(html);
   await v.openSourceFile("src/one.ts");
@@ -214,11 +202,6 @@ test("typing in the find field scrolls to the match without moving the caret", a
   v.close();
 });
 
-// Before this, the reveal ran on every keystroke, and a reveal is a caret placement: setSourceCursor
-// records one entry in the ⌘[/⌘] history, drops the selection, re-asserts the active hunk and repaints the
-// file when the match sits inside a fold. A six-letter query cost six of those. Counted at the source
-// rather than through the history, because the history coalesces nearby moves and would hide the trail in
-// a small file — the call is the thing that should not happen.
 test("typing in the find field places no caret at all, and one Enter places one", async () => {
   const v = await loadViewer(html);
   await v.openSourceFile("src/one.ts");
@@ -237,10 +220,6 @@ test("typing in the find field places no caret at all, and one Enter places one"
   v.close();
 });
 
-// The reveal runs the view's own machinery — repaint, fold expansion, file reveal — and any of it may take
-// DOM focus. The code surfaces bind no plain letters, so a field that silently lost the keyboard reads as a
-// field that stopped accepting input. Both halves of the publish are checked: the synchronous one and the
-// frame-deferred highlight pass.
 test("the find field keeps the keyboard when the reveal steals focus", async () => {
   const v = await loadViewer(html);
   await v.openSourceFile("src/one.ts");
@@ -282,13 +261,6 @@ test("the find field keeps the keyboard when the highlight pass steals focus", a
   v.close();
 });
 
-// Closing the bar used to hide it while it still held the keyboard, which left focus on <body> — a surface
-// that binds no plain letters, so the reviewer's next keystroke went nowhere and the field looked like it
-// had stopped accepting input.
-//
-// The file changes here the way a --watch rebuild changes it: the active wrapper moves with no navigation
-// of its own, so nothing else is handing the keyboard anywhere. Going through openDiffFor instead would
-// pass without the fix, because that path focuses the container itself — the control caught exactly that.
 test("closing the bar on a file change hands the keyboard to the content, not to nothing", async () => {
   const { html: two } = await makeReviewHtml([
     { path: "src/first.ts", before: "export const value = 1;\n", after: "export const value = 2;\n" },
@@ -315,19 +287,15 @@ test("closing the bar on a file change hands the keyboard to the content, not to
   v.close();
 });
 
-// ---- IntelliJ's find-toolbar toggles -------------------------------------------------------------
-// Cc / W / .* / Search In Selection, the four the editor find bar carries. Each is asserted by what it
-// changes about the match set, which is the only thing a toggle is for.
-
 const OPTIONS_FILE = [
   {
     path: "src/opt.ts",
     before: "const nothing = 0;\n",
     after: [
-      "const needle = 1;",        // 0
-      "const Needle = 2;",        // 1
-      "const needleish = 3;",     // 2
-      "const other = 'needle';",  // 3
+      "const needle = 1;",
+      "const Needle = 2;",
+      "const needleish = 3;",
+      "const other = 'needle';",
       "",
     ].join("\n"),
   },
@@ -388,8 +356,6 @@ test("find in file with Regex and Words on wraps the whole pattern", async () =>
   await v.typeChars(v.$("#file-find-input"), "needle|nothing");
   await v.settle(140);
 
-  // \b(?:needle|nothing)\b — the alternation as a whole, which is what IntelliJ wraps. Were only the first
-  // branch wrapped, needleish would come back as a match for the bare `nothing` branch's side.
   assert.equal(api.results().length, 3);
   assert.ok(!api.results().some((hit) => hit.lineIndex === 2), "needleish is still not a whole word");
   v.close();
@@ -408,8 +374,6 @@ test("find in file with a toggle pressed re-runs the query without retyping it",
   v.close();
 });
 
-// "No results" for a typo in a pattern is the wrong answer, and the one a reviewer would believe.
-// IntelliJ says Bad pattern (find.incorrect.regexp); Find in Files here already did, the find bar did not.
 test("an invalid regex says Bad pattern instead of reporting no matches", async () => {
   const v = await openOptionsFind();
   const api = v.window.__kakapoFileFind;
@@ -461,9 +425,6 @@ test("In Selection narrows the search to the selected lines", async () => {
   v.close();
 });
 
-// IntelliJ turns it on by itself for a selection spanning more than one line: a reviewer who selected a
-// block and reached for find meant that block. A selection inside one line is a word they want to search
-// FOR, not a range to search in.
 test("In Selection turns itself on only for a selection that spans more than one line", async () => {
   const { html: page } = await makeReviewHtml(OPTIONS_FILE);
   const v = await loadViewer(page);
@@ -481,10 +442,6 @@ test("In Selection turns itself on only for a selection that spans more than one
   v.close();
 });
 
-// The chord, not the function behind it: everything above toggles through the test hook, which would keep
-// passing if the keys were never wired. ⌥M/⌥W/⌥X are the rows Find in Files already owns — same chord, same
-// meaning, a different surface — and handleFileFindKey sits above the focus guard so they reach the bar
-// while its field holds the keyboard.
 test("find in file with ⌥M, ⌥W, ⌥X and ⌘⌥E pressed as chords toggles the four", async () => {
   const v = await openOptionsFind();
   const api = v.window.__kakapoFileFind;
@@ -509,8 +466,6 @@ test("find in file with ⌥M, ⌥W, ⌥X and ⌘⌥E pressed as chords toggles t
   v.close();
 });
 
-// IntelliJ's Search History, which its toolbar opens as a dropdown from the field. A query enters it when
-// the reviewer steps to a match with it (its moveCursor calls addTextToRecent), not on every keystroke.
 test("the find field remembers recent searches and ⌥↓ walks back through them", async () => {
   const v = await openOptionsFind();
   const api = v.window.__kakapoFileFind;

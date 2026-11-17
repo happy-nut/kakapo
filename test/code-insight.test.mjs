@@ -1,16 +1,8 @@
-// IntelliJ's code analysis actions: Quick Documentation (F1), Expression Type (⌘⇧P), Show Error
-// Description (⌘F1) and the Problems view (⌘6).
-//
-// Two layers. `normalizeHoverResult` is a pure function over three different wire shapes — servers in the
-// bundle use all three — so it is tested as one against dist/. Everything above it goes through the viewer
-// with the analysis bridge stubbed, because "the panel was empty" is a thing the page does, not the server.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { normalizeHoverResult } from "../dist/lsp.js";
 import { makeReviewHtml, cleanupFixtures } from "./helpers/fixture.mjs";
 import { loadViewer } from "./helpers/dom.mjs";
-
-// ---- the wire shapes -----------------------------------------------------------------------------
 
 test("hover accepts all three shapes a server may answer with", () => {
   assert.equal(
@@ -28,8 +20,6 @@ test("hover accepts all three shapes a server may answer with", () => {
     "```ts\nclass Store\n```\n\nHolds things.",
     "a list arrives when the signature and the doc are sent separately",
   );
-  // Plaintext is code far more often than prose, and fencing it stops a leading `*` in a C comment from
-  // being read as a bullet.
   assert.equal(normalizeHoverResult({ contents: { kind: "plaintext", value: "int x" } }), "```\nint x\n```");
 });
 
@@ -44,16 +34,12 @@ test("hover drops what is empty and what is repeated", () => {
   );
 });
 
-// ---- the caret actions and the Problems view ------------------------------------------------------
-
 const FILE = "src/store.ts";
 const OTHER = "src/thing.ts";
 const SOURCE = ["export class Store {", "  load() {", "    return 1;", "  }", "}"].join("\n");
 
 let html;
 before(async () => {
-  // `app: true`: Quick Documentation is one of the Electron-only panels (there is no language server to
-  // ask in a standalone HTML review), so it is only in the markup when the app review is built.
   ({ html } = await makeReviewHtml([
     { path: FILE, before: "export class Store {}\n", after: SOURCE + "\n" },
     { path: OTHER, before: "export const thing = 1;\n", after: "export const thing = 2;\n" },
@@ -91,7 +77,7 @@ const hintText = (host) => host.v.$all(".mc-caret-hint, .mc-toast").map((el) => 
 
 test("F1 renders what the server says, as the markdown it is", async () => {
   const host = await openSource();
-  host.v.window.setSourceCursor(FILE, 0, 13, true, -1); // on `Store`
+  host.v.window.setSourceCursor(FILE, 0, 13, true, -1);
   await press(host, F1);
 
   const panel = host.v.$("#quick-doc");
@@ -119,7 +105,7 @@ test("Escape closes the documentation panel", async () => {
 
 test("F1 with nothing under the caret asks no question at all", async () => {
   const host = await openSource();
-  host.v.window.setSourceCursor(FILE, 4, 0, true, -1); // the closing brace
+  host.v.window.setSourceCursor(FILE, 4, 0, true, -1);
   await press(host, F1);
   assert.equal(host.asked.filter((request) => request.kind === "hover").length, 0);
   assert.equal(host.v.$("#quick-doc").classList.contains("hidden"), true);
@@ -164,8 +150,6 @@ test("⌘F1 reads out the problem on the caret's line", async () => {
   host.v.close();
 });
 
-// ---- ⌘6 ------------------------------------------------------------------------------------------
-
 const problemRows = (host) => host.v.$all("#quick-open-results .problem-result")
   .map((row) => [row.dataset.severity, row.querySelector(".problem-message").textContent]);
 
@@ -186,8 +170,6 @@ test("⌘6 asks every file the page holds and lists what came back, errors first
     "the error sorts above the warning, whichever file it is in");
   assert.ok(host.v.window.__diagnosticsRequests.includes(FILE) && host.v.window.__diagnosticsRequests.includes(OTHER),
     "both files were asked — the point of this view is that it is not the open file");
-  // "(1 errors)" until the catalog's plural token reached this string: every count in a kakapo sentence
-  // now picks its own form, so a one-error scan reads "1 error" and a one-file scan reads "1 file".
   assert.match(host.v.$("#quick-open-filter").textContent, /2 problems \(1 error\) in 2 files/);
 
   await press(host, { code: "KeyE", key: "e", altKey: true });
@@ -195,11 +177,6 @@ test("⌘6 asks every file the page holds and lists what came back, errors first
   host.v.close();
 });
 
-// This test used to assert the opposite — that the weak tier was collected and never listed. It is the tier
-// tsserver fills unasked (an unused declaration, a line after a return), which is the half of generated code
-// that compiles and is still wrong, so it is now listed and sorts below the warnings. The old assertion
-// would have stayed GREEN through this change: the severity it fed, "info", no longer exists, so the rows
-// were dropped as unknown rather than as weak.
 test("the weak tier is listed, under the warnings, and both noise filters still hide it", async () => {
   const host = await openSource({
     diagnostics: (path) => ({
@@ -228,8 +205,6 @@ test("Essential Highlighting hides the weak tier too", async () => {
       diagnostics: [{ lineIndex: 0, column: 0, severity: "weak", message: "unused declaration", source: "ts" }],
     }),
   });
-  // ⇧⌥E is the toggle a reviewer reaches for when a hundred style findings are between them and the three
-  // things that are wrong. It predates this tier; the point here is that it covers it without being told to.
   await press(host, { code: "KeyE", key: "E", altKey: true, shiftKey: true });
   await press(host, { code: "Digit6", key: "6", metaKey: true });
   await host.v.settle(120);
@@ -238,7 +213,6 @@ test("Essential Highlighting hides the weak tier too", async () => {
 });
 
 test("a file no server covers is counted, not reported as clean", async () => {
-  // USER_FLOWS Flow 6: an empty answer for a file that could not be analysed is the misleading version.
   const host = await openSource({
     diagnostics: (path) => (path === FILE
       ? { ok: true, available: false, diagnostics: [] }
@@ -254,24 +228,15 @@ test("a file no server covers is counted, not reported as clean", async () => {
   host.v.close();
 });
 
-// The scan is project-wide — a reviewed file is usually broken by a file it calls, and that file is
-// usually not in the review — which is why the Problems list on this repository came back with 25 rows
-// where only 3 belonged to the change, the top five all in files nobody had touched. Scope is right;
-// ORDER is what a review tool owes the reader. Severity still wins: an error elsewhere outranks a warning
-// here, because an error elsewhere is more likely to be what the change broke.
 test("the review's own files sort above the rest at equal severity", async () => {
   const UNTOUCHED = "src/elsewhere.ts";
   const { html: mixed } = await makeReviewHtml([
     { path: FILE, before: "export class Store {}\n", after: SOURCE + "\n" },
-    // Same before and after: committed, so the page indexes it, and absent from the diff, so it is not
-    // one of the review's files.
     { path: UNTOUCHED, before: "export const far = 1;\n", after: "export const far = 1;\n" },
   ], { app: true });
 
   const v = await loadViewer(mixed, {
     analysisBridge: () => ({ ok: true, engine: "lsp", confidence: "semantic", locations: [], symbols: [] }),
-    // Both files warn, and the untouched one sorts first alphabetically, so only the review-first rule
-    // can put the reviewed file on top.
     diagnosticsBridge: (path) => ({
       ok: true,
       available: true,

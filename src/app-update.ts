@@ -3,15 +3,8 @@ import { mkdtempSync, writeFileSync, chmodSync, existsSync, accessSync, constant
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-// Updating the PACKAGED app is a different channel from updating the CLI. `npm i -g` (self-update.ts)
-// replaces the global kakapo command, which is the right answer when that is what you launched — but it
-// never touches /Applications/Kakapo.app, so a reviewer running the bundle would press Update, see it
-// succeed, and still be on the old version forever. The bundle's channel is the DMG attached to the GitHub
-// release, and this module is that path: find the asset, stage it, swap it in, relaunch.
-
 export type ReleaseAsset = { name: string; url: string };
 
-/** Semver-ish compare, tolerant of a leading v and of pre-release suffixes we do not publish. */
 export function isNewerVersion(candidate: string, current: string): boolean {
   const parts = (value: string) => String(value).replace(/^v/, "").split(".").map((n) => parseInt(n, 10) || 0);
   const a = parts(candidate);
@@ -24,30 +17,16 @@ export function isNewerVersion(candidate: string, current: string): boolean {
   return false;
 }
 
-/**
- * The DMG built for THIS machine. The release carries an Apple Silicon dmg only, so an Intel Mac must not
- * be handed the arm64 bundle — better no automatic update than one that installs an app that cannot run.
- */
 export function macDmgAsset(assets: ReleaseAsset[], arch: string = process.arch): ReleaseAsset | undefined {
   if (arch !== "arm64") return undefined;
   return assets.find((asset) => /\.dmg$/i.test(asset.name) && /arm64/i.test(asset.name));
 }
 
-/**
- * Where the running bundle lives, given any path inside it. app.getPath("exe") points at
- * <bundle>/Contents/MacOS/<name>; the thing to replace is the .app directory itself.
- */
 export function bundlePathFor(execPath: string): string | undefined {
   const match = execPath.match(/^(.*\.app)\/Contents\/MacOS\//);
   return match ? match[1] : undefined;
 }
 
-/**
- * Replacing a bundle from inside itself cannot work: the swap has to happen after this process is gone.
- * So the update is handed to a detached script that waits for our PID to disappear, moves the old bundle
- * aside, copies the staged one into place, and relaunches. The old bundle is only deleted once the new one
- * is in place — if the copy fails, the script puts the original back rather than leaving no app at all.
- */
 export function swapScript(options: { pid: number; staged: string; installed: string; backup: string }): string {
   const { pid, staged, installed, backup } = options;
   return [
@@ -69,25 +48,13 @@ export function swapScript(options: { pid: number; staged: string; installed: st
 
 export type PackagedUpdateResult = { ok: boolean; error?: string };
 
-/**
- * Mount an already-downloaded release DMG, copy the app out, and hand the swap to the detached script above.
- * Returns only on failure — on success the caller quits so the script can take over.
- *
- * The download used to happen here, as a synchronous curl. That froze the main process for the whole transfer
- * of a ~200MB image with nothing on screen moving, which is indistinguishable from a hang. It now belongs to
- * the caller, which streams it and reports bytes as they arrive; what is left here runs in seconds.
- */
 export function installPackagedUpdate(options: {
-  /** A DMG already on disk. The download is the slow part and belongs to the caller, which can report its
-   * progress (app-main.ts); everything from here on is seconds of local disk work with nothing to report. */
   dmgPath: string;
   installed: string;
   pid?: number;
   quit: () => void;
 }): PackagedUpdateResult {
   const { dmgPath, installed } = options;
-  // An app the user cannot write to (a managed /Applications, a read-only volume) has to be updated by
-  // hand; failing here is honest, and the settings panel names the download instead.
   try {
     accessSync(installed, constants.W_OK);
   } catch {

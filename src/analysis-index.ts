@@ -22,13 +22,6 @@ export type RegexIndex = {
   symbols: SymbolRecord[];
 };
 
-// Comment/string-masked source, one file at a time — which is the only way its four call sites ever read it
-// (a path, then a line). Retaining the masked copy of every indexed file was a second full copy of the
-// project's source held as ~930k individual line strings: 77MB on a 6k-file repo, per window, for lookups
-// that touch the file under the cursor. `files` already holds the content, and masking one file is a single
-// pass over it, so recompute on demand behind a small LRU instead.
-// ponytail: fixed 32-file window, no byte accounting. Navigation works a file at a time; if a caller ever
-// sweeps the whole project through here, give it a byte budget like ByteBudgetCache.
 const CODE_LINES_CACHE = 32;
 export class CodeLines {
   private readonly cache = new Map<string, string[]>();
@@ -36,19 +29,17 @@ export class CodeLines {
   get(path: string): string[] | undefined {
     const hit = this.cache.get(path);
     if (hit) {
-      this.cache.delete(path); // re-insert: insertion order is the LRU queue
+      this.cache.delete(path);
       this.cache.set(path, hit);
       return hit;
     }
     const content = this.files.get(path);
-    if (content === undefined) return undefined; // not indexed (or a document path the build skipped)
+    if (content === undefined) return undefined;
     const masked = maskNonCode(content, path);
     this.cache.set(path, masked);
     if (this.cache.size > CODE_LINES_CACHE) this.cache.delete(this.cache.keys().next().value as string);
     return masked;
   }
-  // The masked copy is keyed by path, so re-indexing a file in place has to evict it or every later
-  // lookup reads the previous revision's lines.
   forget(path: string): void {
     this.cache.delete(path);
   }
@@ -62,9 +53,6 @@ const CODE_EXTENSIONS = new Set([
 const MAX_INDEX_FILES = 30_000;
 const MAX_INDEX_FILE_BYTES = 1_000_000;
 
-// Which files the symbol index holds. listProjectFiles applies this to ripgrep's output and patchProjectIndex
-// applies it to the review's records, so the two can never disagree about what belongs in the index — the
-// whole point of patching is that what is left alone is still correct.
 export function indexablePath(path: string): boolean {
   return CODE_EXTENSIONS.has(extname(path).toLowerCase()) && !documentPath(path);
 }
@@ -75,9 +63,6 @@ export function indexableContent(content: string): boolean {
 
 const DECLARATION_PATTERNS: Array<{ kind: string; re: RegExp }> = [
   { kind: "function", re: /^\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+([A-Za-z_$][A-Za-z0-9_$]*)/ },
-  // `pub` and `pub(crate)` are Rust's export modifiers, and without them every `pub struct` / `pub trait`
-  // / `pub enum` in a Rust project went unindexed — measured: a file whose only indexed symbols were its
-  // `fn`s, so go-to-definition for a type had nothing to find whenever rust-analyzer was not answering.
   { kind: "class", re: /^\s*(?:(?:public|private|protected|internal|abstract|final|open|sealed|data|inner|enum|annotation|static|export|default|expect|actual|value|pub(?:\([^)]*\))?)\s+)*(class|interface|object|enum|trait|struct)\s+([A-Za-z_$][A-Za-z0-9_$]*)/ },
   { kind: "type", re: /^\s*(?:export\s+)?(interface|type|enum)\s+([A-Za-z_$][A-Za-z0-9_$]*)/ },
   { kind: "variable", re: /^\s*(?:export\s+)?(?:const|let|var|val)\s+([A-Za-z_$][A-Za-z0-9_$]*)/ },
@@ -88,8 +73,6 @@ const DECLARATION_PATTERNS: Array<{ kind: string; re: RegExp }> = [
 const HASH_COMMENT_EXTENSIONS = new Set([".py", ".rb", ".yaml", ".yml", ".toml"]);
 const DOUBLE_DASH_COMMENT_EXTENSIONS = new Set([".sql"]);
 
-// Preserve offsets while blanking comments and strings. Every heuristic consumer shares this one lexical
-// policy, so definitions, references, and workspace symbols cannot silently disagree about what is code.
 export function maskNonCode(content: string, path: string): string[] {
   const extension = extname(path).toLowerCase();
   const hashComments = HASH_COMMENT_EXTENSIONS.has(extension);
@@ -154,10 +137,6 @@ export function maskNonCode(content: string, path: string): string[] {
   });
 }
 
-// An enum entry declares itself by standing alone on its line — `DONE,` — which matches none of the shapes
-// above, so Cmd+B on one used to dead-end ("Definition not found") even though its usages were indexed. The
-// shape is too weak to trust on its own (a bare name in a `setOf(...)` list looks identical), so it only
-// counts inside an enum body, and only in the SCREAMING_SNAKE the convention uses.
 const ENUM_ENTRY = /^\s*([A-Z][A-Z0-9_$]*)\s*(?:[,;(]|\{|$)/;
 
 function declarationFromLine(path: string, line: string, lineIndex: number, sourceLine = line, inEnumBody = false): SymbolRecord | undefined {
@@ -199,8 +178,6 @@ type IndexSink = {
   symbols: SymbolRecord[];
 };
 
-// The one place a found symbol enters the index: the flat list and the by-name map have to agree, and the
-// cache rehydration path below adds records too.
 function pushSymbol(sink: IndexSink, record: SymbolRecord): void {
   sink.symbols.push(record);
   const entries = sink.definitions.get(record.name) ?? [];
@@ -214,9 +191,6 @@ function indexOneFile(file: IndexedFile, sink: IndexSink, cache?: SymbolCache): 
   if (documentPath(path)) return;
   fileMap.set(path, file.content);
   const lines = file.content.split(/\r?\n/);
-  // A previous launch already scanned this exact text (see analysis-cache.ts: the key is the content, not
-  // the path). Its records are the scan's own output, so the index below is identical either way — verified
-  // symbol-for-symbol on three repositories, 14,963 / 47,506 / 180,140 records.
   const key = cache?.entryKey(path, file.content) ?? "";
   const cached = key ? cache?.get(key, path, lines) : undefined;
   if (cached) {
@@ -227,10 +201,7 @@ function indexOneFile(file: IndexedFile, sink: IndexSink, cache?: SymbolCache): 
   const masked = maskNonCode(file.content, path);
   const python = extname(path).toLowerCase() === ".py";
   const pythonClasses: Array<{ name: string; indent: number }> = [];
-  // Indent of the `enum class`/`enum` line whose body we are inside, or -1. Entries live at a deeper
-  // indent than it, and end at the body's closing brace or at the `;` that separates them from members.
   let enumIndent = -1;
-  // `masked` is scanned for declarations below and then dropped — CodeLines re-derives it per file on demand.
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
     const code = masked[lineIndex];
     const trimmed = code.trim();
@@ -240,7 +211,7 @@ function indexOneFile(file: IndexedFile, sink: IndexSink, cache?: SymbolCache): 
     }
     if (enumIndent >= 0 && trimmed && indent <= enumIndent && trimmed.startsWith("}")) enumIndent = -1;
     const record = declarationFromLine(path, code, lineIndex, lines[lineIndex], enumIndent >= 0 && indent > enumIndent);
-    if (enumIndent >= 0 && trimmed === ";") enumIndent = -1; // Java/Kotlin: entries end, members begin
+    if (enumIndent >= 0 && trimmed === ";") enumIndent = -1;
     if (!record) continue;
     if (record.symbolKind === "enum" || /\benum\s+(class\s+)?[A-Za-z_$]/.test(trimmed)) enumIndent = indent;
     if (python && pythonClasses.length && indent > pythonClasses[pythonClasses.length - 1].indent) {
@@ -266,24 +237,6 @@ export function buildRegexSymbolIndex(files: IndexedFile[]): RegexIndex {
   return asRegexIndex(sink);
 }
 
-// The same work, yielding to the event loop as it goes.
-//
-// The scan is the expensive half and it is pure CPU: measured on a 3,000-file repository, reading every
-// file took 152 ms (already batched, already yielding) and scanning them took ~1,900 ms in ONE synchronous
-// block. This runs in the main process, so that block stalls IPC, the window and every other query for its
-// whole duration — a two-second freeze wherever it happens to land.
-//
-// Chunking does not make it faster, and is not meant to: on that repository the total was 1,832 ms
-// synchronous and 1,769 ms chunked. What changes is the longest single stall, which was the whole
-// 1,832 ms before.
-//
-// The budget is in BYTES, not files. Counting files put one 2 MB file in the same uninterrupted chunk as
-// seven neighbours, and the two worst stalls left (136 ms and 98 ms) were exactly that; a byte budget
-// gives a big file its own boundary. What it cannot do is split one file — a single file at the
-// MAX_INDEX_FILE_BYTES ceiling is the floor on this, and chunking inside a file is not worth the seams.
-//
-// (A sampling timer reports the synchronous version's worst stall as 0 ms, which is the measurement
-// failing rather than the code behaving: the sampler never gets to run during the block it is measuring.)
 export async function buildRegexSymbolIndexChunked(
   files: IndexedFile[],
   budget = 128 * 1024,
@@ -299,28 +252,10 @@ export async function buildRegexSymbolIndexChunked(
       await new Promise<void>((resolveChunk) => setImmediate(resolveChunk));
     }
   }
-  // One write per build, after the last file: the store is the whole project's records, and writing it per
-  // file would hand a 6 MB serialize to every chunk boundary.
   cache?.flush();
   return asRegexIndex(sink);
 }
 
-// Re-index a handful of files inside an index that is otherwise still correct, instead of rebuilding the
-// project around them.
-//
-// buildProjectIndex re-walks the tree with ripgrep, re-reads every file and re-scans every line: 210ms on
-// this 212-file repository, and ~1,900ms of scan alone on a 3,000-file one, measured. It ran on every save,
-// in the main process, because one file changed. Everything it rebuilt but the changed file was identical to
-// what it threw away.
-//
-// Removing a path's records is the delicate half. `symbols` is the only structure that knows which names a
-// path contributed, so it is read BEFORE it is filtered — that keeps the pass over `definitions` to the
-// names this path actually touched, and leaving one record behind would mean a jump into a line that no
-// longer exists. A wrong answer is worse than a slow one, so the whole removal happens for every touched
-// path, including paths being re-indexed rather than dropped.
-// Deliberately NOT given the symbol store: this re-scans the handful of files a save moved, and storing
-// them would serialize the whole store (6 MB on a 5,551-file repository) on the save path to spare the next
-// launch a scan of those same few files — ~10 ms of the 2.5 s the store is there to remove.
 export function patchProjectIndex(index: RegexIndex, files: IndexedFile[], removed: string[] = []): void {
   const normalize = (path: string) => path.replace(/\\/g, "/");
   const incoming = files
@@ -346,8 +281,6 @@ export function patchProjectIndex(index: RegexIndex, files: IndexedFile[], remov
     index.codeLines.forget(path);
   }
 
-  // The same sink the full build fills, pointed at the live index: `symbols` is the array just filtered, so
-  // indexOneFile's pushes land in the index itself.
   const sink: IndexSink = { fileMap: index.files, definitions: index.definitions, symbols: index.symbols };
   for (const file of incoming) indexOneFile(file, sink);
 }
@@ -398,24 +331,11 @@ export async function buildProjectIndex(root: string, cache?: SymbolCache): Prom
   return buildRegexSymbolIndexChunked(files, undefined, cache);
 }
 
-/**
- * The same index, built from a revision instead of from the working tree.
- *
- * Only the LOADING differs — enumeration and bulk read come from git-tree.ts — and the symbol extraction
- * below is shared with buildProjectIndex on purpose: an index that found symbols differently depending on
- * where the text came from would make "go to definition" mean two things.
- *
- * There is no chunked yield loop here because there is nothing to yield between: the whole tree arrives
- * from one `cat-file --batch` (548 ms for 3,058 files, measured), and the work that follows is
- * buildRegexSymbolIndexChunked, which already yields.
- */
 export async function buildProjectIndexAtRevision(root: string, revision: string, cache?: SymbolCache): Promise<RegexIndex> {
   const paths = listRevisionFiles(root, revision)
     .filter((path) => indexablePath(path))
     .slice(0, MAX_INDEX_FILES);
   const blobs = await readRevisionBlobs(root, revision, paths, { maxBytes: MAX_INDEX_FILE_BYTES });
-  // The same store serves this: a revision's blob is text like any other, and most of a revision's text is
-  // text the working tree has too, so reading history mostly hits what the working-tree index already stored.
   return buildRegexSymbolIndexChunked(blobs, undefined, cache);
 }
 
@@ -428,10 +348,6 @@ export function safeRelativePath(root: string, path: string | undefined): string
   return rel;
 }
 
-// The identifier under `column`, WITH where it starts. The start is not a nicety: a caller that only gets the
-// name has to find it again, and `line.indexOf(name)` finds the wrong one whenever the name also appears
-// inside an earlier identifier on that line — `Locale` sits inside `normalizeLocale`, `Path` inside
-// `filePath`. Asking a language server about that relocated column answers about the wrong symbol.
 export function identifierSpanAt(text: string, column: number): { name: string; start: number } | undefined {
   const position = Math.max(0, Math.min(column, text.length));
   const re = /[A-Za-z_$][A-Za-z0-9_$]*/g;

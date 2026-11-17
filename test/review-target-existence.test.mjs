@@ -1,10 +1,3 @@
-// `kakapo:existing-project-paths` is how the renderer decides a commented-on file is gone, and a `false`
-// there DELETES the comment and saves it away. So the question has to be asked of the review's right side.
-//
-// When that side is a revision — an A→B compare, or a clean checkout behind its upstream, where the review is
-// "what the remote has and you don't" — a file added on that side does not exist in the working tree and
-// still reads perfectly well, because collectSourceFiles serves it from the blob. Answering from existsSync
-// alone deleted every comment on such a file the first time the comments dock was opened.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
@@ -15,8 +8,6 @@ import { registerProjectPathIpc } from "../dist/app-path-ipc.js";
 
 const noShell = { showItemInFolder() {}, openExternal() {}, openPath() {} };
 
-// A repo whose HEAD~1 is the working tree's state and whose HEAD adds `only-upstream.ts` — the shape of
-// reviewing an upstream commit the checkout has not merged.
 function repoBehindUpstream() {
   const root = mkdtempSync(join(tmpdir(), "kakapo-target-"));
   const git = (...args) => execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
@@ -30,9 +21,8 @@ function repoBehindUpstream() {
   git("add", "-A");
   git("commit", "-qm", "upstream adds a file");
   const upstream = git("rev-parse", "HEAD");
-  git("reset", "-q", "--hard", "HEAD~1"); // the working tree no longer has only-upstream.ts
+  git("reset", "-q", "--hard", "HEAD~1");
 
-  // `ask` builds the handler against a state with whatever right side the test is about.
   const ask = (paths, reviewTarget) => {
     const handlers = new Map();
     const ipc = { handle: (channel, fn) => handlers.set(channel, fn), on: (channel, fn) => handlers.set(channel, fn) };
@@ -72,8 +62,6 @@ test("a genuinely deleted file is still reported missing, so the prune keeps wor
   try {
     unlinkSync(join(r.root, "here.ts"));
     assert.equal(r.ask(["here.ts"], "worktree")["here.ts"], false);
-    // Even with a revision as the right side: the file is in neither the tree nor that commit… except it IS
-    // in that commit, so this asserts the opposite — which is the point. A comment on it is still valid.
     assert.equal(r.ask(["here.ts"], r.upstream)["here.ts"], true, "deleted locally but present in the reviewed revision");
   } finally {
     r.cleanup();

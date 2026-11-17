@@ -50,7 +50,7 @@ async function waitForProjection(window) {
     "(typeof diffViewportResizing !== 'undefined' && diffViewportResizing)");
   for (let attempt = 0; attempt < 20; attempt += 1) {
     if (!await resizing()) {
-      await pause(160); // longer than the settle timer: anything still coming re-arms it inside this window
+      await pause(160);
       if (!await resizing()) return;
     }
     await pause(50);

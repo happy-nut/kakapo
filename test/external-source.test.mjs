@@ -1,14 +1,3 @@
-// Following a symbol into compiled code.
-//
-// A JDK class and a class inside a dependency jar are not files: Eclipse JDT answers them as
-// `jdt://contents/…` or `jrt:/…`, and until now that was where the jump ended — a one-line "it is
-// somewhere in rt.jar", because nothing could produce the text behind such a URI. The server that named
-// one can: `java/classFileContents` hands back the library's own source when a sources jar is attached and
-// a decompilation when it is not, which is IntelliJ's pair of answers to the same question.
-//
-// This is the wire test for that chain. A fake server answers a definition with a `jdt://` URI and answers
-// the content request for it; the assertions are that the URI is remembered as one this session may read,
-// that the right server is chosen for it with no path to classify, and that the text comes back.
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
@@ -37,7 +26,6 @@ after(async () => {
   resetKnownLibraryPaths();
 });
 
-// A server that answers one definition with a non-file URI, and the JDT content request for that URI.
 function fakeJdt(root) {
   const file = join(root, "fake-jdt.mjs");
   writeFileSync(file, `
@@ -93,8 +81,6 @@ function project() {
 }
 
 test("a scheme the JDT server can read names the sample file that picks that server", () => {
-  // A `jdt://` URI carries no path for the language-server resolver to classify, so the scheme itself has
-  // to say which language owns it. Anything else is left alone rather than guessed at.
   assert.equal(externalUriSampleFile(CLASS_URI), "Library.java");
   assert.equal(externalUriSampleFile("jrt:/java.base/java/time/Instant.class"), "Library.java");
   assert.equal(externalUriSampleFile("file:///tmp/x.ts"), undefined);
@@ -102,7 +88,6 @@ test("a scheme the JDT server can read names the sample file that picks that ser
 });
 
 test("a URI nobody has answered with is not readable, however well-formed it looks", async () => {
-  // The reader is otherwise a "decompile any archive on this disk" channel into a language server.
   resetKnownLibraryPaths();
   const { analysis } = project();
   assert.equal(isKnownExternalUri(CLASS_URI), false);
@@ -123,7 +108,6 @@ test("a definition in compiled code is remembered, and its text comes back from 
   const text = await analysis.externalSourceText(CLASS_URI);
   assert.equal(text, DECOMPILED, "the class-file contents request answered");
 
-  // What get-source hands the page for it.
   const record = externalSourceFile(CLASS_URI, text);
   assert.equal(record.path, CLASS_URI, "keyed by what the renderer asked for");
   assert.equal(record.library, true, "and opens read-only, like any other library file");
@@ -132,13 +116,6 @@ test("a definition in compiled code is remembered, and its text comes back from 
   assert.equal(record.name, "List.class", "the tab is named after the entry, not the whole URI");
 });
 
-// The other half of "a definition that is not a file": Phpactor answers with `phar:///…/x.phar/entry.php`,
-// which IS a path — the archive is a real file and the rest names an entry inside it. Classified as a URI
-// instead, every PHP stdlib definition went to the external reader, which asks the naming server for the
-// text; no server speaks `phar`, so each one ended at "compiled, with no source to open" while the source
-// sat in the archive. This runs the whole wire: the scheme is dropped, the path is allowlisted, and the
-// location survives navigationLocations — which drops a location it can see no visible characters on, and
-// could see none until readSource learned to read an entry.
 const PHAR_ENTRY = "vendor/jetbrains/phpstorm-stubs/date/date.php";
 const PHAR_SOURCE = "<?php\nfunction date_create_immutable($datetime = 'now') {}\n";
 
@@ -184,8 +161,6 @@ test("a definition inside a phar opens as library code, text and all", async () 
   mkdirSync(join(root, "src"), { recursive: true });
   const content = "<?php\n$t = date_create_immutable('now');\n";
   writeFileSync(join(root, "src/app.php"), content);
-  // The archive goes OUTSIDE the project, where a real dependency's would be: a path under the root would
-  // be reported relative to it and read as a project file instead.
   const archive = join(mkdtempSync(join(tmpdir(), "kakapo-phar-vendor-")), "phpactor.phar");
   roots.push(dirname(archive));
   writeFileSync(archive, buildPhar([{ name: PHAR_ENTRY, data: PHAR_SOURCE, deflate: true }]));

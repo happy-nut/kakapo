@@ -1,10 +1,3 @@
-// The read-only Git surfaces the history view is built on: a filtered log, a file's history through its
-// renames, the reflog, the stash list, and resolving what someone typed into the search box.
-//
-// Driven against a real repository rather than a stubbed `git`, because what is being guarded is the
-// invocation — which flag, in which position, with which value — and a stub would only confirm the shape
-// of the call this file already makes. Every filter value is renderer input, so the last tests here are
-// about what happens when it is hostile.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -33,18 +26,15 @@ before(() => {
   git(["commit", "-qm", "second: add b", "--author=Grace Hopper <grace@kakapo.test>"],
     { GIT_COMMITTER_DATE: "2021-06-01T10:00:00+0000", GIT_AUTHOR_DATE: "2021-06-01T10:00:00+0000" });
 
-  // A rename, so "the history of this file" has something to follow through.
   git(["mv", "a.txt", "renamed.txt"]);
   git(["commit", "-qm", "third: rename a to renamed"]);
 
-  // A commit that only exists on another branch, so --all and "current branch" differ.
   git(["checkout", "-qb", "side"]);
   writeFileSync(join(root, "side.txt"), "side\n");
   git(["add", "-A"]);
   git(["commit", "-qm", "fourth: only on side"]);
   git(["checkout", "-q", "main"]);
 
-  // Something stashed, and a tag to resolve.
   writeFileSync(join(root, "b.txt"), "beta, edited\n");
   git(["stash", "push", "-qm", "work in progress"]);
   git(["tag", "v1.0"]);
@@ -71,8 +61,6 @@ test("the author filter is applied by git, not by hiding rows", () => {
 
 test("the message filter matches a substring, case-insensitively, and is not read as a regex", () => {
   assert.deepEqual(subjects(readGitLog(root, { text: "SECOND" })), ["second: add b"]);
-  // An unbalanced bracket is a typo mid-word, not a broken query — it must narrow to nothing rather than
-  // make git exit non-zero and empty the view with no explanation.
   assert.deepEqual(readGitLog(root, { text: "second: [" }), []);
 });
 
@@ -117,8 +105,6 @@ test("the stash list is read, and each entry is a commit the review surface can 
   assert.equal(stashes[0].selector, "stash@{0}");
   assert.match(stashes[0].subject, /work in progress/);
   assert.match(stashes[0].hash, /^[0-9a-f]{40,64}$/);
-  // Which matters because opening one is `sha^..sha` on the normal review surface — a stash commit's first
-  // parent is where HEAD was when it was made.
   const firstParent = execFileSync("git", ["rev-parse", `${stashes[0].hash}^1`], { cwd: root, stdio: "pipe" }).toString().trim();
   assert.equal(stashes[0].parents[0], firstParent, "the base its diff is read against comes with it");
 });
@@ -142,10 +128,7 @@ test("ordinary words resolve to nothing, which is how the search box stays a tex
   }
 });
 
-// Every value below arrives from the renderer. A filter is attached to its flag (`--author=x`), so a value
-// that looks like an option is a value; a ref or a path is validated instead, because those are positional.
 test("a filter value cannot turn into another git option", () => {
-  // --all as an author name: matched as text, so nothing matches, and the page is NOT silently unfiltered.
   assert.deepEqual(readGitLog(root, { author: "--all" }), []);
   assert.deepEqual(readGitLog(root, { text: "--pretty=format:%H" }), []);
   assert.deepEqual(readGitLog(root, { content: "--output=/tmp/kakapo-should-not-exist" }), []);
@@ -161,7 +144,6 @@ test("a ref or a path that is not one is dropped rather than passed through", ()
     assert.deepEqual(subjects(readGitLog(root, { path })), all,
       `${path} cannot leave the repository — it is dropped, not resolved`);
   }
-  // And a date that is not a date does not become one.
   assert.deepEqual(subjects(readGitLog(root, { since: "yesterday; rm -rf /" })), all);
 });
 

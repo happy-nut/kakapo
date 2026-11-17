@@ -7,10 +7,6 @@ type RepaintableWindow = {
   };
 };
 
-// macOS grows the native hiddenInset window before Chromium has necessarily painted the new content
-// bounds. A large diff can keep the renderer busy while that happens, leaving a strip of the BrowserWindow
-// background visible at the right edge. Coalesce native resize events and request one full-surface repaint
-// after the final bounds have settled. This does no DOM work and therefore stays cheap during live resize.
 export function installWindowSurfaceRecovery(window: RepaintableWindow, delayMs = 180): () => void {
   let timer: NodeJS.Timeout | undefined;
   let disposed = false;

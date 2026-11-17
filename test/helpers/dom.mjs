@@ -1,16 +1,3 @@
-// Load a standalone review HTML into jsdom and drive it like a user would.
-//
-// The page ships its client as one inline <script> (viewer.client.js). jsdom runs it for us when
-// `runScripts: "dangerously"` is set; `beforeParse` installs the handful of browser APIs the viewer
-// feature-detects (IntersectionObserver, ResizeObserver, matchMedia, scrollTo) so the script boots
-// without throwing. We give the document a real http origin so localStorage works — the viewer keys
-// its persistence on `location.pathname`, and an opaque (file://) origin would make localStorage
-// throw on access.
-//
-// Helpers below speak in the viewer's own vocabulary (open a file, click a line, open the composer,
-// save) and deliberately locate the *visible* composer the way a user's eyes would — never by raw
-// DOM order — so a test that "types and saves" exercises the same wrong-textarea hazard the
-// regression came from, instead of papering over it.
 import { JSDOM } from "jsdom";
 import { after } from "node:test";
 import { readFileSync } from "node:fs";
@@ -20,28 +7,14 @@ import { materializeDeferredSourceFile } from "../../dist/diff.js";
 
 const tick = (ms = 0) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// Every window this helper opens, closed again when the file that opened it ends.
-//
-// A jsdom window's timers are Node timers, and the viewer starts a 6-hour update-check interval at load
-// (08-dock.js). So a single window a test forgets to close does not leak a little memory — it keeps the test
-// process alive forever. On CI that is not a slow suite: `npm test` runs every file in one process, the
-// runner finishes its last test and then sits there until the job hits GitHub's 6-hour ceiling and is
-// cancelled, with no failing test to point at. comments.test.mjs and monaco.test.mjs were doing exactly that.
-//
-// Tests still call v.close() themselves — that is the normal path and it keeps each test's windows from
-// piling up while the file runs. This is only the net underneath it, so one missed close costs nothing.
 const openWindows = new Set();
 after(() => {
-  for (const window of openWindows) { try { window.close(); } catch { /* already torn down */ } }
+  for (const window of openWindows) { try { window.close(); } catch { } }
   openWindows.clear();
 });
 
 const DIST_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "dist");
 
-// The Electron review (app:true) references the client as an external kakapo-asset:// script — a scheme
-// only the app's protocol handler serves (from dist/monaco), which jsdom cannot fetch. Inline the same
-// bundle so the client boots identically under runScripts:"dangerously". Standalone/serve HTML already
-// inlines the client, so this is a no-op there.
 function inlineExternalClient(html) {
   return html.replace(
     /<script src="kakapo-asset:\/\/app\/(viewer\.client(?:\.min)?\.js)(?:\?[^"]*)?"><\/script>/,
@@ -49,31 +22,23 @@ function inlineExternalClient(html) {
   );
 }
 
-/**
- * @param {string} html standalone review HTML
- * @param {object} [opts]
- * @param {Record<string,string>} [opts.seedStorage] localStorage entries to install BEFORE the
- *   viewer boots — used to simulate "reopen the app" so persistence/restore can be asserted.
- */
 export async function loadViewer(html, opts = {}) {
   const dom = new JSDOM(inlineExternalClient(html), {
     url: "http://localhost/review.html",
     runScripts: "dangerously",
-    pretendToBeVisual: true, // provides requestAnimationFrame/cancelAnimationFrame
+    pretendToBeVisual: true,
     beforeParse(window) {
       if (opts.seedStorage) {
         for (const [k, val] of Object.entries(opts.seedStorage)) {
           try {
             window.localStorage.setItem(k, val);
           } catch {
-            /* localStorage not ready — caller falls back to a same-instance assertion */
           }
         }
       }
       if (opts.seedSession) {
-        // sessionStorage holds the UI restore state (open tabs, view, caret) — seed it to simulate "reopen".
         for (const [k, val] of Object.entries(opts.seedSession)) {
-          try { window.sessionStorage.setItem(k, val); } catch { /* not ready */ }
+          try { window.sessionStorage.setItem(k, val); } catch { }
         }
       }
       const noopObserver = class {
@@ -107,9 +72,6 @@ export async function loadViewer(html, opts = {}) {
       window.HTMLElement.prototype.scrollIntoView = () => {};
       window.confirm = () => true;
 
-      // The production editor is a lazy Tiptap bundle served by Electron's private asset scheme. jsdom
-      // cannot fetch that scheme, so dock tests use a tiny contract-compatible inline editor; a separate
-      // bundle test loads the real Tiptap runtime and verifies Markdown round-tripping/heading rendering.
       window.KakapoMarkdownEditor = {
         create({ element, markdown = "", onUpdate = () => {}, placeholder = "", className = "" }) {
           let value = String(markdown);
@@ -145,8 +107,6 @@ export async function loadViewer(html, opts = {}) {
               const node = selection && selection.rangeCount ? selection.anchorNode : null;
               return node ? (node.nodeType === 1 ? node : node.parentElement) : null;
             },
-            // jsdom has no real layout/line-wrap, so this approximates the real editor's word-wrap-aware
-            // boundary check: is there any text before (up) / after (down) the caret in the whole surface.
             atBoundary(direction) {
               const selection = window.getSelection();
               if (!selection || !selection.rangeCount) return true;
@@ -167,10 +127,6 @@ export async function loadViewer(html, opts = {}) {
         },
       };
 
-      // Simulate Electron's settings bridge. contextBridge DEEP-FREEZES everything it exposes, so the
-      // persisted `all` snapshot is immutable — the renderer must clone before mutating. Without this
-      // the tests only ever exercise the localStorage path (plain mutable arrays) and miss the
-      // "object is not extensible" class of bug entirely.
       if (opts.electronSettings) {
         const frozen = deepFreeze(JSON.parse(JSON.stringify(opts.electronSettings)));
         const writes = {};
@@ -182,11 +138,6 @@ export async function loadViewer(html, opts = {}) {
           },
         };
       }
-      // Electron's diff-update bridge: capture the listeners so a test can push a watch-refresh payload.
-      // Several slices subscribe (the view updater, the compare dropdown, the patch-set bar), and the real
-      // bridge is ipcRenderer.on — every listener gets the event. Keeping only the last one silently
-      // unsubscribed the view updater as soon as a second slice registered, and a watch refresh then
-      // painted nothing.
       if (opts.menuBridge) {
         const diffUpdateListeners = [];
         window.__diffUpdateListeners = diffUpdateListeners;
@@ -196,9 +147,6 @@ export async function loadViewer(html, opts = {}) {
           onReleaseView: (cb) => { window.__releaseViewCb = cb; },
         };
       }
-      // lazy-LOAD source/diff bridge: serve source content + per-index diff bodies on demand, as
-      // Electron/serve do. opts.getDiffBody(index, kind) lets a test swap the served body between builds
-      // (watch refresh), which is how the stale-bodyCache regression is reproduced.
       if (opts.lazySourceData != null || opts.getDiffBody || opts.sourceBridge || opts.existingPathsBridge) {
         let sourceRecords = [];
         try { sourceRecords = JSON.parse(opts.lazySourceData ?? "[]"); } catch { sourceRecords = []; }
@@ -222,9 +170,6 @@ export async function loadViewer(html, opts = {}) {
             window.__sourceRequests.push(path);
             if (opts.sourceBridge) return Promise.resolve(opts.sourceBridge(path));
             const record = sourceRecords.find((item) => item.path === path) || null;
-            // Mirror the app: main serves a deferred record by reading it off disk (see the get-source
-            // handler in app-review-ipc). Returning the metadata verbatim made the harness hand the viewer
-            // an empty body for any file the build chose not to embed, which is most of them.
             if (record?.deferred && opts.root) return Promise.resolve(materializeDeferredSourceFile(opts.root, record));
             return Promise.resolve(record);
           },
@@ -282,8 +227,6 @@ export async function loadViewer(html, opts = {}) {
       if (opts.perfBridge) {
         window.kakapoPerf = { mark: (name, details) => opts.perfBridge(name, details) };
       }
-      // The vocabulary bridge (terms-file.ts). Writes are captured rather than persisted: what a test
-      // needs to see is WHEN the map writes back, and reading a word is the only thing that should.
       if (opts.termsBridge) {
         const terms = JSON.parse(JSON.stringify(opts.termsBridge));
         window.__termsWrites = [];
@@ -298,8 +241,6 @@ export async function loadViewer(html, opts = {}) {
 
   const { window } = dom;
   const { document } = window;
-  // Let the inline script finish its synchronous boot + any 0ms timers (lazy-diff setup, the initial
-  // refreshComments, the composer focus retry interval which caps at ~300ms).
   await tick(60);
 
   openWindows.add(window);
@@ -314,51 +255,37 @@ class Viewer {
     this.document = document;
   }
 
-  // ---- lifecycle -------------------------------------------------------------------------------
   close() {
     openWindows.delete(this.window);
     this.window.close();
   }
-  /** Wait for the viewer's async work (focus retry interval, in-place re-renders) to settle. */
   settle(ms = 50) {
     return tick(ms);
   }
-  /**
-   * Settle until `fn()` is true, then return at once. `settle(ms)` is a real sleep, so every fixed wait is
-   * a bet on the machine: the lazy-fetch chain in comment-nav (fetch -> repaint -> frame -> caret) finishes
-   * in ~280ms on an idle machine and past 560ms when the runner has every other file in flight, which made
-   * `settle(400)` a coin flip. Waiting for the outcome is both faster in the common case and honest about a
-   * real regression — `cap` runs out and the assertion after it still fails, rather than hanging.
-   */
   async until(fn, cap = 3000) {
     const deadline = Date.now() + cap;
     while (!fn() && Date.now() < deadline) await this.settle(20);
     return Boolean(fn());
   }
-  /** Simulate a watch refresh (Electron diff-update) with a hand-built payload. Needs { menuBridge: true }. */
   async pushDiffUpdate(payload) {
     const cb = this.window.__diffUpdateCb;
     if (!cb) throw new Error("pushDiffUpdate: no diff-update listener (pass { menuBridge: true })");
     cb(payload);
     await this.settle(80);
   }
-  /** Simulate main reclaiming a long-parked workspace's diff DOM. Needs { menuBridge: true }. */
   async releaseView() {
     const cb = this.window.__releaseViewCb;
     if (!cb) throw new Error("releaseView: no release listener (pass { menuBridge: true })");
     cb();
     await this.settle(20);
   }
-  /** Read the persisted comments exactly as the viewer wrote them to localStorage. */
   storedComments() {
     const raw = this.window.localStorage.getItem("kakapo-comments:/review.html");
     return raw ? JSON.parse(raw) : [];
   }
-  /** What the simulated Electron settings bridge (kakapoSettings.set) was asked to persist. */
   electronWrites() {
     return this.window.__electronWrites || {};
   }
-  /** Snapshot the whole localStorage — feed it back via loadViewer(html, { seedStorage }). */
   exportStorage() {
     const out = {};
     const ls = this.window.localStorage;
@@ -369,7 +296,6 @@ class Viewer {
     return out;
   }
 
-  // ---- queries ---------------------------------------------------------------------------------
   $(sel) {
     return this.document.querySelector(sel);
   }
@@ -383,14 +309,10 @@ class Viewer {
     if (dv && !dv.classList.contains("hidden")) return "diff";
     return null;
   }
-  /** The change-list file currently marked active (i.e. the file the diff is showing), or null. */
   activeDiffFile() {
     const link = this.$("#changes-panel .file-link.active");
     return link ? link.dataset.file || null : null;
   }
-  /** Open the quick-open dialog at one of its sections, the way a user reaches it: ⌘⇧F, then the row for
-   *  the section in the tab strip. Each row also has its own chord (⇧⇧ for All, ⌘P for Files…), but one
-   *  door keeps a test about a section from depending on that section's chord too. */
   async openQuickOpenSection(section) {
     this.key("f", { metaKey: true, shiftKey: true, code: "KeyF" });
     await this.settle(20);
@@ -399,12 +321,10 @@ class Viewer {
     row.dispatchEvent(new this.window.MouseEvent("click", { bubbles: true }));
     await this.settle(20);
   }
-  /** Is the quick-open (⌘⇧F / find-in-files) overlay visible? */
   quickOpenVisible() {
     const qo = this.$("#quick-open");
     return !!(qo && !qo.classList.contains("hidden"));
   }
-  /** The composer textarea the user can actually see — the gate the regression turned on. */
   visibleComposerInput() {
     const inputs = this.$all(".mc-composer .mc-input");
     return (
@@ -417,11 +337,6 @@ class Viewer {
       }) || null
     );
   }
-  /**
-   * Deliver one agent-written record the way the thread file does (comments-file.ts pushes the whole list
-   * back through kakapo:comments-update). `re` makes it a reply, its absence a note of the agent's own.
-   * Returns the new record's id.
-   */
   agentSays(record) {
     const w = this.window;
     const records = w.reviewComments.map(w.commentToRecord);
@@ -429,37 +344,29 @@ class Viewer {
     w.applyThreadRecords(records.concat([{ id, by: "agent", text: "", ...record }]));
     return id;
   }
-  /** Text bodies of saved comment cards rendered in whichever view is on screen. */
   visibleCardTexts() {
     const root = this.visibleView() === "diff" ? "#diff2html-container" : "#source-body";
     return this.$all(`${root} .mc-card:not(.mc-composer) .mc-card-body`).map((b) => b.textContent);
   }
-  /** The comment box currently selected via arrow-key navigation (caret-stop), in the on-screen view. */
   selectedCommentBox() {
     const root = this.visibleView() === "diff" ? "#diff2html-container" : "#source-body";
     return this.$(`${root} .mc-comment-row.mc-row-selected`);
   }
-  /** The diff row the caret currently sits on (mc-diff-cursor-row), or null when none is rendered. */
   diffCaretRow() {
     return this.$("#diff2html-container .mc-diff-cursor-row");
   }
-  /** The new-side line number the diff caret is on, or null. */
   diffCaretLine() {
     const row = this.diffCaretRow();
     const n = row && row.querySelector(".d2h-code-side-linenumber");
     const v = n ? parseInt((n.textContent || "").trim(), 10) : NaN;
     return Number.isFinite(v) ? v : null;
   }
-  /** The 1-based line the caret is on, in whichever view is showing it. Walking a review crosses views —
-   *  revealComment prefers the diff for any line a hunk covers and drops to the source view for the rest —
-   *  so a test that reads only one of them is asserting the view, not the step it meant to check. */
   caretLine() {
     const row = this.$("#source-body .source-row.cursor-line");
     if (row && this.window.isSourceViewerVisible()) return Number(row.dataset.lineIndex) + 1;
     return this.diffCaretLine();
   }
 
-  // ---- low-level events ------------------------------------------------------------------------
   click(el) {
     if (!el) throw new Error("click: element not found");
     // A real browser blurs the focused field when you click a non-focusable target (e.g. a code row);
@@ -484,19 +391,6 @@ class Viewer {
     else el.textContent = value;
     el.dispatchEvent(new this.window.Event("input", { bubbles: true }));
   }
-  /**
-   * Type the way a hand does: one character at a time, each with its own keydown, and the page's own work
-   * allowed to run between them.
-   *
-   * `typeInto` sets the whole value and fires ONE input event, so no test using it has ever asked whether
-   * the second keystroke arrives — and that is the only question some bugs answer. A per-character refresh
-   * builds up state between two keys (focus moved, a file revealed, a window repainted), and this is where
-   * it becomes visible.
-   *
-   * A real browser inserts the character only when the field still owns the keyboard and nothing cancelled
-   * the key, so both conditions are modelled: if focus was stolen or the keydown was consumed, the
-   * character does NOT appear — exactly as the reviewer experiences it.
-   */
   async typeChars(el, text, settleMs = 120) {
     if (!el) throw new Error("typeChars: element not found");
     el.focus();
@@ -512,11 +406,7 @@ class Viewer {
     return el.value;
   }
 
-  // ---- viewer vocabulary -----------------------------------------------------------------------
   async openSourceFile(path) {
-    // lazy-LOAD keeps the Files tree as an inert island until its tab is shown — materialize it first.
-    // setTab, not a click on the tab: clicking it is a navigation (it activates the Files VIEW, opening a
-    // file), and this helper only wants the tree to exist before it picks a row.
     if (!this.document.querySelector(".source-link")) {
       if (typeof this.window.setTab === "function") {
         this.window.setTab("files");
@@ -533,9 +423,6 @@ class Viewer {
       this.document.querySelector(".source-link");
     this.click(link);
     await this.settle(80);
-    // This helper establishes a source-editor test fixture. Real pointer-focus behavior is exercised with
-    // direct `click(link)` calls; hand setup focus to the content so subsequent caret shortcuts test the
-    // editor rather than unintentionally paging/navigating the newly pointer-focused tree.
     if (typeof this.window.clearTreeFocus === "function") this.window.clearTreeFocus();
     const source = this.document.getElementById("source-body");
     if (source) { source.tabIndex = -1; source.focus({ preventScroll: true }); }
@@ -546,19 +433,16 @@ class Viewer {
       this.document.querySelector(".change-row, #changes-panel .file-link");
     this.click(row);
     await this.settle(80);
-    // As above, openDiffFor prepares the editor surface; direct row-click tests own sidebar semantics.
     if (typeof this.window.clearTreeFocus === "function") this.window.clearTreeFocus();
     const diff = this.document.getElementById("diff2html-container");
     if (diff) { diff.tabIndex = -1; diff.focus({ preventScroll: true }); }
   }
-  /** Place the caret on a source row by its 0-based line index (markdown/csv rows are sparse). */
   async clickSourceLine(lineIndex) {
     const row = this.document.querySelector(`.source-row[data-line-index="${lineIndex}"]`);
     if (!row) throw new Error(`clickSourceLine: no source row at line-index ${lineIndex}`);
     this.click(row.querySelector(".source-code") || row);
     await this.settle(20);
   }
-  /** Place the caret on the first changed line of the active diff (right/new side). */
   async clickFirstDiffLine() {
     const wrap = this.document.querySelector("#diff2html-container .d2h-file-wrapper");
     if (!wrap) throw new Error("clickFirstDiffLine: no diff wrapper");
@@ -571,12 +455,10 @@ class Viewer {
     this.click(tr.querySelector(".d2h-code-line, .d2h-code-side-line") || numCell);
     await this.settle(20);
   }
-  /** Open the review-comment composer for the caret line ("?"). */
   async openComposer() {
     this.key("?");
     await this.settle(40);
   }
-  /** Type into the *visible* composer and click its own Save ("Comment") button. */
   async writeAndSave(text) {
     const input = this.visibleComposerInput();
     if (!input) throw new Error("writeAndSave: no visible composer input");
@@ -585,45 +467,34 @@ class Viewer {
     this.click(saveBtn);
     await this.settle(40);
   }
-  /** Toggle markdown/CSV between rendered and raw line-numbered text (the toolbar button). */
   async clickRenderToggle() {
     const btn = this.$("#render-toggle");
     if (!btn || btn.classList.contains("hidden")) throw new Error("render toggle not available");
     this.click(btn);
     await this.settle(60);
   }
-  /** 0-based line indices of the rows currently in the source body, in document order. */
   sourceRowLineIndices() {
     return this.$all("#source-body .source-row").map((r) => Number(r.dataset.lineIndex));
   }
-  /** Open the unified merged-prompt dock (Cmd+Shift+/). */
   async openMergedView() {
     this.key("?", { metaKey: true, shiftKey: true, code: "Slash" });
     await this.settle(40);
   }
-  /** Toggle the prompt memo dock (Cmd/Ctrl+Shift+N). */
   async openMemo() {
     this.key("n", { metaKey: true, shiftKey: true, code: "KeyN" });
     await this.settle(40);
   }
-  /** Maximize/restore the active dock (Cmd/Ctrl+Shift+'). */
   toggleDockMax() {
     this.key("'", { metaKey: true, shiftKey: true, code: "Quote" });
   }
-  /** Is the bottom dock currently maximized over the editor area? */
   isDockMaximized() {
     return this.document.body.classList.contains("dock-maximized");
   }
-  /** The rendered text of the open merged-prompt document, or null if none is open. */
-  /** The merged dock's full rendered text: each prose region's editable surface, plus each comment card, in
-   * document order — the merged panel is now several small editors interleaved with read-only cards, not one
-   * continuous editable surface (see openMergedView in 08-dock.js). */
   mergedModalText() {
     const host = this.$("#mc-merged-panel .mc-merged-editor-host");
     if (!host) return null;
     return Array.from(host.children).map((node) => node.textContent).join("\n");
   }
-  /** Type into the visible composer and save with Cmd+Enter (the keyboard path). */
   async writeAndSaveWithKeyboard(text) {
     const input = this.visibleComposerInput();
     if (!input) throw new Error("writeAndSaveWithKeyboard: no visible composer input");
@@ -640,12 +511,10 @@ class Viewer {
   }
 }
 
-// Minimal CSS.escape for attribute selectors (jsdom has CSS.escape, but keep helpers self-contained).
 function cssEscape(value) {
   return String(value).replace(/["\\]/g, "\\$&");
 }
 
-// Recursively freeze an object graph the way Electron's contextBridge does to exposed values.
 function deepFreeze(obj) {
   if (obj && typeof obj === "object") {
     for (const key of Object.keys(obj)) deepFreeze(obj[key]);
@@ -654,9 +523,6 @@ function deepFreeze(obj) {
   return obj;
 }
 
-// Monaco itself is exercised in the packaged Electron smoke pass. jsdom gets a deliberately small API
-// double so viewer tests can lock down our integration contract (models, providers, cursor sync, Peek)
-// without evaluating Monaco's browser workers in Node.
 function installMonacoMock(window) {
   const models = [];
   const editors = [];

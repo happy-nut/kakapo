@@ -1,10 +1,3 @@
-// Reading a pull request by its link.
-//
-// The parsing half is pinned here because the input is whatever a reader has in the clipboard: a link
-// copied from the address bar with a tab or an anchor on the end, the `owner/repo#12` shorthand, or a
-// bare number meaning "this repository". The lookup half is pinned with a fake `gh` runner — the point is
-// what the code does with an answer and with each way of not getting one, and a test that needed the real
-// gh (and an account, and a network) would be a test nobody runs.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -40,8 +33,6 @@ test("the shorthands people type are read too, and a bare number needs a reposit
 });
 
 test("a link to another repository is read as that repository, not as this one", () => {
-  // The whole reason --repo is passed to gh explicitly: a reader can paste a link to a fork, and answering
-  // about the checkout they happen to be in would be a different pull request with the same number.
   assert.deepEqual(parsePullRequestRef("https://github.com/someone/fork/pull/7", HERE),
     { owner: "someone", repo: "fork", number: 7 });
 });
@@ -57,7 +48,7 @@ test("the remote slug is read from either spelling git hands out", () => {
       ["https://github.com/happy-nut/kakapo", HERE],
       ["ssh://git@github.com/happy-nut/kakapo.git", HERE],
     ]) {
-      try { git("remote", "remove", "origin"); } catch { /* the first round has none to remove */ }
+      try { git("remote", "remove", "origin"); } catch { }
       git("remote", "add", "origin", url);
       assert.deepEqual(remoteSlug(root), expected, url);
     }
@@ -73,8 +64,6 @@ test("the branch names come back from gh", () => {
 });
 
 test("each way of not getting an answer is its own named refusal", () => {
-  // Named, because they want different sentences: one asks the reader to install something, the other is
-  // gh's own complaint (not logged in, no such pull request, no network) and is worth repeating verbatim.
   const enoent = Object.assign(new Error("spawn gh ENOENT"), { code: "ENOENT" });
   assert.deepEqual(lookupPullRequest("/tmp", { ...HERE, number: 1 }, () => ({ error: enoent, status: null })),
     { ok: false, error: "gh-missing" });
@@ -105,12 +94,8 @@ test("a branch name is resolved to whichever side of it this repository actually
     git("update-ref", "refs/remotes/origin/main", head);
     git("branch", "feature/mine");
 
-    // The base takes the remote-tracking ref when there is one: the pull request is measured against what
-    // is on the server, and a local `main` left behind would answer a different question without saying so.
     assert.equal(localRevisionFor(root, "main", "remote"), "origin/main");
-    // The head takes the local branch: a reader reading their own pull request is usually sitting on it.
     assert.equal(localRevisionFor(root, "feature/mine", "local"), "feature/mine");
-    // And a branch this repository has never seen is not invented — the caller reports it instead of fetching.
     assert.equal(localRevisionFor(root, "someone-elses-branch", "local"), undefined);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

@@ -8,41 +8,14 @@ import { SHORTCUTS, MENU_OWNED_CHORDS, MENU_OWNED_CHORDS_MAC, electronAccelerato
 
 const require = createRequire(import.meta.url);
 
-// A menu accelerator is consumed before any renderer keydown runs, so a chord the application menu holds
-// cannot also be a row in the shortcut table — the row would be advertised in the Settings sheet and in
-// both READMEs and never fire. Two rows were in exactly that state and the suite was green throughout,
-// because jsdom dispatches keydown straight at the page: ⌘⌥H ran the app menu's Hide Others, and ⌘0 the
-// View menu's zoom reset.
-//
-// The table may hold such a chord in two cases, and only these:
-//   - the row says `fixed: "menu"` — it knows the menu owns the key and is documenting it;
-//   - the menu item forwards the key to the page (`sendToFocused`), which is how ⌘W and ⌃⌘⇧/ work.
-//
-// Electron's EDIT roles are forwarding by nature: undo/cut/copy/paste/selectAll act on the focused
-// webContents, so the page still gets the effect. Every other role does something to the window or to the
-// application instead — hide, hide others, minimize, zoom, quit — and the keystroke never arrives.
-//
-// Electron reports a built item's role lower-cased ("selectall", "hideothers"), not in the spelling the
-// template used, so the comparison is lower-cased too — spelling them in camelCase let ⌘A through as a
-// clash the first time this ran.
 const FORWARDING_ROLES = new Set(["editmenu", "undo", "redo", "cut", "copy", "paste",
   "pasteandmatchstyle", "delete", "selectall"]);
 
-/**
- * Electron's accelerator spelling in the table's spelling(S) — plural, because one keystroke can be
- * spelled two ways and only one of them would ever be compared. `CommandOrControl+Plus` is Command and
- * the `+` CHARACTER, which on a US layout is Shift and the `=` key: the chord a reader would write as
- * ⌘⇧=. A table row spelled ⌘⇧= would therefore be eaten by the zoom accelerator while matching nothing
- * here. Every shifted-character accelerator has the same shape, so they are expanded, not special-cased.
- *
- * Ctrl folds into ⌘ (the table spells both the same way); modifiers run ⌘⇧⌥.
- */
 const SHIFTED = { Plus: ["+", "="], Underscore: ["_", "-"], Colon: [":", ";"], Tilde: ["~", "`"] };
 const NAMED = { Plus: "+", Space: "Space", Backspace: "Backspace", Delete: "Delete", Tab: "Tab",
   Return: "Enter", Enter: "Enter", Escape: "Esc", Up: "↑", Down: "↓", Left: "←", Right: "→",
   PageUp: "PageUp", PageDown: "PageDown" };
 
-/** One (modifiers, key) pair in the table's spelling. Never re-joined with "+": the key can BE "+". */
 function spell(mods, key) {
   const command = ["CommandOrControl", "CmdOrCtrl", "Command", "Cmd", "Control", "Ctrl", "Super", "Meta"]
     .some((name) => mods.has(name));
@@ -51,15 +24,6 @@ function spell(mods, key) {
     + (NAMED[key] ?? (key.length === 1 ? key.toUpperCase() : key));
 }
 
-/**
- * The same chord WITHOUT folding Control into Command — which is the spelling a rebind has to compare.
- *
- * The folding above is right for the table question: the table writes ⌃ as ⌘, so a row that means to
- * document `Control+Command+Shift+/` is spelled ⌘⇧/ and has to be found under it. It is wrong for the
- * REFUSAL list, because a reader pressing ⌘⇧/ with no Control does not trigger that menu item at all —
- * listing it told them the menu bar owns a chord the menu bar has never seen, and refused `allComments`
- * its own working default.
- */
 function spellExact(mods, key) {
   const meta = ["CommandOrControl", "CmdOrCtrl", "Command", "Cmd", "Super", "Meta"].some((n) => mods.has(n));
   const ctrl = ["Control", "Ctrl"].some((n) => mods.has(n));
@@ -89,25 +53,15 @@ function foldAll(accelerator) {
   return [spell(mods, shifted[0]), spell(withShift, shifted[1])];
 }
 
-// macOS only, like the other four tests that boot a real Electron (test/diff-layout.test.mjs). Two reasons,
-// and the second is the one that matters: Linux CI has no SUID sandbox configured, so the child aborts
-// before it can answer — and even with --no-sandbox it would answer about the WRONG menu. `role: "appMenu"`
-// is a macOS construct; the chords this guard exists to catch (⌘⌥H Hide Others, ⌘0 zoom reset) are bindings
-// Electron only makes there. Checking a Linux menu against a ⌘-spelled table would go green while saying
-// nothing about the menu users actually get, and a test that cannot fail is furniture.
 test("no shortcut row sits on a chord the application menu eats", {
   timeout: 60_000,
   skip: process.platform !== "darwin" ? "the application menu this guards is macOS's" : false,
 }, async () => {
   const main = readFileSync(fileURLToPath(new URL("../dist/app-main.js", import.meta.url)), "utf8");
 
-  // The roles the shipped main process actually uses, and whether each forwards.
   const roles = [...new Set([...main.matchAll(/role:\s*"([A-Za-z]+)"/g)].map((m) => m[1]))];
   assert.ok(roles.includes("appMenu"), `the macOS app menu is still built from a role: ${roles.join(", ")}`);
 
-  // Every chord the menus DRAW. app-main puts these on items with registerAccelerator: false, so the
-  // risk is not that they steal a key but that Electron cannot PARSE one — which throws inside
-  // buildFromTemplate and would take the whole menu bar with it. They are built for real below.
   const drawn = [...new Set(SHORTCUTS.flatMap((row) => row.keys.map((_key, index) => electronAcceleratorFor(row.id, index))))]
     .filter(Boolean);
 
@@ -129,51 +83,34 @@ test("no shortcut row sits on a chord the application menu eats", {
   assert.ok(marker, `menu accelerators missing\nstdout: ${result.stdout}\nstderr: ${result.stderr}`);
   const fromRoles = JSON.parse(marker.slice("KAKAPO_MENU_ACCELERATORS=".length));
 
-  // Hide Others is the one this test exists for: it is a chord no source file in the repo mentions.
-  const eaten = new Map();                                   // folded chord -> what holds it
+  const eaten = new Map();
   for (const item of fromRoles) {
     if (item.role && FORWARDING_ROLES.has(item.role.toLowerCase())) continue;
     for (const chord of foldAll(item.accelerator)) eaten.set(chord, `the ${item.role || item.label} menu item (${item.accelerator})`);
   }
   assert.ok(eaten.has("⌘⌥H"), "role: appMenu still binds Hide Others to ⌘⌥H");
 
-  // The hand-written items: non-forwarding unless their click sends the key on to the page.
-  //
-  // `claimed` is the wider question and the one a REBIND has to ask. A `click: () => sendToFocused(...)`
-  // item forwards an IPC MESSAGE, not the keystroke — so the row that owns that chord works (it is told
-  // what happened down its own channel) while anything ELSE bound to the same chord is dead: the menu
-  // takes the key and runs close-tab instead. `eaten` stays the narrower set, because a table row sitting
-  // on one of those chords is exactly the arrangement that works.
   const claimed = new Map(eaten);
   for (const m of main.matchAll(/accelerator:\s*"([^"]+)"/g)) {
     const around = main.slice(Math.max(0, m.index - 320), m.index + 320);
     const forwards = around.includes("sendToFocused");
-    // Exact for the refusal list, folded for the table check — see spellExact.
     for (const chord of foldExact(m[1])) claimed.set(chord, `a menu item that registers it (${m[1]})`);
     if (!forwards) {
       for (const chord of foldAll(m[1])) eaten.set(chord, `a menu item that does not forward it (${m[1]})`);
     }
   }
-  // A chord carrying ⌃ cannot be typed into the rebind sheet (shortcutChords spells Control as ⌘ only
-  // when Command is absent, and the table has no ⌃ row), so it belongs in neither list.
   for (const chord of [...claimed.keys()]) if (chord.includes("⌃")) claimed.delete(chord);
 
-  // The same list, as data the VIEWER can read: the Settings sheet refuses a rebind onto one of these,
-  // and it has no way to build an Electron menu to find out what they are. Asserted against the real menu
-  // here so the constant cannot drift from it — which is the only thing that makes it worth having.
-  // The union, because this test only ever runs on macOS and the macOS menu is both lists at once.
   assert.deepEqual(
     [...MENU_OWNED_CHORDS, ...MENU_OWNED_CHORDS_MAC].sort(),
     [...claimed.keys()].sort(),
     "MENU_OWNED_CHORDS (+ _MAC) in src/shortcuts.ts is every chord the menu registers",
   );
-  // ...and the split is the right one: the mac-only four must come from roles this platform adds.
   for (const chord of MENU_OWNED_CHORDS_MAC) {
     assert.ok(eaten.has(chord), `${chord} is held by a macOS menu role`);
     assert.ok(!MENU_OWNED_CHORDS.includes(chord), `${chord} is listed once, not in both lists`);
   }
 
-  // The zoom-in item is the reason foldAll exists: it must be known under BOTH of its spellings.
   assert.ok(eaten.has("⌘+") && eaten.has("⌘⇧="),
     "CommandOrControl+Plus is one keystroke with two spellings and both must be claimed");
 
@@ -187,16 +124,12 @@ test("no shortcut row sits on a chord the application menu eats", {
 
   const clashes = [];
   for (const row of SHORTCUTS) {
-    if (row.fixed === "menu") continue;                      // the row already says the menu owns it
+    if (row.fixed === "menu") continue;
     for (const key of row.keys) if (eaten.has(key)) clashes.push(`${row.id} on ${key} — ${eaten.get(key)}`);
   }
   assert.deepEqual(clashes, [], `these rows can never fire:\n  ${clashes.join("\n  ")}`);
 });
 
-// The speller is in the shortcut table (electronAcceleratorFor) because a chord is written down there and
-// this is a reading of it. What it must never do is hand Electron something Electron will not reject:
-// buildFromTemplate accepted "Shift+⇧" for the ⇧⇧ row and "↵" for the find box's Enter, and both would have
-// been DRAWN in the menu exactly like that. A row it cannot spell gets no accelerator at all.
 test("the menu speller produces ASCII accelerators or none", async () => {
   for (const row of SHORTCUTS) {
     row.keys.forEach((key, index) => {
@@ -206,8 +139,6 @@ test("the menu speller produces ASCII accelerators or none", async () => {
         `${row.id} (${key}) spells as ${JSON.stringify(accelerator)}, which the menu would draw as-is`);
     });
   }
-  // The rows with no Electron spelling, named so that adding one is a deliberate act: four key clusters,
-  // the two Enters of the find box, and the double-Shift of Search Everywhere.
   const unspellable = SHORTCUTS
     .flatMap((row) => row.keys.map((key, index) => (electronAcceleratorFor(row.id, index) ? null : `${row.id}:${key}`)))
     .filter(Boolean)

@@ -1,37 +1,4 @@
 #!/usr/bin/env node
-// Does a Mermaid diagram actually render? Nothing else can answer this.
-//
-// test/mermaid.test.mjs covers everything about Mermaid that works without layout: the copied asset
-// registers `window.mermaid`, the library accepts the exact config 20-mermaid.js passes, it parses the
-// fences an agent writes and rejects a malformed one, and a `#kakapo:path:line` node becomes a code jump.
-// What it cannot cover is render(). Mermaid measures text through SVGGraphicsElement.getBBox, which jsdom
-// does not implement; shimming that cascades into getComputedTextLength and the rest until the test is
-// measuring the shims rather than Mermaid, and a green light meaning "my stubs agree with each other" is
-// worse than no test. So layout is checked here, in the real app, over the real asset protocol.
-//
-// This needs a GUI and about twenty seconds, so it is not part of `npm test`. Run it when Mermaid's version
-// moves — the 11 -> 12 bump is what showed the gap.
-//
-// Three things cost real time while this was written, and all three are guarded rather than remembered:
-//
-//   1. TARGET SELECTION. `/json/list` returns the DevTools window first when one is open. Connecting to
-//      index 0 lands in the DevTools UI, where the review page's functions do not exist.
-//   2. THE WEBSOCKET OPEN. With no timeout on it, a connection to a target that never answers waits for
-//      ever — past every timeout placed on the evaluate that follows it. That was the 17-minute hang.
-//   3. THE RACE. A page target appears before its inline client has run, so the review page is listed
-//      while `mermaidPlaceholderHtml` is still undefined. Waiting for a page to EXIST therefore fails
-//      intermittently and reads exactly like a broken renderer.
-//   4. THE HANDOFF. Electron's single-instance lock is per app, not per workspace: launching while a
-//      Kakapo from this checkout is running hands the argv over and the launcher exits, so killing the
-//      launcher leaves the app behind and the next run attaches to THAT one — reading a page belonging
-//      to a workspace this run never created. So the run refuses to start when one is already up, and
-//      kills what it started on the way out.
-//
-// So the page is not chosen by index, url or title: every candidate is asked whether it has the Mermaid
-// entry points yet, and the first that says yes is the one. That answers all three at once.
-//
-// `selftest` runs the verdict function against fabricated results, including the ones a broken render
-// produces, so a pass here means the oracle can still fail.
 
 import { execFileSync, spawn } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -43,11 +10,6 @@ const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const PORT = Number(process.env.KAKAPO_SMOKE_PORT ?? 9229);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// ---------------------------------------------------------------- the verdict
-//
-// Separated from the plumbing so selftest can drive it. `result` is what the page returns.
-
-/** @returns {{ok: boolean, reasons: string[]}} */
 export function verdict(result) {
   const reasons = [];
   const need = (cond, why) => { if (!cond) reasons.push(why); };
@@ -55,27 +17,19 @@ export function verdict(result) {
   need(result && typeof result === "object", "the page returned nothing to judge");
   if (!result || typeof result !== "object") return { ok: false, reasons };
   need(!result.err, `the page could not run the check: ${result.err}`);
-  // The asset protocol: loadMermaid() resolves on window.mermaid and rejects with "mermaid did not
-  // register" otherwise, so this is kakapo-asset://app/mermaid.js having been served and run.
   need(result.mermaid === "object", `window.mermaid is ${result.mermaid}, so the asset never registered`);
   need(result.svg === true, "render() produced no <svg>");
-  // getBBox is the whole point: it is the real content box Mermaid laid out, and the API jsdom lacks.
   need(result.bbW > 0 && result.bbH > 0, `the SVG has no geometry (getBBox ${result.bbW}x${result.bbH})`);
   need(result.nodes >= 2, `expected both nodes of A-->B, saw ${result.nodes}`);
-  // Labels prove TEXT was laid out, not merely that an <svg> element appeared.
   need(
     Array.isArray(result.labels) && result.labels.includes("Alpha") && result.labels.includes("Beta"),
     `node labels did not render: ${JSON.stringify(result.labels)}`,
   );
-  // The negative control, run in the same page: a malformed fence must land on the invalid message and
-  // produce no SVG. Without it, an implementation that drew something for any input would pass the above.
   need(result.badSvg === false, "a malformed fence still produced an <svg>");
   need(result.badHandled === true, `a malformed fence did not report itself: ${JSON.stringify(result.badText)}`);
 
   return { ok: reasons.length === 0, reasons };
 }
-
-// ---------------------------------------------------------------- the page-side check
 
 const PAGE_CHECK = `(async function () {
   if (typeof mermaidPlaceholderHtml !== 'function' || typeof renderMermaidDiagrams !== 'function') {
@@ -131,13 +85,6 @@ const PAGE_CHECK = `(async function () {
   return JSON.stringify(out);
 })()`;
 
-// ---------------------------------------------------------------- plumbing
-
-/**
- * Electron processes belonging to THIS checkout — the app and its helpers, not the user's installed
- * Kakapo and not another Electron app. The launcher is a short-lived `node bin/kakapo.js`, so killing the
- * spawned child is not enough to stop the app.
- */
 function checkoutElectronPids() {
   try {
     const needle = join(ROOT, "node_modules", "electron");
@@ -160,7 +107,6 @@ function fixtureRepo() {
   writeFileSync(join(repo, "NOTES.md"), "# notes\n");
   git(["add", "-A"]);
   git(["commit", "-qm", "baseline"]);
-  // A diff, so the app opens a review rather than an empty window.
   writeFileSync(join(repo, "NOTES.md"), "# notes\n\nchanged\n");
   return repo;
 }
@@ -168,26 +114,19 @@ function fixtureRepo() {
 const HAS_ENTRY_POINTS =
   `typeof mermaidPlaceholderHtml === 'function' && typeof renderMermaidDiagrams === 'function'`;
 
-/**
- * The page that can actually answer, asked rather than guessed.
- *
- * Every page target is probed for the Mermaid entry points: that rejects the DevTools window (which has
- * none) and waits out the boot race (the review page is listed before its inline client has run) with one
- * mechanism instead of a url heuristic plus a sleep.
- */
 async function readyPage(timeoutMs) {
   const until = Date.now() + timeoutMs;
   while (Date.now() < until) {
     let list = [];
     try {
       list = await (await fetch(`http://127.0.0.1:${PORT}/json/list`)).json();
-    } catch { /* not listening yet */ }
+    } catch { }
     for (const target of list) {
       if (target.type !== "page" || !target.webSocketDebuggerUrl) continue;
       if (String(target.url).startsWith("devtools://")) continue;
       try {
         if (await evaluateInPage(target, HAS_ENTRY_POINTS, 5000) === true) return target;
-      } catch { /* this page cannot answer; try the next, then try again */ }
+      } catch { }
     }
     await sleep(500);
   }
@@ -225,13 +164,11 @@ async function evaluateInPage(target, expression, timeoutMs) {
     if (r.exceptionDetails) throw new Error(JSON.stringify(r.exceptionDetails).slice(0, 300));
     return r.result?.value;
   } finally {
-    try { ws.close(); } catch { /* already gone */ }
+    try { ws.close(); } catch { }
   }
 }
 
 async function run() {
-  // Refuse rather than hand off: see (4) above. Exit 2, because a precondition this run cannot satisfy is
-  // not the renderer failing.
   const already = checkoutElectronPids();
   if (already.length) {
     process.stdout.write(`a Kakapo from this checkout is already running (pid ${already.join(", ")}).\n`);
@@ -273,13 +210,11 @@ async function run() {
     if (log.trim()) process.stdout.write(`--- app output ---\n${log.slice(-1200)}\n`);
     return 1;
   } finally {
-    try { child.kill("SIGTERM"); } catch { /* already gone */ }
-    // The launcher exits on its own, so the app has to be stopped by pid. Nothing from this checkout was
-    // running before (the refusal above guarantees it), so everything found here is ours to stop.
-    for (const pid of checkoutElectronPids()) { try { process.kill(pid, "SIGTERM"); } catch { /* gone */ } }
+    try { child.kill("SIGTERM"); } catch { }
+    for (const pid of checkoutElectronPids()) { try { process.kill(pid, "SIGTERM"); } catch { } }
     await sleep(1200);
-    for (const pid of checkoutElectronPids()) { try { process.kill(pid, "SIGKILL"); } catch { /* gone */ } }
-    try { child.kill("SIGKILL"); } catch { /* already gone */ }
+    for (const pid of checkoutElectronPids()) { try { process.kill(pid, "SIGKILL"); } catch { } }
+    try { child.kill("SIGKILL"); } catch { }
     rmSync(repo, { recursive: true, force: true });
   }
 }
@@ -293,8 +228,6 @@ function selftest() {
     ["a real render passes", good, true],
     ["asset never served", { ...good, mermaid: "undefined" }, false],
     ["no svg at all", { ...good, svg: false }, false],
-    // The one that matters: an <svg> with no geometry is what a layout-less environment produces, and it
-    // is exactly what an assertion on the element alone would wave through.
     ["svg with zero geometry", { ...good, bbW: 0, bbH: 0 }, false],
     ["only one node", { ...good, nodes: 1 }, false],
     ["labels did not lay out", { ...good, labels: ["", ""] }, false],

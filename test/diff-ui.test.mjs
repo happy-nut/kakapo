@@ -54,10 +54,6 @@ test("IntelliJ-style diff chrome tracks review stops and opens the current sourc
   assert.equal(v.$("#diff-after-path").textContent, "src/review.ts");
   assert.equal(v.$("#diff-change-counter"), null, "the toolbar omits the verbose change counter");
   assert.equal(v.$(".diff-toolbar").lastElementChild, v.$(".diff-review-controls"), "change navigation stays at the far-right edge");
-  // Hidden from SIGHT, which is the claim — IntelliJ's panes read as two editors, not as a patch. It used
-  // to be `display: none`, and that took the one character naming the change out of the accessibility
-  // tree as well, leaving a screen reader two columns of code and a background tint of 1.00–1.29:1 to
-  // tell them apart. Clipped instead, so the geometry is what to measure: on screen it occupies nothing.
   const prefix = v.$(".d2h-code-line-prefix");
   const box = prefix.getBoundingClientRect();
   assert.ok(box.width <= 1 && box.height <= 1, `patch +/- prefixes take no space (${box.width}×${box.height})`);
@@ -282,9 +278,6 @@ test("paired hunk rows use center gutters and IntelliJ semantic colors", async (
 
   const changeRow = v.$('.change-row[data-file="src/colors.ts"]');
   assert.equal(changeRow.querySelector(".diffstat"), null, "Changes rows omit added/deleted line totals");
-  // The colour of the NAME says added/modified/deleted, the way every editor this reviewer has used says it,
-  // so no row draws a status badge at all. The chip that used to sit here existed only to hold the viewed ✓
-  // and to keep the filenames aligned; the box that replaced it does both, and says so while still unticked.
   assert.equal(changeRow.querySelector(".status"), null, "no status chip repeating what the name's colour says");
   const box = changeRow.querySelector(".viewed-box");
   assert.ok(box, "the viewed box is where the check lives now");
@@ -429,9 +422,6 @@ test("omitted context expands in both diff panes without losing hunk navigation"
   v.close();
 });
 
-// How big the change is, for the one file the toolbar names. The Changes TREE still omits it — one number per
-// row, on a list where every row already means "changed", is noise — but the toolbar is about a single file
-// and the size of its change is the thing you are about to read.
 test("the diff toolbar carries the file's added and deleted line counts", async () => {
   const { html } = await makeReviewHtml([
     { path: "src/grew.ts", before: "const a = 1;\n", after: "const a = 1;\nconst b = 2;\nconst c = 3;\n" },
@@ -443,24 +433,18 @@ test("the diff toolbar carries the file's added and deleted line counts", async 
   await v.settle(60);
   const crumb = v.$("#diff-breadcrumb");
   assert.equal(crumb.querySelector(".crumb-stat-add").textContent, "+2", "two lines added");
-  // Both sides, always, zero included: the toolbar names one file, so the figure keeps its shape. The sign
-  // is U+2212, the same minus the tree prints — this used to be an ASCII hyphen, which is narrower than a
-  // digit in a tabular face, so one figure was set two ways in one window.
   assert.equal(crumb.querySelector(".crumb-stat-del").textContent, "\u22120", "none deleted");
 
   await v.openDiffFor("src/shrank.ts");
   await v.settle(60);
   assert.equal(v.$("#diff-breadcrumb .crumb-stat-del").textContent, "\u22121", "the counts follow the open file");
 
-  // Counted from the parsed diff, not from rendered rows: a body nobody has scrolled to is not in the DOM.
   const row = [...v.$all(".change-row")].find((el) => el.dataset.file === "src/grew.ts");
   assert.equal(row.dataset.added, "2", "the tree row carries the totals the parser already knew");
   assert.equal(row.querySelector(".diffstat"), null, "and still shows no diffstat of its own");
   v.close();
 });
 
-// A deleted file used to be coloured by whether it was STAGED, so a staged deletion came out green — the
-// colour every editor uses for "added" — while its badge said deleted. One row saying both things at once.
 test("the Changes tree colours a row by what changed, not by whether it is staged", async () => {
   const { html: tree } = await makeReviewHtml([
     { path: "src/added.ts", after: "export const a = 1;\n" },
@@ -477,19 +461,11 @@ test("the Changes tree colours a row by what changed, not by whether it is stage
   const colour = (path) => v.window.getComputedStyle(row(path).querySelector(".change-name")).color;
   assert.notEqual(colour("src/added.ts"), colour("src/gone.ts"), "added and deleted never read alike");
   assert.notEqual(colour("src/edited.ts"), colour("src/gone.ts"), "nor do modified and deleted");
-  // Whatever the working tree says about staging must not reach the name any more.
   assert.equal(v.$all(".change-row.vcs-staged").length, 0, "a change row is no longer classed by staging");
   assert.equal(row("src/gone.ts").querySelector(".status svg"), null, "and no row draws a badge");
   v.close();
 });
 
-// The right diff pane's label is static markup saying "working tree", which is true of the ordinary
-// review and false of every A→B compare: a ⌘9 range, or a patch set chosen as the target, puts a COMMIT
-// there and the header went on naming a working tree that is not in the comparison at all.
-//
-// The attribute matters as much as the text. It is what a locale switch repaints from, so a label left
-// without one would be stranded in whichever language it was written in, and a label left holding the
-// wrong key would have "작업 트리" painted back over a commit on the next switch.
 test("the right pane says which side it is, and keeps saying it through a locale switch", async () => {
   const v = await loadViewer(html);
   try {
@@ -511,7 +487,6 @@ test("the right pane says which side it is, and keeps saying it through a locale
       "a commit on the right is a target, not the working tree");
     assert.equal(kind().textContent, v.window.t("diff.target"), "and it says so");
 
-    // Back again: the label must not be stranded on the commit wording.
     setTarget("worktree");
     assert.equal(kind().getAttribute("data-i18n"), "diff.workingTree");
     assert.equal(kind().textContent, v.window.t("diff.workingTree"));
@@ -520,9 +495,6 @@ test("the right pane says which side it is, and keeps saying it through a locale
   }
 });
 
-// A RENAME is the one case where the two panes are about two different paths, and the left one names a
-// file the base revision never had unless it is told otherwise. The datum rides on the change row beside
-// the +/- counts (render-tree.ts) because that row is already the viewer's per-file record.
 test("a renamed file's Base pane names the path that existed at the base", async () => {
   const body = Array.from({ length: 12 }, (_, i) => `export const value${i + 1} = ${i + 1};`).join("\n") + "\n";
   const { html: renameHtml } = await makeReviewHtml([
@@ -536,9 +508,6 @@ test("a renamed file's Base pane names the path that existed at the base", async
   assert.equal(row.className.includes("ch-renamed"), true, "and it is marked as a rename");
   assert.equal(row.dataset.oldPath, "src/renamed-from.ts");
 
-  // The wrapper has to be findable by the file's path at all. diff2html names a rename
-  // `src/{renamed-from.ts → renamed-to.ts}` in its header, and every lookup that fell back to reading that
-  // header got a sentence instead of a path: clicking this row left the previous file on screen.
   assert.equal(v.window.diffWrapperByPath("src/renamed-to.ts")?.dataset.path, "src/renamed-to.ts");
   const renameWrapper = v.window.diffWrapperByPath("src/renamed-to.ts");
   const hunkRow = renameWrapper.querySelector("tr.hunk, tr[data-file]");
@@ -555,7 +524,6 @@ test("a renamed file's Base pane names the path that existed at the base", async
   assert.equal(v.$("#diff-after-path").textContent, "src/renamed-to.ts", "the working tree names the new one");
   assert.equal(v.$("#diff-before-path").title, "src/renamed-from.ts");
 
-  // The other side of the distinction: a file that merely changed is still named once, on both panes.
   await v.openDiffFor("src/plain.ts");
   await v.settle(80);
   assert.equal(v.$("#diff-before-path").textContent, "src/plain.ts");

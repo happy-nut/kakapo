@@ -1,6 +1,3 @@
-// Reproducible large-project startup benchmark. It creates a disposable git repository, changes a
-// configurable subset of files, runs the same lazy review build used by Electron, and preserves the
-// result as plain JSON in the caller workspace's application-data mirror.
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

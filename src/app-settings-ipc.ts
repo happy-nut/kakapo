@@ -1,18 +1,12 @@
 import type { IpcMain, IpcMainEvent } from "electron";
 import type { AppPreferences } from "./app-preferences.js";
 
-// The window state this adapter needs: only the repo root, to scope settings per worktree.
 export type SettingsStateResolver = (event: IpcMainEvent) => { options: { root: string } } | undefined;
 
-// Renderer settings live in AppPreferences (global + per-worktree scoping, outside the Electron composition
-// root); the sandboxed renderer reads/writes them over synchronous IPC. Extracted from app-main so the wiring
-// is a one-line registration, matching the other register*Ipc adapters.
 export function registerSettingsIpc(
   ipc: IpcMain,
   preferences: AppPreferences,
   stateFromEvent: SettingsStateResolver,
-  // Fired after a setting is persisted, so the composition root can react to global changes (theme/locale) by
-  // re-theming the native chrome and broadcasting to the other windows. Kept optional so tests can omit it.
   onChange?: (key: string, value: unknown) => void,
 ): void {
   ipc.on("kakapo:get-settings", (event) => {

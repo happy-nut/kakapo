@@ -1,8 +1,3 @@
-// A definition target that is a path INTO a file, not a path to one. Phpactor ships PhpStorm's stubs inside
-// its own `.phar`, so go-to-definition on `date()` answers
-// `…/phpactor.phar/vendor/jetbrains/phpstorm-stubs/date/date_c.php` — real source behind a path `existsSync`
-// denies. These pin the reader and, more importantly, every way it must refuse: the parser walks a manifest
-// written by something else, and a misparse that returns bytes anyway would paint convincing garbage.
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -42,8 +37,6 @@ test("a stored entry and a deflated entry both come back whole", () => {
     { name: "last.php", data: "<?php echo 3;\n" },
   ]);
   assert.equal(readArchiveEntry(`${path}/first.php`, BIG).bytes.toString(), "<?php echo 1;\n");
-  // The one in the middle is the real test: an entry's offset is the sum of the COMPRESSED sizes before it,
-  // so a reader that used uncompressed sizes still passes on the first entry and fails here.
   assert.equal(readArchiveEntry(`${path}/deep/date_c.php`, BIG).bytes.toString(), long);
   assert.equal(readArchiveEntry(`${path}/last.php`, BIG).bytes.toString(), "<?php echo 3;\n");
 });
@@ -66,7 +59,6 @@ test("everything it cannot read comes back null instead of throwing", () => {
     { name: "lies.php", data: "<?php echo 3;\n", declaredSize: 99999 },
     { name: "binary.php", data: Buffer.from([0x3c, 0x3f, 0x00, 0x01, 0x02]) },
   ]);
-  // The control: if this stops working, every "returns null" below starts passing for the wrong reason.
   assert.equal(readArchiveEntry(`${path}/ok.php`, BIG).bytes.toString(), "<?php echo 1;\n", "the control entry reads");
   const cases = {
     "a name no entry has": `${path}/missing.php`,
@@ -80,20 +72,16 @@ test("everything it cannot read comes back null instead of throwing", () => {
     const cap = what === "an entry past the size cap" ? 4 : BIG;
     assert.equal(readArchiveEntry(target, cap), null, what);
   }
-  // Binary bytes are refused by the library reader, which asks the same question as it does of a real file.
   assert.equal(readLibrarySourceFile(`${path}/binary.php`), null, "a binary entry");
 
   const garbage = join(dir, "junk.phar");
   writeFileSync(garbage, Buffer.alloc(4096, 0x41));
   assert.equal(readArchiveEntry(`${garbage}/ok.php`, BIG), null, "a file that is not a phar at all");
 
-  // Truncation is the one that reaches the catch: the manifest declares entries the file no longer holds.
   const cut = join(dir, "cut.phar");
   writeFileSync(cut, buildPhar([{ name: "ok.php", data: "<?php echo 1;\n" }]).subarray(0, STUB.length + 20));
   assert.equal(readArchiveEntry(`${cut}/ok.php`, BIG), null, "a truncated archive");
 
-  // A manifest that claims to be longer than the file, which is how a hostile archive would try to walk off
-  // the end of the buffer.
   const over = join(dir, "over.phar");
   writeFileSync(over, buildPhar([{ name: "ok.php", data: "<?php echo 1;\n" }], { manifestLength: 1 << 30 }));
   assert.equal(readArchiveEntry(`${over}/ok.php`, BIG), null, "a manifest longer than the archive");

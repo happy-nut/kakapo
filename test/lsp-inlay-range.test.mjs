@@ -1,7 +1,3 @@
-// A range request is asked in terms of the document, and a server may refuse one that names a line the
-// document does not have. rust-analyzer does: asked for lines 0–2000 of a seventeen-line file it answers
-// `Invalid offset LineCol { line: 2000, col: 0 }` and the whole request fails, which is why inlay hints —
-// drawn everywhere else — were missing from every Rust file in the app while nothing reported an error.
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
@@ -12,7 +8,6 @@ import { LspClient } from "../dist/lsp.js";
 const roots = [];
 after(() => { for (const root of roots) { try { rmSync(root, { recursive: true, force: true }); } catch {} } });
 
-/** A server that refuses a range past the end of the document, and otherwise reports the range it got. */
 function strictRangeServer(root) {
   const fake = join(root, "fake-strict.mjs");
   writeFileSync(fake, `
@@ -65,7 +60,6 @@ test("an inlay-hint window is cut down to the document, so a strict server still
     family: "rust", name: "fake-strict", command: process.execPath, args: [strictRangeServer(root)],
   });
   try {
-    // What the viewer asks for: this file's hints, with a window far longer than the file.
     const answer = await client.inlayHints("src/main.rs", 0, 2000);
     assert.equal(answer.supported, true);
     assert.equal(answer.hints.length, 1, "the request was answered instead of refused");

@@ -1,15 +1,5 @@
-// ===== Git history view (Cmd+9): commit list with graph lanes + per-commit diff. =====
-// Data comes from the main process (window.kakapoGit.log); the lane layout is computed
-// here from each commit's parents. Read-only — the per-commit diff is static diff2html HTML.
 
 var HISTORY_LANE_W = 16, HISTORY_DOT_R = 3.8, HISTORY_ROW_H = 26;
-// How many lanes the graph is allowed to be wide. The column is one width for the whole page (lanes must
-// line up row to row), so without a cap a repository with many concurrent branches sized every row's graph
-// to its busiest moment: a page whose widest point is sixty lanes gave all three hundred rows a 970px
-// graph, the `minmax(0, 1fr)` message track collapsed to nothing, and the list showed a commit graph with
-// no commits next to it. Past this many lanes the graph has stopped being readable as a graph anyway, so
-// deeper lanes fold onto the last column (historyLaneX clamps): the dot of every row stays on screen, and
-// the message — the thing the list is for — keeps its room.
 var HISTORY_LANE_CAP = 20;
 var HISTORY_COLORS = ['#43a5ff', '#ef4fb3', '#55d66b', '#f2a93b', '#a875ff', '#24c7bd', '#f06f62', '#91a4ff'];
 var historyCommits = [];
@@ -17,28 +7,19 @@ var historyGraph = [];
 var historyMaxLane = 0;
 var historyActiveSha = '';
 var historyLoading = false;
-var EMPTY_TREE_SHA = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'; // git's empty tree — the base for a root commit
+var EMPTY_TREE_SHA = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
 var historyDetailSha = '';
 var historyFilesCollapsed = false;
-// null | { path, line } — a scoped history. line > 0 is one source line's history (git log -L), line 0 is
-// the whole file's (git log --follow, so a rename does not end the story).
 var historyScope = null;
-// 'commits' | 'reflog' | 'stashes': the log, where HEAD has been, and what is stashed. Three tool windows
-// in IntelliJ, three sources for one list here — they answer the same question and open the same way.
 var historyKind = 'commits';
-// Handed to git (readGitLog), never used to hide rows that are already on screen.
 var historyFilters = { text: '', author: '', path: '', branch: '', content: '', since: '', until: '', currentBranchOnly: false };
 var historyFilterTimer = 0;
-var historyGotoRevision = null; // what the search box names, when it names a commit rather than words
+var historyGotoRevision = null;
 var historyLoadSeq = 0;
-var historyAnchorSha = ''; // shift-select range anchor; the other end is historyActiveSha (the focus)
+var historyAnchorSha = '';
 
-// Lane layout. Walk commits newest-first (git --topo-order) and track the parent hash each open lane is
-// waiting for. A lane is an object rather than just a hash so its color survives merges. Once a branch
-// joins another branch its dead lane is removed immediately; the remaining lanes curve into their compact
-// positions in the lower half of that commit row instead of leaving ever-widening holes.
 function computeHistoryGraph(commits) {
-  var lanes = []; // { hash, color } in their position at the top of the next row
+  var lanes = [];
   var nextColor = 0;
   function newLane(hash, color) {
     return { hash: hash, color: color == null ? nextColor++ : color };
@@ -51,8 +32,6 @@ function computeHistoryGraph(commits) {
     var myLane = incoming.findIndex(function (lane) { return lane.hash === c.hash; });
     var introduced = myLane < 0;
     if (myLane < 0) {
-      // A tip from another ref (or a history page boundary) begins at the right edge so it never shifts
-      // an already-visible branch before the first connecting curve is drawn.
       myLane = incoming.length;
       incoming.push(newLane(c.hash));
     }
@@ -72,7 +51,6 @@ function computeHistoryGraph(commits) {
       if (p === 0 && working[myLane] == null) working[myLane] = record;
       else working.splice(Math.min(working.length, myLane + p), 0, record);
     }
-    // A criss-cross merge may mention the same parent more than once. Keep one physical lane per hash.
     var seen = {};
     lanes = working.filter(function (lane) {
       if (!lane || seen[lane.hash]) return false;
@@ -81,19 +59,16 @@ function computeHistoryGraph(commits) {
     });
     var topEdges = [];
     for (var a = 0; a < incoming.length; a++) {
-      if (introduced && a === myLane) continue; // a ref tip begins at its dot; no dangling line above it
+      if (introduced && a === myLane) continue;
       topEdges.push({ from: a, to: incoming[a].hash === c.hash ? myLane : a, color: incoming[a].color });
     }
     var bottomEdges = [];
-    // Unrelated lanes pass through the row and curve left when the consumed merge lane disappears.
     for (var b = 0; b < incoming.length; b++) {
       var through = incoming[b];
       if (through.hash === c.hash) continue;
       var throughTo = lanes.indexOf(through);
       if (throughTo >= 0) bottomEdges.push({ from: b, to: throughTo, color: through.color });
     }
-    // Every parent leaves the commit node. Existing parents keep their branch color; the first newly
-    // opened parent inherits the commit color, matching the mainline convention used by IDE graphs.
     var emittedParents = {};
     for (var q = 0; q < parentRecords.length; q++) {
       var parentRecord = parentRecords[q];
@@ -108,7 +83,7 @@ function computeHistoryGraph(commits) {
   rows.maxLane = maxLane;
   return rows;
 }
-if (typeof window !== 'undefined') window.computeHistoryGraph = computeHistoryGraph; // exposed for tests
+if (typeof window !== 'undefined') window.computeHistoryGraph = computeHistoryGraph;
 
 function historyLaneX(l) { return 10 + Math.min(l, HISTORY_LANE_CAP) * HISTORY_LANE_W; }
 function historyColor(i) { return HISTORY_COLORS[i % HISTORY_COLORS.length]; }
@@ -143,8 +118,6 @@ function historyShortRefName(ref) {
     .replace(/^refs\/tags\//, '');
 }
 
-// "HEAD -> main, origin/main, tag: v1" -> IDE-style ref chips with branch/tag glyphs. HEAD's target is
-// the useful label, while the full relationship remains available to accessibility and hover text.
 function historyRefBadges(refs) {
   if (!refs || !refs.trim()) return '';
   return refs.split(',').map(function (r) {
@@ -165,7 +138,6 @@ function historyRefBadges(refs) {
 
 function historyShortDate(iso) {
   if (!iso) return '';
-  // 2026-06-20T21:03:11+09:00 -> "2026-06-20 21:03"
   var m = String(iso).match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/);
   return m ? m[1] + ' ' + m[2] : String(iso).slice(0, 16);
 }
@@ -185,16 +157,9 @@ function renderHistoryList() {
   list.innerHTML = historyCommits.map(function (c, i) {
     var refs = historyRefBadges(c.refs);
     var mergeClass = c.parents && c.parents.length > 1 ? ' merge-commit' : '';
-    // tabindex -1: the list is ONE tab stop, and selectHistoryCommit moves it to whichever row is
-    // selected. Three hundred tabbable rows was not only a long walk — Tab moved the focus ring without
-    // moving the selection, and Enter resolves through historyActiveSha (reviewHistoryInMain), so the
-    // commit that opened was not the one the ring was on. The arrows and Enter are handled for the whole
-    // overlay (handleHistoryKey), so nothing here needed to be focusable for them to work.
     return '<button type="button" class="hrow' + mergeClass + (c.hash === historyActiveSha ? ' active' : '') + '" tabindex="-1" data-sha="' + escapeHtml(c.hash) + '" title="' + escapeHtml(c.hash.slice(0, 12) + '  ' + c.subject) + '">'
       + '<span class="hgraph-cell">' + (historyUsesLanes() ? historyRowSvg(historyGraph[i]) : historyLineRowSvg()) + '</span>'
       + '<span class="hmsg">' + (refs ? '<span class="hrefs">' + refs + '</span>' : '')
-      // A reflog entry or a stash is named by its selector (HEAD@{3}, stash@{0}) — that is how a person
-      // refers to it afterwards, and without it the rows are three identical "WIP on main".
       + (c.selector ? '<span class="hselector">' + escapeHtml(c.selector) + '</span>' : '')
       + '<span class="hsubject">' + escapeHtml(c.action || c.subject) + '</span></span>'
       + '<span class="hauthor">' + escapeHtml(c.author) + '</span>'
@@ -203,7 +168,6 @@ function renderHistoryList() {
   }).join('');
 }
 
-/** Which "nothing here" sentence this is: no commits, none matching, an empty reflog, nothing stashed. */
 function historyEmptyKey() {
   if (historyScope) return historyScope.line > 0 ? 'history.emptyLine' : 'history.emptyFile';
   if (historyKind === 'reflog') return 'history.emptyReflog';
@@ -211,11 +175,9 @@ function historyEmptyKey() {
   return historyFiltered() ? 'history.noMatch' : 'history.empty';
 }
 
-/** The strip above explains how to compare two commits; with none on screen it explains a gesture
- *  there is nothing to perform. */
 function updateHistoryEmptyChrome() {
   var empty = document.getElementById('history-empty');
-  if (empty) empty.classList.add('hidden'); // the list says it itself now, where the rows would have been
+  if (empty) empty.classList.add('hidden');
   var selectBar = document.querySelector('#history-view .history-select-bar');
   if (selectBar && !historyCommits.length) selectBar.classList.add('hidden');
 }
@@ -233,7 +195,7 @@ function selectHistoryCommit(sha, shouldScroll) {
   list.querySelectorAll('.hrow').forEach(function (r) {
     var on = r.dataset.sha === sha;
     r.classList.toggle('active', on);
-    r.tabIndex = on ? 0 : -1; // the list's single tab stop goes where the selection is
+    r.tabIndex = on ? 0 : -1;
     if (on) active = r;
   });
   if (shouldScroll !== false && active && active.scrollIntoView) active.scrollIntoView({ block: 'nearest' });
@@ -244,25 +206,21 @@ function moveHistoryCommit(delta) {
   var idx = rows.findIndex(function (r) { return r.dataset.sha === historyActiveSha; });
   if (idx < 0) idx = delta > 0 ? -1 : 0;
   idx = Math.max(0, Math.min(rows.length - 1, idx + delta));
-  clearHistoryRange(); // a plain move collapses any shift-selection back to a single commit
+  clearHistoryRange();
   historyAnchorSha = rows[idx].dataset.sha;
   selectHistoryCommit(rows[idx].dataset.sha, true);
 }
 
-// ===== Shift-select: compare two commits (patch sets) as one combined diff. =====
 function historyIndexOfSha(sha) {
   for (var i = 0; i < historyCommits.length; i++) if (historyCommits[i].hash === sha) return i;
   return -1;
 }
-// Drop the range highlight and anchor, returning to single-commit selection.
 function clearHistoryRange() {
   historyAnchorSha = '';
   var list = document.getElementById('history-list');
   if (list) list.querySelectorAll('.hrow.in-range').forEach(function (r) { r.classList.remove('in-range', 'range-end'); });
   updateHistorySelectBar();
 }
-// The two endpoints of the current selection, or null. historyCommits is newest-first, so the lower
-// index is the newer commit. isRange is false when the anchor and focus are the same commit.
 function historyRangeEndpoints() {
   var a = historyIndexOfSha(historyAnchorSha);
   var b = historyIndexOfSha(historyActiveSha);
@@ -271,23 +229,17 @@ function historyRangeEndpoints() {
   return {
     olderSha: historyCommits[hi].hash,
     newerSha: historyCommits[lo].hash,
-    // What the compare is actually opened FROM: the parent of the oldest selected commit, so that commit's
-    // own changes are inside its own compare. The select bar printed `olderSha` while the Open button used
-    // this, so the two agreed on the count and disagreed on the range — the bar said `54d784f → 1fe2700`
-    // and the review opened as `d2721e4 → 1fe2700`. One value now, read by both.
     baseSha: historyCompareBase(historyCommits[hi]),
     count: hi - lo + 1,
     isRange: hi > lo,
   };
 }
-// Extend the selection from the anchor to focusSha and highlight the span. Selection only — never opens
-// the diff; the reviewer opens it with Enter, double-click, or the compare bar's Open button.
 function selectHistoryRange(focusSha, shouldScroll) {
   if (!focusSha) return;
   if (!historyAnchorSha) historyAnchorSha = historyActiveSha || focusSha;
   var a = historyIndexOfSha(historyAnchorSha);
   var b = historyIndexOfSha(focusSha);
-  if (a < 0 || b < 0) { // anchor/focus scrolled out of the loaded page — fall back to single
+  if (a < 0 || b < 0) {
     historyAnchorSha = focusSha;
     selectHistoryCommit(focusSha, shouldScroll);
     updateHistorySelectBar();
@@ -309,22 +261,9 @@ function selectHistoryRange(focusSha, shouldScroll) {
   if (shouldScroll !== false && active && active.scrollIntoView) active.scrollIntoView({ block: 'nearest' });
   updateHistorySelectBar();
 }
-// Open whatever is selected in the MAIN review — where the comment system, F7 and the file tree already are
-// — and close the overlay. This is the only way anything opens from here now. It used to be the RANGE path
-// only, with a single commit falling back to a read-only pane inside the overlay: half the width, no
-// comments, and a second diff implementation that had to be kept in step with the real one. There is nothing
-// about one commit that needs its own viewer, and "the commits I already made" is what a review is for.
-// Serve mode (no window.kakapoGit) has no way to repoint the review, so it does nothing rather than
-// pretending — the commit list itself still reads.
-// What a commit is compared AGAINST: its first parent. The first commit in a repository has no parent, so it
-// is the one commit with nothing to diff against — git's empty-tree hash is how you say "before anything
-// existed", and it opens as what it actually is, every file added.
 function historyCompareBase(commit) {
   return (commit && Array.isArray(commit.parents) && commit.parents[0]) || EMPTY_TREE_SHA;
 }
-// A ROOT commit's parent is git's empty tree, and its sha reads as just another commit when printed raw:
-// selecting down to the first commit showed `4b825dc → 1fe2700` with nothing saying that the left side is
-// "nothing was there yet".
 function historyBaseLabel(sha) {
   return sha === EMPTY_TREE_SHA ? t('history.emptyTree') : String(sha || '').slice(0, 7);
 }
@@ -347,20 +286,12 @@ function reviewHistoryInMain() {
     var c = historyCommits[i];
     scope.push({ sha: c.hash, shortSha: (c.hash || '').slice(0, 7), subject: c.subject, date: c.date });
   }
-  requestDiffViewOnNextCompare(); // land on the diff, not a stale source pane
-  // The base is what came BEFORE the oldest selected commit, exactly as it is for a single one. Comparing
-  // from the oldest commit itself left that commit's own changes out of its own compare, so two selected
-  // commits opened showing only the newer one — and the bar still said "2 commits".
+  requestDiffViewOnNextCompare();
   Promise.resolve(window.kakapoGit.setReviewCompare(ep.baseSha, ep.newerSha, scope)).then(function (res) {
     if (res && res.ok) closeHistory();
   }).catch(function () {});
 }
-// Nothing opens here any more — every selection goes to the main review (reviewHistoryInMain). Kept as the
-// name the Open button and Enter both call, so there is one door rather than three.
 function openHistoryCurrentSelection() { reviewHistoryInMain(); }
-// The selection/compare strip below the history bar. Shows a discoverability hint for a single commit,
-// and the pending two-commit compare (with Open / Clear) once a range is selected. Hidden in line-history
-// scope, where arbitrary-commit compare does not apply.
 function updateHistorySelectBar() {
   var bar = document.getElementById('history-select-bar');
   if (!bar) return;
@@ -378,8 +309,6 @@ function updateHistorySelectBar() {
       + '<button type="button" id="hsel-review" class="hsel-btn hsel-open" data-keyhint-id="historyNavigate:1">' + escapeHtml(t('history.reviewCompare')) + '</button>'
       + '<button type="button" id="hsel-clear" class="hsel-btn">' + escapeHtml(t('history.clearRange')) + '</button></span>';
   } else if (historyGotoRevision) {
-    // What was typed names a commit that is not in this page — offer to go there instead of reporting
-    // that nothing matched a hash the repository does know.
     bar.classList.remove('hidden');
     bar.classList.remove('has-range');
     bar.innerHTML = '<span class="hsel-info"><span class="hsel-kind">' + escapeHtml(t('history.goto')) + '</span>'
@@ -396,10 +325,8 @@ function updateHistorySelectBar() {
     bar.classList.remove('has-range');
     bar.innerHTML = '';
   }
-  // Built here, long after the document was translated: resolve the chord its button advertises.
   try { applyKeyHints(bar); } catch (e) {}
 }
-// Shift+Arrow variant of moveHistoryCommit: keep the anchor, move the focus, re-diff the span.
 function moveHistoryRange(delta) {
   var rows = historyVisibleRows();
   if (!rows.length) return;
@@ -410,16 +337,6 @@ function moveHistoryRange(delta) {
   selectHistoryRange(rows[idx].dataset.sha, true);
 }
 
-// Text filter (subject / author). The graph only reads right on the full contiguous history, so filtering
-// hides the graph column (IntelliJ does the same) and just shows matching rows.
-/**
- * Reads the filter row and asks GIT again.
- *
- * This used to hide rows that were already rendered, which is a different question: a page holds three
- * hundred commits, so hiding within it answered "no commits by Ada" when what it meant was "none in the
- * last three hundred". Typing is debounced because every keystroke would otherwise start a git process,
- * and the answer to half a word is never the one wanted.
- */
 function applyHistoryFilter() {
   var value = function (id) { var el = document.getElementById(id); return el ? String(el.value || '').trim() : ''; };
   var checked = function (id) { var el = document.getElementById(id); return Boolean(el && el.checked); };
@@ -427,7 +344,6 @@ function applyHistoryFilter() {
     text: value('history-search'),
     author: value('history-filter-author'),
     path: value('history-filter-path'),
-    // A branch, tag or revision to walk INSTEAD of every branch — the log of somewhere you are not.
     branch: value('history-filter-branch'),
     content: value('history-filter-content'),
     since: value('history-filter-since'),
@@ -443,7 +359,6 @@ function applyHistoryFilter() {
   }, 220);
 }
 
-/** Whether anything is narrowing the list — for the empty state, which otherwise cannot explain itself. */
 function historyFiltered() {
   return Boolean(historyFilters.text || historyFilters.author || historyFilters.path
     || historyFilters.branch || historyFilters.content || historyFilters.since || historyFilters.until
@@ -484,8 +399,6 @@ function updateHistoryScopeChrome() {
     if (label) scope.setAttribute('title', label);
     else scope.removeAttribute('title');
   }
-  // A scoped history is one file's story: the three repository-wide kinds do not apply to it, and the
-  // filter row's own path field would be a second, contradicting answer to "which file".
   var kinds = document.querySelector('#history-view .history-kinds');
   if (kinds) kinds.classList.toggle('hidden', Boolean(historyScope));
   var toggle = document.getElementById('history-filter-toggle');
@@ -494,11 +407,7 @@ function updateHistoryScopeChrome() {
 function openHistory(scope) {
   var v = document.getElementById('history-view');
   if (!v) return;
-  if (!window.kakapoGit) return; // browser/serve mode: no git bridge
-  // The overlay renders UNDER the merged dock (z75 vs 77+), so opening it while that is up looked like the
-  // shortcut did nothing. Full-screen surfaces switch, never stack.
-  // AFTER leaveFullScreenPanels, which routes through closeHistory() and would fire the restore and
-  // null the slot we are about to fill — leaving this overlay's eventual close with nothing to return to.
+  if (!window.kakapoGit) return;
   leaveFullScreenPanels();
   rememberOverlayFocus(v);
   v.classList.remove('history-direct-diff');
@@ -512,14 +421,11 @@ function openHistory(scope) {
   setTimeout(function () { try { v.focus(); } catch (e) {} }, 0);
 }
 
-/** Which bridge call answers the list as it is currently scoped and filtered. */
 function historyPageRequest() {
   var bridge = window.kakapoGit;
   if (historyScope && historyScope.line > 0 && typeof bridge.lineLog === 'function') {
     return bridge.lineLog({ path: historyScope.path, line: historyScope.line, limit: 300 });
   }
-  // A whole file's history follows it through renames — `git log --follow`, which is why this is the log
-  // with a path rather than a reader of its own.
   if (historyScope) return bridge.log({ limit: 300, path: historyScope.path, follow: true });
   if (historyKind === 'reflog' && typeof bridge.reflog === 'function') return bridge.reflog({ limit: 300 });
   if (historyKind === 'stashes' && typeof bridge.stashes === 'function') return bridge.stashes();
@@ -536,10 +442,6 @@ function historyPageRequest() {
   });
 }
 
-/**
- * A reflog entry and a stash are both commits, but neither arrives with the fields a commit row reads.
- * Filling them in here means one row renderer, one graph walker and one Enter path for all three kinds.
- */
 function normalizeHistoryRow(row) {
   return {
     hash: String((row && row.hash) || ''),
@@ -554,17 +456,10 @@ function normalizeHistoryRow(row) {
   };
 }
 
-/** Lanes are a property of the repository graph; a scoped, reflog or stash list is a sequence. */
 function historyUsesLanes() {
   return !historyScope && historyKind === 'commits';
 }
 
-/**
- * Loads the list for the current kind, scope and filters.
- *
- * Deliberately does NOT touch focus: this runs while someone is typing in a filter box, and a reload that
- * moves focus to the overlay swallows the rest of the word.
- */
 function loadHistoryPage() {
   var v = document.getElementById('history-view');
   if (!v || !window.kakapoGit) return;
@@ -584,11 +479,10 @@ function loadHistoryPage() {
     historyMaxLane = historyGraph.maxLane || 0;
     renderHistoryList();
     if (historyCommits[0]) { historyAnchorSha = historyCommits[0].hash; selectHistoryCommit(historyCommits[0].hash, false); }
-    updateHistorySelectBar(); // show the compare hint as soon as the list is ready
+    updateHistorySelectBar();
   }, function () { if (seq === historyLoadSeq) { historyLoading = false; renderHistoryList(); } });
 }
 
-/** Switches between the log, the reflog and the stash list. */
 function setHistoryKind(kind) {
   if (historyKind === kind) return;
   historyKind = kind;
@@ -597,8 +491,6 @@ function setHistoryKind(kind) {
     button.classList.toggle('active', active);
     button.setAttribute('aria-selected', active ? 'true' : 'false');
   });
-  // The reflog and the stash list are not filtered by git the way the log is, so the row is put away
-  // rather than left on screen doing nothing.
   var filters = document.getElementById('history-filters');
   if (filters && kind !== 'commits') setHistoryFiltersOpen(false);
   var toggle = document.getElementById('history-filter-toggle');
@@ -627,11 +519,6 @@ function clearHistoryFilterInputs() {
   historyGotoRevision = null;
 }
 
-/**
- * The search box does two jobs, as IntelliJ's log does: it narrows by message, and if what is typed names
- * a commit — a hash, a branch, a tag, `HEAD~3` — it offers to go there. Main answers whether it names one;
- * a word that happens to look like a ref simply resolves to nothing and stays a text filter.
- */
 function resolveHistoryGoto() {
   var query = historyFilters.text;
   historyGotoRevision = null;
@@ -643,7 +530,6 @@ function resolveHistoryGoto() {
   Promise.resolve(window.kakapoGit.resolveRevision(query)).then(function (revision) {
     if (seq !== historyLoadSeq || !isHistoryOpen()) return;
     historyGotoRevision = revision && revision.hash ? revision : null;
-    // Already on screen? Then "go to" is a selection, not a jump out of the list.
     if (historyGotoRevision && historyIndexOfSha(historyGotoRevision.hash) >= 0) {
       selectHistoryCommit(historyGotoRevision.hash, true);
       historyGotoRevision = null;
@@ -655,17 +541,11 @@ function openLineHistory(path, line) {
   if (!window.kakapoGit || typeof window.kakapoGit.lineLog !== 'function') return;
   openHistory({ path: path, line: line });
 }
-/** One file's history, following it through renames — IntelliJ's Git ▸ Show History for a file. */
 function openFileHistory(path) {
   if (!path || !window.kakapoGit) return false;
   openHistory({ path: path, line: 0 });
   return true;
 }
-// A blame attribution in the source gutter: "show me the commit that wrote this line". It used to open the
-// overlay in a diff-only mode of its own; it is the same act as picking that commit from the list, so it
-// takes the same door and never opens the overlay at all.
-// `sha^` rather than a looked-up parent — this path has no commit list to look one up in, and git resolves
-// it. A root commit has no `^`, so that attempt fails and the empty tree is what "before this" means there.
 function openHistoryCommitFromSource(sha, path) {
   if (!sha || !window.kakapoGit || typeof window.kakapoGit.setReviewCompare !== 'function') return;
   var scope = [{ sha: sha, shortSha: String(sha).slice(0, 7), subject: '', date: '' }];
@@ -684,23 +564,12 @@ function handleHistoryKey(e) {
   if (!isHistoryOpen()) return false;
   var ae = document.activeElement;
   var inSearch = ae && ae.id === 'history-search';
-  // This also runs from a CAPTURE listener (see wireHistory), i.e. before the focused element sees the key at
-  // all. So it has to stand down for anything genuinely being typed into outside History's own chrome.
-  // History's own search box is inside #history-view and keeps its keys.
   if (ae && !inSearch
     && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT' || ae.isContentEditable)
     && !(ae.closest && ae.closest('#history-view'))) return false;
-  // These four read the table rather than spelling the chord, so a rebind reaches them. ⌘C in particular
-  // had no other home: `copyRevision` is a row with no dispatcher entry and no `fixed` marker, so the
-  // Settings sheet offered it for rebinding, saved the new chord, and ⌘C went on copying the hash.
   if (isShortcut(e, 'openHistory')) {
     e.preventDefault(); e.stopPropagation(); closeHistory(); return true;
   }
-  // Cmd/Ctrl+1 has no History-local meaning, so honor the global "Files" shortcut: leave History and reveal
-  // the source tree. Without this the fallthrough ran activateFilesView() under the still-open overlay, so
-  // the switch was invisible.
-  // Both halves of the row, not just ⌘1: the old hand-spelled branch matched Digit1 only, so ⌘2 fell
-  // through to the global handler and switched the view underneath the still-open overlay.
   if (isShortcut(e, 'filesChangesTab')) {
     var toChanges = shortcutMatchIndex === 1;
     e.preventDefault(); e.stopPropagation();
@@ -721,7 +590,7 @@ function handleHistoryKey(e) {
   if (!e.metaKey && !e.ctrlKey && !e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
     e.preventDefault(); e.stopPropagation();
     var delta = e.key === 'ArrowDown' ? 1 : -1;
-    if (e.shiftKey) moveHistoryRange(delta); // ⇧↑/⇧↓ — the `historyRange` row
+    if (e.shiftKey) moveHistoryRange(delta);
     else moveHistoryCommit(delta);
     return true;
   }
@@ -730,16 +599,12 @@ function handleHistoryKey(e) {
     reviewHistoryInMain();
     return true;
   }
-  // The hash of the selected commit — what you paste into a message, a ticket or another `git` command.
-  // Nothing in the overlay is selectable text, so ⌘C has no other meaning here.
   if (isShortcut(e, 'copyRevision')) {
     if (!historyActiveSha || inSearch) return false;
     e.preventDefault(); e.stopPropagation();
     if (copyTextToClipboard(historyActiveSha)) showToast(t('history.copiedRevision').replace('{sha}', historyActiveSha.slice(0, 12)));
     return true;
   }
-  // Everything below this is the review's own, and the review is what Enter just went to. History owns the
-  // commit list and nothing else: a key it has no use for belongs to whatever is underneath.
   return false;
 }
 
@@ -748,12 +613,9 @@ function handleHistoryKey(e) {
   if (list) list.addEventListener('click', function (e) {
     var row = e.target.closest && e.target.closest('.hrow[data-sha]');
     if (!row) return;
-    if (e.shiftKey) { e.preventDefault(); selectHistoryRange(row.dataset.sha, false); } // extend the compare range
-    else { clearHistoryRange(); historyAnchorSha = row.dataset.sha; selectHistoryCommit(row.dataset.sha, false); updateHistorySelectBar(); } // select only; open on double-click/Enter
+    if (e.shiftKey) { e.preventDefault(); selectHistoryRange(row.dataset.sha, false); }
+    else { clearHistoryRange(); historyAnchorSha = row.dataset.sha; selectHistoryCommit(row.dataset.sha, false); updateHistorySelectBar(); }
   });
-  // Double-click activates: the compare range when the row is inside it, else that single commit. Both go
-  // through the same door Enter and the Open button use — the two names this used to call (openHistoryRange,
-  // openHistoryCommit) went away with the overlay's own diff pane, so every double-click threw instead.
   if (list) list.addEventListener('dblclick', function (e) {
     var row = e.target.closest && e.target.closest('.hrow[data-sha]');
     if (!row) return;
@@ -766,7 +628,7 @@ function handleHistoryKey(e) {
   });
   var selBar = document.getElementById('history-select-bar');
   if (selBar) selBar.addEventListener('click', function (e) {
-    if (e.target.closest && e.target.closest('#hsel-review')) reviewHistoryInMain(); // open in main review (comments)
+    if (e.target.closest && e.target.closest('#hsel-review')) reviewHistoryInMain();
     else if (e.target.closest && e.target.closest('#hsel-clear')) clearHistoryRange();
     else if (e.target.closest && e.target.closest('#hsel-goto') && historyGotoRevision) {
       openHistoryCommitFromSource(historyGotoRevision.hash, '');
@@ -774,7 +636,6 @@ function handleHistoryKey(e) {
   });
   var search = document.getElementById('history-search');
   if (search) search.addEventListener('input', applyHistoryFilter);
-  // One listener for the whole filter row: six inputs asking the same question.
   var filters = document.getElementById('history-filters');
   if (filters) {
     filters.addEventListener('input', applyHistoryFilter);
@@ -799,9 +660,6 @@ function handleHistoryKey(e) {
   if (closeBtn) closeBtn.addEventListener('click', closeHistory);
   var view = document.getElementById('history-view');
   if (view) view.setAttribute('tabindex', '-1');
-  // The commit diff uses read-only logical carets and Chromium can leave native focus on a descendant (or
-  // even the document body after a render). Capture at document scope while History is open so its local
-  // shortcuts never depend on that incidental DOM focus. Handled keys stop propagation in handleHistoryKey.
   document.addEventListener('keydown', function (e) {
     if (isHistoryOpen()) handleHistoryKey(e);
   }, true);

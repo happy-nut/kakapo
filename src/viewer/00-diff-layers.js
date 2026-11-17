@@ -1,7 +1,3 @@
-// diff2html remains the patch parser and code-markup producer, but its per-row table cells are no longer
-// the visible line-number UI. A pane owns one gutter layer, built from a compact row model, and that layer
-// shares the same vertical transform as the code table. Horizontal pinning is therefore one native sticky
-// operation per pane instead of hundreds of independently composited sticky <td>s.
 var diffViewportResizing = false;
 var diffViewportResizeTimer = 0;
 
@@ -15,9 +11,6 @@ function visibleDiffWrappersAfterResize() {
 function settleDiffViewportResize() {
   diffViewportResizeTimer = 0;
   diffViewportResizing = false;
-  // A viewport resize changes every wrapped row, but only the active review (and possibly the single
-  // History detail) is painted. Rebuild those layers once after native resizing settles. Measuring every
-  // row on every intermediate BrowserWindow frame left Chromium unable to paint the newly exposed strip.
   visibleDiffWrappersAfterResize().forEach(function (wrapper) {
     wrapper.__mcDiffLayersDirty = true;
     if (typeof invalidateAsymmetricDiffGeometry === 'function') invalidateAsymmetricDiffGeometry(wrapper);
@@ -26,13 +19,6 @@ function settleDiffViewportResize() {
   if (typeof scheduleAsymmetricDiffScroll === 'function') scheduleAsymmetricDiffScroll();
 }
 
-// A native resize is not the only thing that dirties every row at once. Swapping the theme (or the syntax
-// family) rewrites the custom properties the whole document is painted from, and a zoom step changes every
-// row's height — after either, the ResizeObserver on each diff table fires with the entire document's style
-// invalidated. What it triggers then reads a computed style and a rect PER ROW, and writes spacer heights
-// that resize the table and fire the observer again: on a large diff that is the window going unresponsive
-// rather than a hitch. It is the same shape as a resize, so it takes the same exit — mark dirty, let it
-// settle, project once.
 function beginDiffViewportChurn() {
   diffViewportResizing = true;
   if (diffViewportResizeTimer) clearTimeout(diffViewportResizeTimer);
@@ -81,17 +67,10 @@ function ensureLayeredDiffSide(side) {
   if (table && typeof ResizeObserver === 'function' && !side.__mcDiffLayerResizeObserver) {
     side.__mcDiffLayerResizeObserver = new ResizeObserver(function () {
       var wrapper = side.closest('.d2h-file-wrapper') || side.parentElement;
-      // Hidden file bodies can still receive ResizeObserver delivery after lazy hydration or comment
-      // reconciliation. Measuring their rows does no visible work and, on a large review, can monopolize
-      // the renderer for seconds. Mark the layer dirty; showOnlyFile refreshes it when the file becomes the
-      // active editor again.
       if (wrapper && wrapper.classList && wrapper.classList.contains('df-inactive')) {
         wrapper.__mcDiffLayersDirty = true;
         return;
       }
-      // BrowserWindow maximize/drag can deliver a ResizeObserver callback for each native resize frame.
-      // Keep the currently painted CSS responsive, but defer the O(rows) gutter projection until the final
-      // viewport size is stable; settleDiffViewportResize refreshes every visible wrapper exactly once.
       if (diffViewportResizing) {
         if (wrapper) wrapper.__mcDiffLayersDirty = true;
         return;
@@ -121,10 +100,6 @@ function refreshLayeredDiffSide(side) {
   side.__mcDiffRowModel = model;
   var tableRect = layer.table.getBoundingClientRect();
   var tableHeight = Math.max(layer.table.offsetHeight || 0, Number(tableRect.height) || 0);
-  // Keep every layout read together. Existing gutter nodes are live DOM; changing their styles or moving
-  // one into a fragment invalidates layout. The old read/write/read/write loop therefore forced Chromium
-  // to lay out the entire content-visibility table once PER ROW (multi-second freezes around comments).
-  // Measuring first preserves sub-pixel row alignment while reducing the refresh to one layout pass.
   var measurements = model.map(function (entry) {
     if (!entry.number || !entry.lineNumber || entry.hidden) return null;
     var rowRect = entry.row.getBoundingClientRect();
@@ -158,8 +133,6 @@ function refreshLayeredDiffSide(side) {
     }
     item.style.top = top + 'px';
     item.style.height = height + 'px';
-    // A wrapped source row can span several visual lines. Its logical line number belongs beside the first
-    // visual line, not vertically centred across the whole block.
     item.style.lineHeight = wrapped ? '1.55' : height + 'px';
     fragment.appendChild(item);
     fallbackTop = Math.max(fallbackTop, top + height);

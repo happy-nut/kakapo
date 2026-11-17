@@ -7,8 +7,6 @@ import { createHash } from "node:crypto";
 const nodeRequire = createRequire(import.meta.url);
 const viewerAssetCache = new Map<string, string>();
 
-// Client viewer script/stylesheet live in sibling files (copied to dist/ at build) so this
-// module stays small and the client code can use template literals freely (no String.raw).
 export function readViewerAsset(name: string): string {
   let cached = viewerAssetCache.get(name);
   if (cached === undefined) {
@@ -31,8 +29,6 @@ export function diffCss(): string {
 }
 
 export function diffScript(): string {
-  // Prefer the minified bundle the build emits (smaller inlined <script>); fall back to the readable concat
-  // when minify was skipped (e.g. terser unavailable).
   try {
     return readViewerAsset("viewer.client.min.js");
   } catch {
@@ -40,10 +36,6 @@ export function diffScript(): string {
   }
 }
 
-// The Electron app references the client as an EXTERNAL kakapo-asset:// script instead of inlining ~514KB
-// into every review window's HTML (render.ts) — the doc gets ~40% smaller and Chromium parses/caches the
-// client once across windows. The kakapo-asset handler serves immutable-cached assets, so the URL carries a
-// content hash to bust the cache when the client changes. Computed once (the client is fixed per process).
 let clientAssetCache: { file: string; version: string } | undefined;
 export function diffClientAsset(): { file: string; version: string } {
   if (!clientAssetCache) {

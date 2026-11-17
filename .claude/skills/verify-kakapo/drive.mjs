@@ -1,23 +1,3 @@
-// The lifecycle every verification script in this skill needs, and nothing else.
-//
-// Deliberately thin. The CDP client, the port preflight and the launch/stop pair already live in
-// scripts/lib/app-harness.mjs, which nav:smoke and nav:matrix drive the same app with — a second copy
-// would be a second place for "did that key reach the renderer" to be answered differently. What the
-// harness does NOT do is the four things a verification run needs around it:
-//
-//   isolation   launchApp() passes `{...process.env}` and sets no KAKAPO_DEV, so an app launched from it
-//               writes into the operator's REAL Kakapo user-data directory (app-main.ts only redirects to
-//               <userData>/dev when KAKAPO_DEV=1). A verification run must not leave rows in the
-//               workspace mirror of someone's actual reviews, so this sets it.
-//   readiness   readyPage() answers "the viewer's functions are defined", which is true well before the
-//               first diff has been built and painted. Driving at that moment reads an empty tree and
-//               calls it a regression. `until` below is the difference between responding and usable.
-//   evidence    screenshots and a transcript, in a place that survives the cleanup and is outside git.
-//   cleanup     stopApp() kills the Electron children the node launcher leaves behind, and the fixture
-//               repository goes with them — but the evidence directory does not.
-//
-// Nothing here hides a selector. Feature scripts write their own `page.evaluate` so the next reader sees
-// what the app was actually asked, not a wrapper they have to decode first.
 import { execFileSync } from "node:child_process";
 import { appendFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -30,12 +10,6 @@ export const REPO = join(here, "..", "..", "..");
 const harness = await import(join(REPO, "scripts/lib/app-harness.mjs"));
 export const { PORT, sleep } = harness;
 
-/**
- * Where an isolated run's user-data lives: Electron's per-user application directory for the app name
- * `Kakapo` (app-main.ts calls `app.setName`), plus the `dev` suffix KAKAPO_DEV=1 adds. Derived rather
- * than asked, because no bridge exposes it to the renderer — so a platform this does not know simply
- * yields a path that is not there, and the cleanup below becomes a no-op instead of a wrong delete.
- */
 function devUserData() {
   const home = homedir();
   if (process.platform === "darwin") return join(home, "Library", "Application Support", "Kakapo", "dev");
@@ -43,7 +17,6 @@ function devUserData() {
   return join(process.env.XDG_CONFIG_HOME || join(home, ".config"), "Kakapo", "dev");
 }
 
-/** A throwaway git repository to review. `put` then `commit`, exactly as the smoke scripts build theirs. */
 export function makeRepo(prefix) {
   // realpath, not the raw mkdtemp answer. On macOS tmpdir() is /var/folders/… and /var is a symlink to
   // /private/var, so the app — which resolves the root it is given — works under the second spelling
@@ -62,23 +35,9 @@ export function makeRepo(prefix) {
   return { dir, git, put, commit };
 }
 
-/**
- * Launch kakapo on `repo`, hand a ready page to `body`, and always take the app down.
- *
- * `body(page, h)` gets the harness Page plus:
- *   h.check(ok, what, detail)  one line of the transcript; a false one decides the exit code
- *   h.shot(name)               a PNG in the evidence directory, named <nn>-<name>.png
- *   h.until(expression, ms)    poll a JS expression until it is truthy; returns it, or throws
- *   h.sleep(ms)                last resort — prefer until(), a sleep is a bet on the clock
- *   h.evidence                 the directory the run is writing to
- */
 export async function drive(name, repo, body) {
   const { checkoutElectronPids, launchApp, portHolder, preflightPort, readyPage, stopApp } = harness;
 
-  // A second launch is handed to the instance already up (app-main.ts requestSingleInstanceLock), so this
-  // would drive the operator's window instead of its own. Refuse by name rather than by timing out later.
-  // A refusal still takes the fixture with it: these run often while a skill is being written, and a
-  // /tmp full of half-built repositories is the kind of mess that makes the next person distrust the tool.
   const refuse = (why) => {
     console.error(why);
     if (repo && repo.dir) rmSync(repo.dir, { recursive: true, force: true });
@@ -105,15 +64,11 @@ export async function drive(name, repo, body) {
       if (!ok) failures += 1;
       return Boolean(ok);
     },
-    // Bound below, once there is a page to drive.
     shot: null,
     until: null,
     click: null,
   };
 
-  // KAKAPO_DEV=1 is the isolation: app-main.ts moves userData to <userData>/dev under it, so this run
-  // cannot touch the comment records, read marks or restored tabs of the operator's real reviews.
-  // Set on our own env because launchApp spreads `{...process.env}` into the child; nothing else reads it.
   process.env.KAKAPO_DEV = "1";
   const { child, log: appLog } = launchApp(typeof repo === "string" ? repo : repo.dir);
 
@@ -130,16 +85,6 @@ export async function drive(name, repo, body) {
         await sleep(200);
       }
     };
-    // A real mouse click at an element's centre. The harness has `drag` (press, moves, release) but no
-    // plain click, and several surfaces have no keyboard route to where a reviewer actually puts the
-    // pointer — the caret on a particular diff line above all, since `diffCursor` is a top-level `let`
-    // and therefore not on `window` for evaluate to set or read.
-    // `nth` counts among the elements that are actually ON SCREEN, not among every match. A diff paints a
-    // window of rows and leaves the rest as zero-height placeholders, and the source view fills on demand,
-    // so matching the selector is not the same as being clickable — the Nth match is routinely a row with
-    // no box. A reviewer clicks what they can see; so does this. Having a box is the whole test:
-    // offsetParent is also null for a positioned element and for one inside a fixed ancestor, which would
-    // hide clickable rows behind a second, wrong rule.
     h.click = async (selector, nth = 0) => {
       const box = await page.evaluate(`(() => {
         const all = Array.from(document.querySelectorAll(${JSON.stringify(selector)}));
@@ -171,16 +116,11 @@ export async function drive(name, repo, body) {
       return file;
     };
 
-    // Usable, not merely responding: the boot overlay is gone and the first diff has been painted.
     await h.until(`!document.getElementById('boot-overlay') || document.getElementById('boot-overlay').classList.contains('hidden')`, 60000);
-    // A review that has something in it, in whichever shape this folder has one: changed files in the
-    // diff and in the Changes list, or — for a folder with no git and nothing to diff — a project tree.
     await h.until(`document.querySelectorAll('.d2h-file-wrapper').length > 0
       || document.querySelectorAll('#changes-panel .file-link').length > 0
       || (document.getElementById('files-panel') || {}).childElementCount > 0`, 60000);
 
-    // KAKAPO_VERIFY_LOCALE=ko re-renders the whole window in place, so one script can photograph both
-    // catalogues. A label that overflows its row is visible in no assertion, and this app ships Korean.
     const locale = process.env.KAKAPO_VERIFY_LOCALE;
     if (locale) {
       await page.evaluate(`(() => { locale = ${JSON.stringify(locale)}; applyI18n(); return locale; })()`);
@@ -194,15 +134,10 @@ export async function drive(name, repo, body) {
     await stopApp(child);
     if (repo.dir) {
       rmSync(repo.dir, { recursive: true, force: true });
-      // The fixture is gone, so its user-data mirror is an orphan — a review build, a symbol index, a
-      // perf trace and a state.json for a repository that no longer exists. Eight of those accumulated
-      // while this skill was being written. The path is asked of the app's own function rather than
-      // rebuilt from the rule here, because a second spelling of it would rot and then delete nothing
-      // (or, far worse, something else).
       try {
         const { workspaceDataDirectory } = await import(join(REPO, "dist/workspace-data.js"));
         rmSync(workspaceDataDirectory(devUserData(), repo.dir), { recursive: true, force: true });
-      } catch { /* nothing to reclaim */ }
+      } catch { }
     }
   }
 

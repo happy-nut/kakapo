@@ -1,7 +1,3 @@
-// A note written while the workspace was OFF SCREEN has to arrive when the reviewer comes back.
-// The signature is consumed by SENDING, not by the renderer receiving — so the push that went out to a view
-// nobody was looking at also marked the file delivered, and activation then found "nothing changed".
-// This is the Explain-codebase report: the map sat complete on disk and never appeared.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
@@ -24,15 +20,13 @@ test("a note written while the workspace was away arrives when it comes back", (
   };
   mkdirSync(join(root, ".git", "kakapo"), { recursive: true });
   writeThread(state.commentsFile, [], 1);
-  syncCommentsFile(state); // the reviewer is here; baseline delivered
+  syncCommentsFile(state);
 
-  // …they switch away, and the hidden session finishes its codebase map.
   writeThread(state.knowledgeFile, [{ id: 9, by: "agent", kind: "note", path: "main.py", text: "## what this repo is" }], 10);
   const before = sent.length;
-  syncCommentsFile(state); // pushed at a view that is not on screen — and marked delivered
+  syncCommentsFile(state);
   assert.equal(sent.length, before + 1, "the write is sent once");
 
-  // …they come back. Unforced this is silence; forced it is the map.
   syncCommentsFile(state);
   assert.equal(sent.length, before + 1, "an unforced re-sync still believes it already delivered");
   syncCommentsFile(state, true);

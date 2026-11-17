@@ -5,9 +5,6 @@ import { workspaceDataDirectory } from "./workspace-data.js";
 export type RecentProject = { path: string; name: string; openedAt: number };
 
 const RECENT_KEY = "kakapo-recent-projects";
-// Where the reviewer stopped reading: HEAD at the moment they handed their review to an agent. Per
-// WORKSPACE rather than global — a reading position belongs to the worktree it was taken in, and this
-// workflow gives each agent task a worktree of its own, each at its own commit.
 const READ_MARK_KEY = "kakapo-read-mark";
 const RECENT_MAX = 12;
 const GLOBAL_SETTING_KEYS = new Set([
@@ -15,16 +12,7 @@ const GLOBAL_SETTING_KEYS = new Set([
   "kakapo-theme",
   "kakapo-syntax-theme",
   RECENT_KEY,
-  // The UI scale is one setting for the whole app — main applies it as a Chromium zoom factor to the shell,
-  // the modal overlay and every review view. Left out of this list it was written per-WORKSPACE, while main
-  // went on reading the global file: the dropdown moved, the number was stored, and nothing on screen ever
-  // changed size.
   "kakapo-ui-scale",
-  // A rebind is a property of the person, not of one checkout — the shortcut coach's ledger says the same
-  // of itself for the same reason. Left out of this list it went to the WORKSPACE file while main read the
-  // global one, so the application menu drew the old chord again on every relaunch: the identical mistake
-  // the paragraph above documents, made a second time. It also made two windows on two repos disagree
-  // about one menu.
   "kakapo-shortcut-overrides",
 ]);
 
@@ -84,9 +72,6 @@ export class AppPreferences {
     });
   }
 
-  // One-shot startup cleanup: drop recent-project entries whose folder no longer exists, so deleted/moved
-  // worktrees stop accumulating in the settings and cluttering the rail. Kept out of readRecentProjects (which
-  // stays a pure shape validator) so it only touches the persisted file, once, at launch.
   pruneRecentProjects(): void {
     const settings = this.readGlobal();
     const raw = settings[RECENT_KEY];
@@ -141,7 +126,6 @@ export class AppPreferences {
       mkdirSync(dirname(file), { recursive: true });
       writeFileSync(file, JSON.stringify(value, null, 2) + (trailingNewline ? "\n" : ""));
     } catch {
-      // Persistence is best-effort; review remains available on read-only filesystems.
     }
   }
 }

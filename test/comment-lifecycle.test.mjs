@@ -1,10 +1,3 @@
-// CORE USER FLOW: comment state survives the iterative review loop (#4 "반복 리뷰에서 상태가 소실된다").
-//
-// The reviewer leaves change requests, sends the merged prompt, the agent edits, and kakapo is re-run on the
-// new diff. Comments persist (localStorage) and re-anchor by their snapshot line. Beyond that, a comment whose
-// anchored line changed in the new content is flagged "possibly addressed" — so the reviewer can see which of
-// their requests the round closed — and is held out of the next merged prompt until reopened. This test seeds
-// prior-round comments and drives a rebuild (remapComments) to assert that lifecycle.
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { makeReviewHtml, cleanupFixtures } from "./helpers/fixture.mjs";
@@ -13,12 +6,9 @@ import { loadViewer } from "./helpers/dom.mjs";
 after(cleanupFixtures);
 
 const FILE = "src/app.ts";
-// The working tree AFTER the agent's next round: line 2 was fixed, line 3 is untouched.
 const AFTER_V2 = ["const a = 1;", "const fixed = 1;", "const c = 3;", "const e = 5;", ""].join("\n");
 const COMMENTS_KEY = "kakapo-comments:/review.html";
 
-// Two change requests from the PREVIOUS round, restored from disk. c1's anchor line was edited by the agent
-// (its snapshot "const broken = ;" is gone); c2's anchor line is unchanged.
 const seededComments = [
   { seq: 1, kind: "c", path: FILE, line: 2, code: "const broken = ;", text: "fix the broken assignment",
     from: 2, to: 2, side: null, anchorCode: "const broken = ;", anchorPresent: true, addressed: false },
@@ -30,7 +20,7 @@ async function loadNextRound() {
   const { html } = await makeReviewHtml([{ path: FILE, before: "const a = 1;\n", after: AFTER_V2 }]);
   const v = await loadViewer(html, { seedStorage: { [COMMENTS_KEY]: JSON.stringify(seededComments) } });
   await v.openSourceFile(FILE);
-  v.window.remapComments(); // the rebuild pass that runs after a watch refresh / next-round build
+  v.window.remapComments();
   await v.settle(40);
   return v;
 }
@@ -64,17 +54,11 @@ test("iterative review: addressed comments drop out of the merged prompt, and re
   v.close();
 });
 
-// The agent's usual order is: read the comment, CHANGE the code, then answer. The change moves the comment —
-// remapComments follows its anchor text to the new line — but an answer carries no anchor text of its own, so
-// it stayed on the line the question used to be on. The thread came apart: a lone answer card sitting at a
-// line it has nothing to do with, and a question somewhere else with nothing under it.
 test("an answer follows the question it answers when the agent's own edit moves it", async () => {
   const moved = ["const inserted = 0;", "const alsoInserted = 1;", "const a = 1;", "const c = 3;", ""].join("\n");
   const thread = [
     { seq: 1, kind: "c", path: FILE, line: 2, code: "const c = 3;", text: "rename c to something clearer",
       from: 2, to: 2, side: null, anchorCode: "const c = 3;", anchorPresent: true, addressed: false },
-    // A reply carries no anchor of its own — it lives wherever its parent lives (openReplyComposer copies it,
-    // commentToRecord omits path/line whenever they still match).
     { seq: 2, kind: "c", by: "agent", replyTo: 1, path: FILE, line: 2, code: "", anchorCode: "",
       from: 2, to: 2, side: null, text: "renamed.", anchorPresent: false, addressed: false },
   ];
@@ -91,18 +75,6 @@ test("an answer follows the question it answers when the agent's own edit moves 
   v.close();
 });
 
-// The same loop, read in the DIFF and never opened in the source view — which is how the product is meant
-// to be used, and where it quietly stopped working. A file seen only in the diff sits in sourceByPath with
-// `content: ''`, and both the anchor check and the remap bailed on exactly that: the card stayed on line 3
-// while the code it was about moved to line 6, and the hand-off text went on saying `@file#L3` — pointing
-// the agent at a line nobody meant. Opening the file once in the source view fixed it, which is why it went
-// unnoticed.
-//
-// Two conclusions, two standards of evidence. The diff's rendered rows can establish that an anchor is
-// HERE, so a comment follows its code; they can never establish that one is GONE, because a diff prints
-// hunks and not files — a line outside a hunk is not a line that was deleted. Marking such a comment
-// "possibly addressed" would be a wrong answer about the reviewer's own words, so it is held back until
-// the whole file is in hand.
 const SHIFTED = ["// x", "// y", "// z", "const a = 1;", "const b = 2;", "keep = 1;", ""].join("\n");
 
 async function loadDiffOnlyRound(comments) {
@@ -110,12 +82,7 @@ async function loadDiffOnlyRound(comments) {
     { path: FILE, before: ["const a = 1;", "const b = 2;", "keep = 1;", ""].join("\n"), after: SHIFTED },
   ]);
   const v = await loadViewer(html, { seedStorage: { [COMMENTS_KEY]: JSON.stringify(comments) } });
-  await v.openDiffFor(FILE); // the diff, and only the diff — the source view is never opened
-  // The state under test is: diff rows rendered, source body empty. In the real app that is produced by
-  // lazy loading — the reviewer never opened the file, so its body was never fetched. jsdom cannot reach
-  // it that way (a lazy body is materialized over IPC, and `{ lazyLoad: true }` here leaves BOTH the body
-  // and the diff rows empty, which would make these tests pass by having nothing to read at all). So the
-  // builder embeds as usual and the body is emptied here, leaving exactly the pair the app has.
+  await v.openDiffFor(FILE);
   v.window.eval(`sourceByPath.get(${JSON.stringify(FILE)}).content = ''`);
   assert.ok(v.window.eval(`diffRowsOf(diffSideTable(diffWrapperByPath(${JSON.stringify(FILE)}), 'new')).length`) > 0,
     "the premise: the diff's rows are on screen even though the body is not loaded");
@@ -155,22 +122,11 @@ test("an anchor the diff cannot see is not reported as addressed", async () => {
   }
 });
 
-// Following a comment is a claim about the FILE, and the diff only shows hunks. "The nearest line that
-// still reads `}`" among the printed rows is not the nearest `}` in the file, and a comment anchored to
-// something as common as a closing brace, on a line far outside any hunk, followed that text across the
-// gap: line 3 to line 46, a brace belonging to another function. The moved line is written to disk and is
-// what the hand-off text hands the agent — so the wrong answer leaves the app. Not moving at all, which
-// is what this replaced, was better.
-//
-// The rule that makes a move sound: the comment's own line is printed (otherwise we cannot even see that
-// it left), and there is no gap between there and the candidate (a gap is exactly where a nearer match
-// would hide). Everything else waits for the whole file.
 test("a comment does not follow its anchor across ground the diff never printed", async () => {
   const head = ["function head() {", "  ONE();", "}"];
   const filler = Array.from({ length: 40 }, (_, i) => `const pad${i} = ${i};`);
   const tail = (call) => ["function tail() {", `  ${call}();`, "}"];
   const body = (call) => [...head, ...filler, ...tail(call), ""].join("\n");
-  // Context 2, and the only change is at line 45 — so the hunk is the tail, and line 3 is off screen.
   const { html } = await makeReviewHtml(
     [{ path: FILE, before: body("TWO"), after: body("THREE") }], { context: 2 },
   );

@@ -1,17 +1,3 @@
-// A hunk's CONTENT used to be read as the file's METADATA, because the parser had no notion of being inside
-// a hunk and tried the header patterns against every line.
-//
-// Git prefixes a deleted line with `-`, so a deleted `-- note` — an ordinary comment in SQL, Lua, Haskell or
-// Ada, and the `-- ` signature delimiter — arrives as `--- note` and was taken for the `--- a/path` header:
-// the deletion disappeared from the hunk, every old line number after it shifted up by one, and oldPath
-// became the comment's text. diff2html, which renders the same text with its own parser, kept the line — so
-// what the reviewer saw and what kakapo believed about it drifted apart from that line on.
-//
-// An added `++ b/…` line reached `+++ b/…` the same way, and that one picks the file's displayPath — which
-// collectSourceFiles joins to the review root and reads. One line of a reviewed file could therefore name
-// the file the index went and read.
-//
-// Both go through real git rather than a hand-written diff: the point is what git actually writes.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
@@ -79,10 +65,6 @@ test("an added `++ b/…` line cannot point the source index outside the review 
   }
 });
 
-// `diff --git a/<path> b/<path>` with a space in the path is ambiguous to a greedy pattern, and a path may
-// contain the substring ` b/` outright. A text file is corrected by its `---`/`+++` pair and a rename by its
-// `rename from`/`rename to` lines, but a changed BINARY has neither: it was listed at a path that does not
-// exist, so the Changes list grew a phantom row and the real image appeared nowhere.
 test("a changed binary under a path containing ` b/` is listed at its real path", () => {
   const r = repo();
   try {
@@ -100,8 +82,6 @@ test("a changed binary under a path containing ` b/` is listed at its real path"
   } finally { r.cleanup(); }
 });
 
-// The restructure moved the content dispatch ahead of the header patterns, so the one line git writes inside
-// a hunk that is neither content nor a header has to keep occupying no line on either side.
 test("`\\ No newline at end of file` still counts for nothing", () => {
   const r = repo();
   try {
@@ -117,9 +97,6 @@ test("`\\ No newline at end of file` still counts for nothing", () => {
   } finally { r.cleanup(); }
 });
 
-// The boundary itself, asked directly. With the parser fixed nothing produces an escaping path any more, so
-// this is the only thing that can still fail if the check is removed — and a check nothing can fail is
-// furniture. computeChangeSet is where a diff path becomes a path the index joins to the root and reads.
 test("the change set drops a path that leaves the review root", () => {
   const poisoned = ["../escaped.txt", "/etc/passwd", "a/../../escaped.txt", "C:/Windows/win.ini"]
     .map((displayPath) => ({ oldPath: displayPath, newPath: displayPath, displayPath, status: "added", binary: false, hunks: [] }));

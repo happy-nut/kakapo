@@ -1,9 +1,3 @@
-// CORE USER FLOW: lazy-LOAD source view (big repos / serve / Electron).
-//
-// In lazy-LOAD the standalone HTML ships source metadata only (no content); the body is fetched on demand
-// via window.kakapoFile.getSource(path). This guards the critical regression where one file's content
-// rendered under another file's path because the caret fast-path trusted metadata over the painted body —
-// fixed by tracking sourceBodyPath (the path actually painted) and re-rendering on mismatch.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { makeReviewHtml, cleanupFixtures, renderLazyBodies } from "./helpers/fixture.mjs";
@@ -62,8 +56,6 @@ test("lazy-LOAD: initial HTML omits unchanged project metadata and loads it on d
   assert.doesNotMatch(r.html, /id="files-tree-html"/, "transport reviews do not embed a multi-megabyte inert tree");
 
   const v = await loadViewer(r.html, { lazySourceData: r.build.lazySourceData });
-  // setTab, not a tab click: the click also activates the Files view (it opens a file), and what this pins
-  // is which DOM rows the deferred tree materializes.
   v.window.setTab("files");
   await v.settle(100);
   assert.equal(v.window.__projectIndexRequests, 1, "Files requests the project index once");
@@ -77,7 +69,7 @@ test("lazy-LOAD: initial HTML omits unchanged project metadata and loads it on d
 test("lazy-LOAD: source view renders each file's OWN content after async fetch", async () => {
   const v = await loadViewer(html, { lazySourceData });
   await v.openSourceFile("src/two.ts");
-  await v.settle(150); // per-file source fetch resolves async, then re-opens the file with content
+  await v.settle(150);
   assert.match(v.$("#source-title").textContent, /two\.ts/, "breadcrumb is src/two.ts");
   assert.match(v.$("#source-body").textContent, /export const two = 22/, "body shows src/two.ts content");
   assert.doesNotMatch(v.$("#source-body").textContent, /one = 11/, "body does NOT show another file's content");
@@ -116,21 +108,18 @@ test("lazy-LOAD: an old in-flight source response cannot overwrite a watch refre
     menuBridge: true,
     sourceBridge: () => (++calls === 1 ? oldPending : newRecord),
   });
-  await v.openSourceFile("src/race.ts"); // first request remains in flight
-  await v.pushDiffUpdate(b2.build.update); // refresh issues a new-generation request
+  await v.openSourceFile("src/race.ts");
+  await v.pushDiffUpdate(b2.build.update);
   await v.settle(100);
   assert.match(v.$("#source-body").textContent, /race = 222/, "new source generation is painted");
 
-  resolveOld(oldRecord); // stale IPC response arrives last
+  resolveOld(oldRecord);
   await v.settle(100);
   assert.match(v.$("#source-body").textContent, /race = 222/, "late old content is ignored");
   assert.doesNotMatch(v.$("#source-body").textContent, /race = 111/);
   v.close();
 });
 
-// REGRESSION: a watch refresh (in-place diff update) cleared bodyPromise but NOT bodyCache, which is keyed
-// by file INDEX. loadBodyHtml then returned the cached OLD body for the same index, so a working-tree change
-// never appeared in the diff until a full reload. applyDiffUpdate must drop bodyCache too.
 test("lazy-LOAD: a watch refresh shows the rebuilt diff body, not the cached old one", async () => {
   const b1 = await makeReviewHtml(
     [{ path: "src/live.ts", before: "export const x = 1;\n", after: "export const x = 111;\n" }],
@@ -146,12 +135,11 @@ test("lazy-LOAD: a watch refresh shows the rebuilt diff body, not the cached old
   await v.settle(120);
   assert.match(v.$("#diff2html-container").textContent, /111/, "initial diff body shown");
 
-  // A watch rebuild changes the SAME file again -> a new body for the same index.
   const b2 = await makeReviewHtml(
     [{ path: "src/live.ts", before: "export const x = 1;\n", after: "export const x = 222;\n" }],
     { lazyLoad: true },
   );
-  bodies = await renderLazyBodies(b2.build); // the bridge now serves the rebuilt body for that index
+  bodies = await renderLazyBodies(b2.build);
   await v.pushDiffUpdate(b2.build.update);
   await v.settle(120);
 
@@ -161,9 +149,6 @@ test("lazy-LOAD: a watch refresh shows the rebuilt diff body, not the cached old
   v.close();
 });
 
-// A watch refresh that lands WHILE a comment composer is open must be HELD, not applied — applyDiffUpdate
-// rebuilds the diff DOM, which would destroy the composer textarea mid-type (input stalls / batched chars).
-// It's flushed the moment the composer closes (save/cancel).
 test("lazy-LOAD: a watch refresh is deferred while composing, then applied on close", async () => {
   const b1 = await makeReviewHtml(
     [{ path: "src/live.ts", before: "export const x = 1;\n", after: "export const x = 111;\n" }],
@@ -177,7 +162,7 @@ test("lazy-LOAD: a watch refresh is deferred while composing, then applied on cl
   });
   await v.openDiffFor("src/live.ts");
   await v.settle(120);
-  await v.clickFirstDiffLine(); // place the diff caret so the composer has a target line
+  await v.clickFirstDiffLine();
   await v.openComposer("q");
   assert.ok(v.visibleComposerInput(), "composer is open");
 
@@ -191,15 +176,13 @@ test("lazy-LOAD: a watch refresh is deferred while composing, then applied on cl
   assert.ok(v.visibleComposerInput(), "composer survives the watch refresh (update held)");
   assert.doesNotMatch(v.$("#diff2html-container").textContent, /222/, "diff is NOT rebuilt while composing");
 
-  await v.writeAndSave("note"); // saving closes the composer, which flushes the held refresh
+  await v.writeAndSave("note");
   await v.settle(120);
   assert.ok(!v.visibleComposerInput(), "composer closed after save");
   assert.match(v.$("#diff2html-container").textContent, /222/, "the held watch refresh is applied once composing ends");
   v.close();
 });
 
-// A watch refresh must not blank-then-reload files that DIDN'T change: their already-materialized body is
-// snapshotted before the swap and re-filled synchronously, so it never flickers and isn't re-fetched.
 test("lazy-LOAD: a watch refresh keeps an UNCHANGED file's body (no blank, no re-fetch)", async () => {
   const b1 = await makeReviewHtml(
     [
@@ -219,13 +202,12 @@ test("lazy-LOAD: a watch refresh keeps an UNCHANGED file's body (no blank, no re
   await v.settle(120);
   assert.match(v.$("#diff2html-container").textContent, /AAA/, "a.ts body materialized");
   const aIdx = Number((v.$("#diff2html-container .d2h-file-wrapper").id || "file-0").replace("file-", ""));
-  fetched.length = 0; // ignore the initial-load fetches
+  fetched.length = 0;
 
-  // Watch rebuild changes ONLY b.ts; a.ts is byte-identical.
   const b2 = await makeReviewHtml(
     [
-      { path: "src/a.ts", before: "const a = 1;\n", after: "const a = 1; // AAA\n" },   // unchanged
-      { path: "src/b.ts", before: "const b = 2;\n", after: "const b = 2; // BBB2\n" },   // changed
+      { path: "src/a.ts", before: "const a = 1;\n", after: "const a = 1; // AAA\n" },
+      { path: "src/b.ts", before: "const b = 2;\n", after: "const b = 2; // BBB2\n" },
     ],
     { lazyLoad: true },
   );
@@ -238,9 +220,6 @@ test("lazy-LOAD: a watch refresh keeps an UNCHANGED file's body (no blank, no re
   v.close();
 });
 
-// FLICKER-SAVER: when an OFF-SCREEN file changes but the file you're viewing doesn't (same file set+order),
-// applyDiffUpdate must reconcile per-file — keeping the viewed file's exact DOM node (no re-render/flicker)
-// and swapping only the changed off-screen wrapper.
 test("lazy: off-screen change preserves the viewed file's wrapper node, swaps only the changed one", async () => {
   const b1 = await makeReviewHtml(
     [
@@ -261,11 +240,10 @@ test("lazy: off-screen change preserves the viewed file's wrapper node, swaps on
   const bBefore = v.$('#diff2html-container .d2h-file-wrapper[data-path="src/b.ts"]');
   assert.ok(aBefore && bBefore, "both wrappers exist");
 
-  // Watch: a.ts byte-identical, only b.ts changes.
   const b2 = await makeReviewHtml(
     [
-      { path: "src/a.ts", before: "const a = 1;\n", after: "const a = 1; // AAA\n" },     // unchanged
-      { path: "src/b.ts", before: "const b = 2;\n", after: "const b = 2; // BBB-CHANGED\n" }, // changed
+      { path: "src/a.ts", before: "const a = 1;\n", after: "const a = 1; // AAA\n" },
+      { path: "src/b.ts", before: "const b = 2;\n", after: "const b = 2; // BBB-CHANGED\n" },
     ],
     { lazyLoad: true },
   );
@@ -369,12 +347,6 @@ test("lazy: changed active diff is hydrated off-DOM and swapped without a blank 
   v.close();
 });
 
-// Same hazard as the composer hold above, on the terminal: applyDiffUpdate is one long SYNCHRONOUS DOM swap
-// and xterm shares the renderer's main thread, so a watch refresh landing between keystrokes stalls typing
-// (the reported "글자가 가끔 끊긴다"). An agent editing files fires a refresh every watch tick — exactly while
-// A comment composer assembles syllables, and refreshComments() re-creates it — so the poll that pulls in an
-// agent's answers would land mid-syllable in the COMMENT box and macOS would commit the half-built 가 as
-// ㄱ ㅏ. One pair of document-level listeners covers every field in the page.
 test("lazy-LOAD: a watch refresh waits out a composition anywhere in the page", async () => {
   const b1 = await makeReviewHtml(
     [{ path: "src/live.ts", before: "export const x = 1;\n", after: "export const x = 111;\n" }],
@@ -389,7 +361,6 @@ test("lazy-LOAD: a watch refresh waits out a composition anywhere in the page", 
   await v.openDiffFor("src/live.ts");
   await v.settle(120);
 
-  // A reviewer typing a comment: nothing but the composition events says anybody is busy.
   v.window.document.dispatchEvent(new v.window.Event("compositionstart", { bubbles: true }));
 
   const b2 = await makeReviewHtml(
@@ -407,17 +378,13 @@ test("lazy-LOAD: a watch refresh waits out a composition anywhere in the page", 
   v.close();
 });
 
-// REGRESSION: a file opened to a completely blank body — header, both pane titles, "+44 −0", and nothing
-// underneath — and stayed blank for the rest of the session. Main returns "" for an index it cannot resolve
-// (a watch rebuild swaps state.bodyDiffs out from under an in-flight fetch), loadBodyHtml cached that ""
-// as the file's body, and materializeBody then stripped data-lazy — so nothing would ever ask again.
 test("lazy-LOAD: a failed body fetch is retried, not cached as an empty file forever", async () => {
   const b = await makeReviewHtml(
     [{ path: "src/blank.ts", before: "export const x = 1;\n", after: "export const x = 111;\n" }],
     { lazyLoad: true },
   );
   const bodies = await renderLazyBodies(b.build);
-  let fail = true; // the first fetch loses the race with a rebuild and comes back empty
+  let fail = true;
   const asked = [];
   const v = await loadViewer(b.html, {
     menuBridge: true,
@@ -431,7 +398,7 @@ test("lazy-LOAD: a failed body fetch is retried, not cached as an empty file for
     "an empty answer is a failed load, so the body stays lazy instead of committing to blank");
   assert.doesNotMatch(v.$("#diff2html-container").textContent, /111/, "precondition: nothing painted yet");
 
-  fail = false; // main can answer now
+  fail = false;
   const before = asked.length;
   await v.openDiffFor("src/blank.ts");
   await v.settle(150);
@@ -440,12 +407,6 @@ test("lazy-LOAD: a failed body fetch is retried, not cached as an empty file for
   v.close();
 });
 
-// A watch tick that ADDS a file drops out of the per-file fast path into the full swap, which re-materializes
-// every body the reviewer had already opened. Each re-materialization projects that file's gutter layer, and
-// a projection forces a layout of the whole review — the same ~0.5s whether the file is 50 rows or 2,780, so
-// on a 72-file review it measured 33 SECONDS of frozen UI (Chromium, real bodies). Only one file is on
-// screen, so the swap restores the single-file view state first: the off-screen wrappers are marked inactive
-// and defer their projection (refreshLayeredDiffGutters' own guard), and only the file being read is drawn.
 test("lazy: a file-set change leaves only the viewed file projected, not every body that was ever opened", async () => {
   const b1 = await makeReviewHtml(
     [
@@ -461,10 +422,9 @@ test("lazy: a file-set change leaves only the viewed file projected, not every b
     getDiffBody: (idx) => bodies[idx] || "",
   });
   await v.openDiffFor("src/b.ts");
-  await v.openDiffFor("src/a.ts"); // both bodies materialized, a.ts is the one on screen
+  await v.openDiffFor("src/a.ts");
   await v.settle(120);
 
-  // A third file appears — the file set changed, so this is the full-swap path.
   const b2 = await makeReviewHtml(
     [
       { path: "src/a.ts", before: "const a = 1;\n", after: "const a = 1; // AAA\n" },
@@ -483,14 +443,6 @@ test("lazy: a file-set change leaves only the viewed file projected, not every b
   v.close();
 });
 
-// The Files tab in the app is ALWAYS this tree (Electron sets lazyLoad), so the module grouping the two
-// server trees do has to happen here too — from the same decision, moduleEntryFor, emitted into the viewer
-// bundle from src/util.ts. The same file hanging under a module in Changes and under its raw path in Files
-// would be two answers to one question.
-//
-// It also breaks the reveal walk, which is why this test opens a file rather than only reading rows: the
-// walk steps path segment by path segment, and once the modules are lifted out of packages/ there is no row
-// at "packages" at all. Stopping at the first miss never reaches the folder the file is in.
 test("lazy-LOAD: the deferred tree groups by module, and still reveals a file deep inside one", async () => {
   const pkg = (name) => JSON.stringify({ name });
   const unchanged = (path, body) => ({ path, before: body, after: body });
@@ -515,7 +467,6 @@ test("lazy-LOAD: the deferred tree groups by module, and still reveals a file de
   assert.equal(row("packages"), null, "the folder the modules live in is not a row — they were lifted out");
   assert.ok(row("tools"), "a folder in no module stays where it was");
 
-  // The walk has to step over "packages", which is no longer a row, to reach the file's folder.
   v.window.openVirtualSourceDirectory("packages/api/src/deep/nested");
   await v.settle(40);
   assert.ok(row("packages/api/src/deep/nested")?.open, "the folder holding the file is open");

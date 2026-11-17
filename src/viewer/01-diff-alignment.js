@@ -1,7 +1,3 @@
-// Asymmetric side-by-side alignment engine. The pane under the pointer or caret owns the
-// scroll timeline; the opposite pane catches up through stable semantic anchors. Keeping
-// geometry, connector rendering, and scroll ownership together prevents ordinary UI state
-// in 01-core.js from accidentally forcing layout during a scroll frame.
 var asymmetricDiffScrollRaf = 0;
 function asymmetricGapProgress(y, start, end) {
   return Math.max(0, Math.min(y - start, Math.max(0, end - start)));
@@ -38,8 +34,6 @@ function semanticDiffAlignmentAnchors(oldRows, newRows) {
     });
   });
   candidates.sort(function (a, b) { return a.newIndex - b.newIndex || a.oldIndex - b.oldIndex; });
-  // Keep the longest monotonic sequence. A moved block must not pull the base pane backwards or make the
-  // correction jump between two contradictory anchors while the reviewer scrolls.
   var previous = [], tailIndices = [];
   for (var i = 0; i < candidates.length; i++) {
     var low = 0, high = tailIndices.length;
@@ -81,8 +75,6 @@ function diffRowBounds(rows, fallbackRows, run, side, surfaceRect) {
       return { top: firstRect.top - surfaceRect.top, bottom: lastRect.bottom - surfaceRect.top };
     }
   }
-  // A pure insertion/deletion has no source extent on one side. Collapse that end of the connector to
-  // the boundary between the surrounding real rows, producing IntelliJ's tapered hunk shape.
   for (var next = run.endIndex + 1; next < fallbackRows.length; next++) {
     var nextRect = fallbackRows[next].getBoundingClientRect();
     if (diffRectHeight(nextRect)) {
@@ -110,8 +102,6 @@ function diffConnectorGeometry(state, surfaceRect) {
     var oldBounds = diffRowBounds(run.oldRealRows, state.oldRows || [], run, 'old', surfaceRect);
     var newBounds = diffRowBounds(run.newRealRows, state.newRows || [], run, 'new', surfaceRect);
     if (!oldBounds || !newBounds) return null;
-    // Old rows live inside the translated base stack. Store their untransformed document coordinates once;
-    // subsequent scroll frames only add the new offset and never re-read row layout.
     return {
       kind: run.kind,
       oldTop: oldBounds.top - oldOffset,
@@ -136,18 +126,12 @@ function renderDiffConnectors(wrapper, state) {
   var oldOffset = Number(state.offset) || 0;
   var newOffset = Number(state.newOffset) || 0;
   var currentOffset = oldOffset + ':' + newOffset;
-  // Outside an asymmetric insertion the offset does not change. The SVG is already part of the scrolled
-  // document, so there is nothing to repaint and—critically—no layout to measure on ordinary scroll frames.
   if (state.connectorLastOffset === currentOffset && state.connectorRenderKey && state.connectorGeometry) return;
   var surfaceRect = surface.getBoundingClientRect();
   var height = Math.max(Number(surface.scrollHeight) || 0, diffRectHeight(surfaceRect));
   if (!height) { svg.replaceChildren(); return; }
   var surfaceWidth = Number(surfaceRect.width) || (Number(surfaceRect.right) - Number(surfaceRect.left)) || 0;
   var connectorWidth = Math.min(104, surfaceWidth || 104);
-  // The surface is an exact two-column grid. Keep the overlay attached to that live CSS midpoint instead
-  // of baking the current midpoint into pixels. The review sidebar animates the content track width; a
-  // pixel left value stayed behind for the duration of that transition and visibly tore (or covered) the
-  // two code canvases. Percentage positioning follows every compositor frame without rerunning row layout.
   svg.style.left = '50%';
   svg.style.width = connectorWidth + 'px';
   svg.style.transform = 'translateX(-50%)';
@@ -171,8 +155,6 @@ function renderDiffConnectors(wrapper, state) {
     var newBottom = Math.max(0, Math.min(height, entry.newBottom + newOffset));
     var firstControl = Math.round(connectorWidth * 0.29 * 10) / 10;
     var secondControl = Math.round(connectorWidth * 0.71 * 10) / 10;
-    // Bleed one physical pixel into both code canvases. This removes the antialiasing seam at the gutter
-    // boundary without adding an outline around the line-number area.
     var d = 'M ' + (-edgeBleed) + ' ' + oldTop + ' C ' + firstControl + ' ' + oldTop + ', ' + secondControl + ' ' + newTop + ', ' + (connectorWidth + edgeBleed) + ' ' + newTop
       + ' L ' + (connectorWidth + edgeBleed) + ' ' + newBottom + ' C ' + secondControl + ' ' + newBottom + ', ' + firstControl + ' ' + oldBottom + ', ' + (-edgeBleed) + ' ' + oldBottom + ' Z';
     state.connectorPathNodes[index].setAttribute('d', d);
@@ -243,9 +225,6 @@ function diffReferenceSide(wrapper, state, cursor) {
 function diffTargetAlignmentOffset(state, containerRect, scrollTop, canonicalY, referenceSide) {
   var offset = 0;
   var insideGap = false;
-  // Insertions have a real extent only on the working-tree timeline. Preserve the exact IntelliJ-style
-  // pause when that pane is the reference; the anchor interpolation below provides the inverse mapping
-  // when the base pane owns the gesture.
   if (referenceSide !== 'old') {
     diffGapGeometry(state, containerRect, scrollTop).forEach(function (gap) {
       if (canonicalY >= gap.start && canonicalY <= gap.end) insideGap = true;
@@ -278,9 +257,6 @@ function applyAsymmetricDiffOffsets(state, oldOffset, newOffset) {
 function rebaseAsymmetricDiffReference(container, state, referenceSide, scrollTop) {
   var referenceOffset = referenceSide === 'old' ? (Number(state.offset) || 0) : (Number(state.newOffset) || 0);
   if (!referenceOffset) return scrollTop;
-  // Transforms are relative; remove their shared component when ownership changes and compensate through
-  // scrollTop in the same task. The selected pane therefore becomes the zero-offset timeline without a
-  // visible jump or an ever-growing blank margin after alternating between the two panes.
   var requestedScrollTop = scrollTop - referenceOffset;
   container.scrollTop = requestedScrollTop;
   var appliedShift = scrollTop - (Number(container.scrollTop) || 0);
@@ -292,16 +268,8 @@ function rebaseAsymmetricDiffReference(container, state, referenceSide, scrollTo
   );
   return Number(container.scrollTop) || 0;
 }
-// The pane under the pointer (or owning the keyboard caret) is the canonical timeline. The reference pane
-// always keeps its current transform, so changing sides never snaps code under the reviewer. If a distant
-// semantic anchor asks for a large correction, only the opposite pane catches up, capped by the distance
-// of the user's own scroll gesture; once it reaches the target the two panes resume moving together.
 function scrollAsymmetricDiffSurface(container, wrapper, cursor) {
   var state = wrapper && wrapper.__asymmetricDiffState;
-  // IntelliJ's Align Changes In Side-by-Side Diff, switchable here for the same reason it is switchable
-  // there: aligning moves one pane relative to the other, and a reader comparing two files line by line
-  // sometimes wants the two line 40s on the same row and nothing else. Off means no transform and no
-  // connectors — the panes scroll as the plain pair they are.
   if (!renderToggleOn('alignChanges')) {
     if (state && state.oldContent) state.oldContent.style.transform = '';
     if (state && state.newContent) state.newContent.style.transform = '';
@@ -348,8 +316,6 @@ function scrollAsymmetricDiffSurface(container, wrapper, cursor) {
   state.catchingUp = referenceSide === 'old'
     ? Math.abs(newOffset - (oldOffset - targetDelta)) > 0.5
     : Math.abs(oldOffset - (newOffset + targetDelta)) > 0.5;
-  // `referenceChanged` is intentionally only documentary state: keeping the newly selected reference's
-  // existing offset is what prevents the side switch itself from moving either editor.
   state.referenceChanged = referenceChanged;
   applyAsymmetricDiffOffsets(state, oldOffset, newOffset);
   renderDiffConnectors(wrapper, state);
@@ -360,7 +326,6 @@ function scrollAsymmetricDiff() {
   var cursor = typeof diffCursor !== 'undefined' ? diffCursor : null;
   scrollAsymmetricDiffSurface(container, wrapper, cursor);
 }
-/** The alignment toggle flipped: re-run the engine (or undo it) without waiting for a scroll. */
 function refreshDiffAlignment() {
   scrollAsymmetricDiff();
 }
@@ -411,8 +376,5 @@ window.addEventListener('resize', function () {
   Array.prototype.forEach.call(document.querySelectorAll('.d2h-file-wrapper:not(.df-inactive)'), function (wrapper) {
     invalidateAsymmetricDiffGeometry(wrapper);
   });
-  // 00-diff-layers owns viewport settling. Running alignment immediately here forces connector/anchor
-  // layout on every intermediate native resize frame and can leave the expanded window showing its old
-  // compositor surface. The settling callback schedules one alignment pass at the final width.
   if (typeof diffViewportResizing === 'undefined' || !diffViewportResizing) scheduleAsymmetricDiffScroll();
 });

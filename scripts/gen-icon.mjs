@@ -37,13 +37,8 @@ const variants = [
 
 try {
   mkdirSync(iconset, { recursive: true });
-  // Give the tile a little more macOS-style breathing room and corner softness without making the
-  // Kakapo artwork feel undersized. The scale affects the whole tile; the glyph-to-tile ratio stays intact.
   execFileSync("swift", [join(root, "scripts", "round-icon.swift"), source, roundedSource, "0.15", "0.98"], { stdio: "ignore" });
   execFileSync("sips", ["-z", "1024", "1024", roundedSource, "--out", png], { stdio: "ignore" });
-  // The full macOS icon keeps its charcoal squircle, while in-app branding uses the isolated Kakapo
-  // glyph. Keeping separate sources prevents a future app-icon regeneration from restoring the tiny
-  // dark tile inside footers, settings, and loading indicators.
   execFileSync("sips", ["-z", "96", "96", uiSource, "--out", uiPng], { stdio: "ignore" });
   for (const [name, size] of variants) {
     execFileSync("sips", ["-z", String(size), String(size), png, "--out", join(iconset, name)], { stdio: "ignore" });
@@ -62,7 +57,7 @@ try {
 // Windows .ico container with PNG-compressed entries (supported since Vista, accepted by rcedit).
 function buildIco(images) {
   const header = Buffer.alloc(6);
-  header.writeUInt16LE(1, 2); // type: icon
+  header.writeUInt16LE(1, 2);
   header.writeUInt16LE(images.length, 4);
   const entries = [];
   let offset = 6 + 16 * images.length;
@@ -70,8 +65,8 @@ function buildIco(images) {
     const entry = Buffer.alloc(16);
     entry.writeUInt8(size === 256 ? 0 : size, 0); // 0 means 256
     entry.writeUInt8(size === 256 ? 0 : size, 1);
-    entry.writeUInt16LE(1, 4); // color planes
-    entry.writeUInt16LE(32, 6); // bits per pixel
+    entry.writeUInt16LE(1, 4);
+    entry.writeUInt16LE(32, 6);
     entry.writeUInt32LE(data.length, 8);
     entry.writeUInt32LE(offset, 12);
     entries.push(entry);

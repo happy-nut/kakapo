@@ -94,8 +94,6 @@ test("review workspace service persists a lazy snapshot and detects later Git ch
   const snapshot = writeReviewWorkspace(target, options, "Kakapo");
 
   assert.equal(readFileSync(target, "utf8"), snapshot.html);
-  // The diffs are the biggest thing a build makes, so the snapshot carries WHERE they are, not the text: main
-  // reads one slice when a body is asked for instead of holding every byte per workspace (review-workspace.ts).
   assert.ok(snapshot.bodies.offsets.length > 0, "the snapshot carries an index of the lazy diff bodies");
   assert.ok(existsSync(snapshot.bodies.file), "and the file they were written to");
   assert.match(readReviewBody(snapshot.bodies, 0), /^diff --git|^--- |^\+\+\+ |@@/m,
@@ -108,19 +106,13 @@ test("review workspace service persists a lazy snapshot and detects later Git ch
   assert.notEqual(afterChange, before, "the cheap watcher signature changes without rebuilding the review");
 });
 
-// Nothing of your own to review — clean worktree, nothing unpushed — but the tracking branch has moved on.
-// An empty review is the least useful answer there: what is left to read is what the remote has and this
-// checkout does not, so the review pins its right side to the tracking branch and shows the incoming change.
-// (Explain annotates whatever the review shows, so this is also what makes "explain this diff" work there.)
 test("a clean branch BEHIND upstream reviews the incoming change instead of nothing", () => {
   const behindRepo = join(fixture, "behind");
-  // The bare fixture's HEAD still points at its default branch, so name the one we actually pushed.
   git(fixture, ["clone", "-q", "-b", "main", join(fixture, "remote.git"), behindRepo]);
   git(behindRepo, ["config", "user.email", "review@test.invalid"]);
   git(behindRepo, ["config", "user.name", "Review Fixture"]);
   const atClone = git(behindRepo, ["rev-parse", "HEAD"]);
 
-  // Someone else pushes; this checkout fetches but has not merged. Nothing local, nothing unpushed.
   git(repo, ["push", "-q", "origin", "main"]);
   git(behindRepo, ["fetch", "-q"]);
   assert.equal(git(behindRepo, ["status", "--porcelain"]), "", "the worktree is clean");
@@ -144,7 +136,6 @@ test("a clean branch BEHIND upstream reviews the incoming change instead of noth
   });
   assert.ok(build.html.includes("src/app.ts"), "the incoming file is in the review");
   assert.equal(build.reviewTarget, "origin/main", "the build reports the pinned right side");
-  // lazyLoad keeps file bodies out of the shell, so the incoming line lives in the deferred diffs.
   assert.match((build.lazyBodyDiffs || []).join("\n"), /value = 2/,
     "and shows what the remote has, not the local baseline");
 });
@@ -183,18 +174,6 @@ test("an untracked feature branch stops showing commits already merged into remo
   }).files, 0);
 });
 
-// Explaining work that is already COMMITTED. The review is the branch's own commits (merge-base…HEAD), not a
-// dirty worktree, and everything the explanation depends on has to survive that: the diff exists, the Changes
-// panel has rows to anchor a beak on, and the run boundary — which is what makes a note a briefing — is
-
-// The compare bar's "all changes" names a branch and measures against one, and those have to be the same
-// branch. `readPatchSets` resolved the upstream-or-default regardless, while the click resolves whatever
-// ⌥C last picked — persisted per repository and restored at open — so picking `develop` once left the bar
-// reading `전체 변경 · origin/main` and measuring against `develop` for as long as it stayed picked.
-//
-// The second half is the guard that came with it: the branch list offers the branch you are ON, and a ref
-// that CONTAINS HEAD has nothing ahead of it, so the bar would draw no patch sets and hide — taking the
-// numbered sets and the "all" exit with it, on a setting that survives a restart.
 test("the patch-set base follows the branch the compare control is set to", () => {
   const fixture = mkdtempSync(join(tmpdir(), "kakapo-patchset-ref-"));
   const git = (args) => spawnSync("git", args, { cwd: fixture, encoding: "utf8" });
@@ -205,7 +184,7 @@ test("the patch-set base follows the branch the compare control is set to", () =
     writeFileSync(join(fixture, "a.txt"), "one\n");
     git(["add", "-A"]);
     git(["commit", "-qm", "base"]);
-    git(["branch", "develop"]);          // develop sits at the same commit as main
+    git(["branch", "develop"]);
     git(["checkout", "-qb", "work"]);
     writeFileSync(join(fixture, "a.txt"), "two\n");
     git(["commit", "-qam", "ahead one"]);
@@ -221,8 +200,6 @@ test("the patch-set base follows the branch the compare control is set to", () =
       "the picked branch is what the bar names, because it is what the click will use");
     assert.equal(preferred.commits.length, 2, "and it still enumerates what is ahead of it");
 
-    // The branch you are on contains HEAD: nothing is ahead of it, and answering with it would empty the
-    // one control that gets you back out.
     const own = readPatchSets(fixture, "work");
     assert.equal(own.branchPoint.label, "main",
       "a ref that contains HEAD falls through rather than leaving the bar with nothing to draw");
@@ -232,13 +209,6 @@ test("the patch-set base follows the branch the compare control is set to", () =
   }
 });
 
-// "A ref that contains HEAD cannot be a base" has to be ONE rule. Stated only where the patch-set bar
-// reads it, the bar fell through and labelled its option `main` while set-compare-mode went on resolving
-// the picked ref to HEAD — the same label-names-one-branch, click-uses-another split that threading the
-// ref into the bar was meant to end, reinstated for exactly the refs the new check rejects.
-//
-// Asserted against the exported rule and against the source of its second reader, because the defect was
-// a rule applied in one of two places and a test of one place cannot see that.
 test("the rule about an unusable base is one rule, read by both sides", () => {
   const fixture = mkdtempSync(join(tmpdir(), "kakapo-usable-base-"));
   const git = (args) => spawnSync("git", args, { cwd: fixture, encoding: "utf8" });
@@ -258,18 +228,12 @@ test("the rule about an unusable base is one rule, read by both sides", () => {
       "the branch you are on does not — it has nothing ahead of it");
     assert.equal(usableCompareBase(fixture, "no-such-branch"), undefined, "and neither does a ref that is gone");
 
-    // The second reader. app-main resolves the base for "all changes" and must apply the same rule, or
-    // the bar's label and the click it labels name different branches again.
     const appMain = readFileSync(new URL("../dist/app-main.js", import.meta.url), "utf8");
     const at = appMain.indexOf('ipcMain.handle("kakapo:set-compare-mode"');
     assert.ok(at > 0, "the premise: the handler is findable");
     const handler = appMain.slice(at, appMain.indexOf("ipcMain.handle(", at + 1));
     assert.match(handler, /usableCompareBase\(/,
       "set-compare-mode resolves its base through the same rule, not with its own merge-base call");
-    // The CALL, not the word. tsc keeps comments, and the handler's own prose explains why "all changes"
-    // reduces to a merge-base while the tip mode beside it does not — which a bare /merge-base/ read as the
-    // very thing it forbids. A guard that fires on the sentence describing the rule is a guard the next
-    // person turns off. `git(root, ["merge-base", …])` is what this is about, and it is quoted.
     assert.ok(!/["']merge-base["']/.test(handler),
       "and does not keep a merge-base call of its own beside it");
   } finally {

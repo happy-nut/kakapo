@@ -1,17 +1,10 @@
-// Below 900px the sidebar stops being a column beside the diff and becomes a band above it, and how tall
-// that band is decides how much of the window the diff gets. That is a layout fact, so it needs a browser:
-// jsdom reports every one of these heights as 0, which is how a sidebar that reserved 35% of the window
-// for one row of tree stayed green through the whole suite.
-//
-// Both ends are measured in one run because they are the same bound read twice: the short review asks
-// whether the box shrinks to its content, the long one whether it still stops at 35vh and scrolls inside.
 const { app, BrowserWindow } = require("electron");
 const { readFileSync } = require("node:fs");
 
 app.commandLine.appendSwitch("disable-gpu");
 
-const WIDTH = 820;   // under the 900px breakpoint, so the panes are stacked
-const HEIGHT = 700;  // 35vh = 245px
+const WIDTH = 820;
+const HEIGHT = 700;
 
 const css = readFileSync(process.argv[2], "utf8");
 const rows = (n) => Array.from({ length: n }, (_, i) =>

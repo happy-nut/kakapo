@@ -1,9 +1,3 @@
-// The surfaces this bounty touches, from the point of view of someone not watching the window.
-//
-// Navigation answers the keyboard with one small element in a corner: "looking for X…", "definition not
-// found", "still reading the project". If that element is not a live region, the key press has no outcome at
-// all for a screen reader — and whether semantic analysis is ready, which decides what those keys can even
-// do, was equally silent.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -23,8 +17,6 @@ before(async () => {
   ({ html } = await makeReviewHtml([{ path: FILE, before: base, after: base + "const extra = used;\n" }]));
   const big = Array.from({ length: BIG_LINES }, (_, i) => `const v${i} = ${i};`).join("\n") + "\n";
   const bigAfter = big + "const tail = true;\n";
-  // What the source view has to end up showing: one row per line, the trailing empty one included, the way
-  // an editor does. Derived from the fixture rather than written out, so it cannot drift away from it.
   bigRowCount = bigAfter.split("\n").length;
   ({ html: bigHtml } = await makeReviewHtml([{ path: "src/big.ts", before: big, after: bigAfter }]));
 });
@@ -55,11 +47,6 @@ test("what navigation says is announced, not just drawn", async () => {
   }
 });
 
-// This used to open the file and assert that a spacer was sitting there. A spacer is not a state a big file
-// is in — it is a state a big file is passing through: the chunk filler replaces it on a 16ms timer, and at
-// 4200 lines two ticks finish the job. The assertion therefore had about 32ms of real time to win in, which
-// it did on a quiet laptop and lost on a loaded CI runner. The invariant it was defending is not transient,
-// so neither are the two halves of it below: the stand-in row's markup, and the end state it leads to.
 test("the stand-in row for unpainted lines is not read as content", () => {
   const spacer = client.match(/<tr class="source-spacer"[^`]*?>/);
   assert.ok(spacer, "the viewer still stands in for unbuilt rows with a spacer row");
@@ -68,7 +55,6 @@ test("the stand-in row for unpainted lines is not read as content", () => {
     /aria-hidden="true"/,
     "one blank cell standing for thousands of lines is a scrollbar device, not a row to read",
   );
-  // Every spacer comes from that one template, so there is no second way for an audible one to appear.
   assert.equal((client.match(/class="source-spacer"/g) || []).length, 1,
     "and it is written in exactly one place");
 });
@@ -80,8 +66,6 @@ test("a big file ends up fully built, with no spacer left standing in for anythi
     },
   });
   try {
-    // Wait for the filler to finish rather than racing it. Reaching the end state is the property; how many
-    // chunk ticks that took is not.
     const deadline = Date.now() + 10_000;
     while (v.$("#source-body .source-spacer") && Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 20));
@@ -94,8 +78,6 @@ test("a big file ends up fully built, with no spacer left standing in for anythi
   }
 });
 
-// The chip lives only in the app build (standalone shows a version badge instead), so this reads the
-// markup the app renders rather than booting one.
 test("the analysis-status chip announces when semantic analysis becomes ready", () => {
   const render = readFileSync(new URL("../src/render.ts", import.meta.url), "utf8");
   const chip = render.split("\n").find((line) => line.includes('id="analysis-status"'));

@@ -1,11 +1,3 @@
-// Diagnostics must describe the file as it is NOW.
-//
-// ensureDocument sends didChange when a file's mtime moves, but the diagnostics held for that uri — and the
-// "already published once" mark that tells diagnosticsFor not to wait — were left alone. So the next read
-// answered from the version that had just stopped existing, at its line numbers: an agent fixed a type
-// error, the watch rebuild re-read the file, and the squiggle stayed, parked on whatever line had moved into
-// its place. Drives the real bundled TypeScript server, because the bug was in the client's cache and a fake
-// server would assert nothing.
 import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
@@ -35,10 +27,7 @@ test("fixing an error clears its diagnostic instead of leaving it on a moved lin
     assert.equal(broken.engine, "lsp", `the bundled server must answer: ${broken.error ?? "no reason"}`);
     assert.ok(broken.diagnostics.length > 0, "the type error is reported while it is there");
 
-    // The agent fixes it, and adds a line above so a stale diagnostic would land somewhere wrong rather
-    // than merely being out of date.
     writeFileSync(file, "const tidy = 1;\nexport const n: number = 42;\nexport { tidy };\n");
-    // mtime is what ensureDocument compares, and a write inside the same millisecond would not move it.
     const future = new Date(Date.now() + 2000);
     utimesSync(file, future, future);
 

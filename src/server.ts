@@ -4,16 +4,6 @@ import type { HttpBodyPart, HttpSendRequest, HttpSendResult } from "./types.js";
 import { errorMessage } from "./util.js";
 import { cookieHeaderFor, readHttpAttachmentBytes, saveCookies } from "./http-files.js";
 
-/**
- * A request over a client certificate, through node:https.
- *
- * `fetch` cannot carry one — its only hook for that is undici's dispatcher, and undici is not importable
- * from core — so this is the one path that bypasses it. The answer is wrapped in a real `Response`, so
- * everything around it (redirect checks, cookies, the body cap) stays one implementation.
- *
- * A passphrase-protected key is refused by name: IntelliJ asks for it interactively, and kakapo has
- * nowhere to ask.
- */
 function sendOverClientCertificate(
   url: URL,
   options: { method: string; headers: Record<string, string>; body?: Buffer | string; timeoutMs: number },
@@ -46,8 +36,6 @@ function sendOverClientCertificate(
         headers: options.headers,
         cert,
         key,
-        // IntelliJ's `verifyHostCertificate: false` is "this is a dev server with a self-signed
-        // certificate". Off by default, as it is there.
         rejectUnauthorized: ssl.verifyHostCertificate !== false,
       },
       (incoming) => {
@@ -75,36 +63,13 @@ function sendOverClientCertificate(
   });
 }
 
-// Performs an HTTP request on behalf of the sandboxed renderer (the .http file runner). The renderer cannot
-// reach the network itself, so the main process makes the call and hands back the whole response.
-//
-// This file used to also host `kakapo serve` — a local HTTP server that streamed the review to a browser,
-// with its own build/watch loop and JSON endpoints. Nothing has called it since the app became the only
-// front end; what is left is the one function the desktop app actually invokes.
-
 const MAX_REDIRECTS = 5;
-// A response is handed to the renderer as one string. Fifty megabytes is already far past anything an .http
-// file is written to inspect, and past it the request is more likely to be pointed at a file server than an
-// API, so stop reading rather than buffering whatever arrives in main.
 const MAX_RESPONSE_BYTES = 50 * 1024 * 1024;
-// A binary response crosses the IPC boundary base64-encoded (a third larger), and nothing in the response
-// panel does more with it than report its size — so only a previewable amount is carried over.
 const MAX_BINARY_BYTES = 5 * 1024 * 1024;
-const DEFAULT_TIMEOUT_MS = 60_000; // IntelliJ's own default for both read and connection timeouts
+const DEFAULT_TIMEOUT_MS = 60_000;
 
-/** Where the cookie jar lives and which repository it belongs to; absent in tests and the browser review. */
 export type HttpSendContext = { root?: string; userData?: string };
 
-/**
- * Only plain http(s) is a request the .http runner is for; anything else is a way to ask main to read
- * something that is not a web resource.
- *
- * NOTE this is checked per HOP, not once. The URL comes from a file in the reviewed repository, and
- * `redirect: "follow"` let a URL that looked like an ordinary public API hand main a 302 to somewhere it
- * would never have been asked to go — a different scheme, or an internal address the reviewer never saw.
- * Loopback and private addresses stay reachable on purpose (a .http file run against `localhost:3000` is
- * the feature), but the reviewer should be able to read the destination in the file they are running.
- */
 function httpUrl(value: string): URL | undefined {
   let url: URL;
   try { url = new URL(value); } catch { return undefined; }
@@ -132,25 +97,21 @@ async function readBodyCapped(response: Response): Promise<{ bytes: Buffer; trun
       chunks.push(value);
     }
   } catch {
-    // A truncated transfer still has whatever arrived; the status line above is the real answer.
   }
   return { bytes: Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))), truncated };
 }
 
-/** Whether a response body is text the panel can show, decided the way a browser's devtools does. */
 function isTextualContentType(contentType: string): boolean {
-  if (!contentType) return true; // no type at all: an API that forgot the header, not a binary download
+  if (!contentType) return true;
   const mime = contentType.split(";")[0].trim().toLowerCase();
   if (mime.startsWith("text/")) return true;
   if (/^application\/(json|.*\+json|xml|.*\+xml|javascript|ecmascript|x-www-form-urlencoded|graphql|yaml|x-ndjson)$/.test(mime)) return true;
   return false;
 }
 
-/** The field a part is named after on the wire, for an error the reviewer can act on. */
 function multipartPartName(part: HttpBodyPart, index: number): string {
   const disposition = Object.entries(part.headers || {})
     .find(([name]) => name.toLowerCase() === "content-disposition")?.[1] ?? "";
-  // `name=` and not the tail of `filename=`, which comes first on a file part's disposition.
   const named = /(?:^|[;\s])name\s*=\s*"?([^";]+)"?/i.exec(String(disposition));
   return named ? `the part named ${named[1].trim()}` : `multipart part ${index + 1}`;
 }
@@ -171,17 +132,6 @@ function carriesMultipartDelimiter(content: Buffer, boundary: string): boolean {
   return content.includes(boundary);
 }
 
-/**
- * Whether a part would change the request's shape rather than fill it in. A part's header values and its
- * bytes are both written into the body verbatim, so either can carry a line break or the delimiter and
- * add parts nobody wrote. `fetch` rejects CRLF in a real header value, and a real multipart encoder
- * chooses a boundary its content does not contain; this body is assembled by hand and inherited neither.
- *
- * The content is not the request author's to vouch for — it is a file out of the reviewed repository, or a
- * value captured from a server's response — so the reviewer can read two fields and send five. Refusing by
- * name keeps the request that was read the request that is sent; re-generating the boundary would also fix
- * the collision, but then the wire would stop matching the `boundary=` the reviewer can see in the file.
- */
 function multipartPartProblem(
   part: HttpBodyPart, content: Buffer, boundary: string, index: number,
 ): string | undefined {
@@ -201,10 +151,6 @@ function multipartPartProblem(
   return undefined;
 }
 
-/**
- * Assembles the request body. Three shapes arrive, and only the first is a plain string:
- * an inline body, a `< ./file` body (bytes, read here), and multipart parts (bytes per part, read here).
- */
 function requestBody(request: HttpSendRequest, root: string | undefined): Buffer | string | undefined | { error: string } {
   if (request.bodyParts?.length) {
     const boundary = request.boundary || "kakapo-boundary";
@@ -242,7 +188,6 @@ function basicHeader(user: string, password: string): string {
   return `Basic ${Buffer.from(`${user}:${password}`, "utf8").toString("base64")}`;
 }
 
-/** Parses `Digest realm="x", nonce="y", qop="auth"` into its fields. */
 function digestChallenge(header: string): Record<string, string> | undefined {
   const match = /^\s*Digest\s+(.*)$/is.exec(header || "");
   if (!match) return undefined;
@@ -254,25 +199,12 @@ function digestChallenge(header: string): Record<string, string> | undefined {
   return fields;
 }
 
-/**
- * The algorithms a Digest challenge may name (RFC 7616 §6.1 plus RFC 2617's MD5), and the hash each one
- * means. The name was previously echoed back into the header and then ignored: a server asking for
- * SHA-256 was answered with an MD5 digest labelled `algorithm=SHA-256`, 32 hex characters where 64 were
- * promised. A credential that claims the wrong algorithm is not a weaker credential, it is a wrong one.
- */
 const DIGEST_HASHES: Record<string, string> = {
   "MD5": "md5", "MD5-SESS": "md5",
   "SHA-256": "sha256", "SHA-256-SESS": "sha256",
   "SHA-512-256": "sha512-256", "SHA-512-256-SESS": "sha512-256",
 };
 
-/**
- * RFC 2617/7616 Digest, with the qop="auth" extension every server that still offers Digest actually
- * uses. Returns the reason instead of a header when the challenge asks for something this cannot compute:
- * guessing produces a request that fails as a bare 401 with nothing to read, and the two ways of guessing
- * are both worse than saying so — hashing with MD5 under another algorithm's name, or dropping to the
- * RFC 2069 form (no cnonce, no nc, replayable) because the only qop offered was auth-int.
- */
 function digestHeader(
   challenge: Record<string, string>, method: string, url: URL, user: string, password: string,
 ): string | { error: string } {
@@ -332,16 +264,9 @@ export async function performHttpRequest(
     // (IntelliJ's own default for both). The error names the deadline actually applied.
     const timeoutMs = Math.max(Number(request.timeoutMs) || 0, Number(request.connectTimeoutMs) || 0)
       || DEFAULT_TIMEOUT_MS;
-    // The origin the reviewer actually named, which is the only one the credentials in their file are for.
     const requestedOrigin = url.origin;
     const headersFor = (target: URL, extra?: Record<string, string>): Record<string, string> => {
       const headers: Record<string, string> = { ...(request.headers ?? {}), ...(extra ?? {}) };
-      // Every hop re-sent the file's headers and its Basic credentials, whatever host the hop led to.
-      // Following redirects manually is what makes each one checkable (above) — and it also took over the
-      // one thing `redirect: "follow"` had been doing correctly, because fetch drops Authorization when a
-      // redirect crosses origins and nothing here did. A server named in a .http file could answer `302
-      // Location: https://elsewhere/` and be handed the reviewer's password in cleartext, along with
-      // whatever API key the file sets. A scheme downgrade is a different origin too, deliberately.
       const sameOrigin = target.origin === requestedOrigin;
       if (!sameOrigin) {
         for (const name of Object.keys(headers)) {
@@ -351,8 +276,6 @@ export async function performHttpRequest(
       if (sameOrigin && request.auth?.type === "basic") {
         headers.Authorization = basicHeader(request.auth.user, request.auth.password);
       }
-      // The jar fills in what the file did not say. A Cookie: line written in the .http file wins outright —
-      // it is the request the reviewer can read, and silently appending to it would change what they ran.
       if (jarred && !Object.keys(headers).some((name) => name.toLowerCase() === "cookie")) {
         const cookie = cookieHeaderFor(context.root as string, context.userData as string, target);
         if (cookie) headers.Cookie = cookie;
@@ -365,8 +288,6 @@ export async function performHttpRequest(
     const sendable = typeof body === "string" || body === undefined ? body : new Uint8Array(body).buffer;
     const send = (target: URL, extra?: Record<string, string>): Promise<Response> => {
       const headers = headersFor(target, extra);
-      // A client certificate takes the node:https path; everything else is fetch. Both answer with a
-      // Response, so the redirect, cookie and body handling below does not know the difference.
       if (request.ssl && (request.ssl.clientCertificate || request.ssl.verifyHostCertificate === false)) {
         return sendOverClientCertificate(
           target,
@@ -379,7 +300,7 @@ export async function performHttpRequest(
         method,
         headers,
         body: hasBody ? sendable : undefined,
-        redirect: "manual", // every hop is re-checked below instead of being followed blind
+        redirect: "manual",
         signal: AbortSignal.timeout(timeoutMs),
       });
     };

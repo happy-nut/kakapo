@@ -1,13 +1,3 @@
-// Opening a pull request by its link.
-//
-// The reader pushes a branch, opens a PR, and then wants to read it here rather than in a browser diff.
-// All that link carries is owner, repo and a number, and a number cannot be turned into two branch names
-// by looking at a local repository: `refs/pull/*` is not fetched by default and the PR's base branch is
-// not recorded anywhere on disk. So this asks `gh`, and that is the one thing in kakapo that talks to a
-// network or uses an account. It is deliberately narrow: one read-only command, run only when the reader
-// pastes a link, and nothing it returns is written to the repository. Resolving the branches to revisions
-// is then local again — if the head is not already in this repository, that is reported rather than
-// fetched, because not writing to someone else's repository is the older promise and the better one.
 import { spawnSync } from "node:child_process";
 import { git } from "./git.js";
 
@@ -54,13 +44,6 @@ export type PullRequestLookup =
   | { ok: true; details: PullRequestDetails }
   | { ok: false; error: "gh-missing" | "gh-failed"; detail?: string };
 
-/**
- * Ask `gh` which branches the pull request is between.
- *
- * `--repo` is passed explicitly so the answer is about the link that was pasted and not about whatever
- * directory gh resolves on its own — a reader can paste a link to a fork, or to another repository
- * entirely, and the mismatch is worth reporting rather than quietly answering about something else.
- */
 export function lookupPullRequest(root: string, ref: PullRequestRef, run = spawnSync): PullRequestLookup {
   const result = run("gh", [
     "pr", "view", String(ref.number),
@@ -82,14 +65,6 @@ export function lookupPullRequest(root: string, ref: PullRequestRef, run = spawn
   }
 }
 
-/**
- * The revision in THIS repository that stands for a branch named on the server, or nothing.
- *
- * Preference order differs by side and that is not an oversight. For the base, the remote-tracking ref
- * wins: the pull request is measured against what is on the server, and a stale local `main` would quietly
- * answer a different question. For the head it is the local branch first, because a reader reading their
- * own pull request is usually sitting on it, and their working copy is the thing they want to see.
- */
 export function localRevisionFor(root: string, branch: string, prefer: "remote" | "local"): string | undefined {
   const candidates = prefer === "remote"
     ? [`refs/remotes/origin/${branch}`, `refs/heads/${branch}`]

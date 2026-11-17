@@ -60,13 +60,13 @@ node .claude/skills/verify-kakapo/compare-tip.mjs                       # the co
 `drive()` does, in order:
 
 1. **Refuses if a Kakapo from this checkout is already up.** `app.requestSingleInstanceLock`
-   (`src/app-main.ts:254`) hands a second launch to the first instance, so a run that did not refuse would
+   (`src/app-main.ts:187`) hands a second launch to the first instance, so a run that did not refuse would
    silently drive someone else's window. It names the pids.
 2. **Refuses if port 9333 is taken**, naming the holder. It is a popular debugger port; a Chrome started
    with `--remote-debugging-port` holds it, and the symptom without this check is "the review page never
    became ready" with the real reason buried in Electron's stderr. Override with `KAKAPO_SMOKE_PORT`.
 3. **Launches with `KAKAPO_DEV=1` and `KAKAPO_REMOTE_DEBUG=9333`.** `KAKAPO_DEV=1` moves the user-data
-   directory to `<userData>/dev` (`src/app-main.ts:218`). This is the isolation, and it matters: the
+   directory to `<userData>/dev` (`src/app-main.ts:155`). This is the isolation, and it matters: the
    repository's own `launchApp()` does not set it, so a bare `npm run nav:smoke` writes into the
    operator's **real** Kakapo state — read marks, renderer settings, restored tabs, the per-workspace
    review and symbol mirrors. Prefix those scripts with `KAKAPO_DEV=1` too. It does **not** cover review

@@ -1,26 +1,10 @@
-// F7 / Shift+F7 must visit the SAME changes in both directions. Two ways they did not:
-//
-// 1. A change block that exists only on the base side — a run of deleted lines inside a hunk that also
-//    edits something — was not a stop at all. changeBlockAnchors scanned the working-tree side only, and
-//    the caret entered a hunk at its first NEW-side change, which is past a leading deletion. So F7 walked
-//    the whole review without ever landing on deleted code. The default context is 12 lines, so a hunk
-//    holding several separate edits is the normal case, not an edge one.
-// 2. Crossing a file backward entered it at its FIRST change, and the next Shift+F7 then left the file
-//    again — every change after the first was unreachable going backward.
-//
-// Both are IntelliJ's semantics: its difference list is side-agnostic (PrevNextDifferenceIterable walks
-// LineFragments, a pure deletion among them) and it enters a file backward at its last difference
-// (ScrollToPolicy.LAST_CHANGE). Its DiffBundle also ships press.again.to.go.to.the.previous.file, so the
-// file-boundary announcement is symmetric; kakapo's used to fire forward only.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { makeReviewHtml, cleanupFixtures } from "./helpers/fixture.mjs";
 import { loadViewer } from "./helpers/dom.mjs";
 
 const lines = (n) => Array.from({ length: n }, (_, i) => `line ${i + 1}`).join("\n") + "\n";
-// Two edits 4 lines apart: one @@ hunk, two change blocks, both on the working-tree side.
 const twoBlocks = lines(30).replace("line 5\n", "line 5 EDITED\n").replace("line 9\n", "line 9 EDITED\n");
-// A deletion block and an edit under one @@: the deletion exists on the base side only.
 const delAndEdit = lines(30).replace("line 10\nline 11\nline 12\n", "").replace("line 20\n", "line 20 EDITED\n");
 
 let html;
@@ -32,7 +16,6 @@ before(async () => {
 });
 after(() => cleanupFixtures());
 
-/** The caret's row as "<side>:<code>" — side is base/work, code is the line it sits on. */
 function caret(v) {
   const row = v.$(".mc-diff-cursor-row");
   if (!row) return null;
@@ -61,20 +44,9 @@ test("a deletion-only block inside a hunk that also edits is a change block", as
 });
 
 test("stepping stays in the pane the reader is in, deletion or not", async () => {
-  // IntelliJ's policy, read off its source rather than guessed. SimpleDiffChangesHolder.getValidChanges
-  // puts the SAME change list in both sides (the side only sorts it), so a deletion is a stop whichever
-  // pane you are in; MyPrevNextDifferenceIterable then reads getCurrentSide() throughout, and
-  // scrollToChange moves both editors' carets without ever calling setCurrentSide — that belongs to the
-  // explicit "focus opposite pane" action. So the caret does not change pane on F7, ever.
-  //
-  // This file used to assert the opposite ("work:line 13"), because kakapo preferred the working-tree side
-  // and fell back to the base one. The fallback made the caret cross the gutter uninvited, which is what
-  // it was reported as.
   const v = await loadViewer(html);
   await v.openDiffFor("src/b-del-and-edit.ts");
   await v.settle(140);
-  // The deletion is still the first stop — what changed is only where the caret stands for it: the
-  // working-tree line the removed text collapsed onto.
   assert.equal(caret(v), "work:line 13", "the file opens on its first change, in the working-tree pane");
 
   v.key("F7");
@@ -88,12 +60,6 @@ test("stepping stays in the pane the reader is in, deletion or not", async () =>
 });
 
 test("a step always moves, including back off a collapsed deletion", async () => {
-  // The caret no longer stands at the anchor's own row: a deletion parks it several rows later, on the
-  // working-tree line the removed text collapsed onto. Any comparison of "is there a change before me"
-  // that still measured the ANCHOR against the CARET then found the block the caret was already standing
-  // for, so Shift+F7 stepped to where it already was and the walk stopped dead there. Every anchor is
-  // compared at the row it would park on, and this is the assertion that says so: a press moves, or the
-  // caret has left the file.
   const v = await loadViewer(html);
   await v.openDiffFor("src/b-del-and-edit.ts");
   await v.settle(140);
@@ -109,8 +75,6 @@ test("a step always moves, including back off a collapsed deletion", async () =>
   await v.settle(140);
   assert.equal(caret(v), start, "and back again");
 
-  // The press that used to stall: backward from the collapsed position. It has no earlier change in this
-  // file, so it must announce the boundary rather than silently landing on itself.
   v.key("F7", { shiftKey: true });
   await v.settle(140);
   assert.ok(caret(v) !== start || hint(v) !== "",
@@ -119,10 +83,6 @@ test("a step always moves, including back off a collapsed deletion", async () =>
 });
 
 test("the deletion is still a stop — only the pane the caret stands in changed", async () => {
-  // The half that must not regress. Reading both sides for the ANCHORS is what makes a run of deleted
-  // lines inside an otherwise-edited hunk reachable at all: with twelve lines of context one @@ routinely
-  // holds several edits, and scanning the working-tree side alone meant F7 could walk a whole review
-  // without once stopping at deleted code.
   const v = await loadViewer(html);
   await v.openDiffFor("src/b-del-and-edit.ts");
   await v.settle(140);
@@ -138,12 +98,12 @@ test("Shift+F7 enters the previous file at its last change, not its first", asyn
   await v.settle(140);
   assert.equal(caret(v), "work:line 13", "at the first change of the second file");
 
-  v.key("F7", { shiftKey: true }); // first press announces the file boundary
+  v.key("F7", { shiftKey: true });
   await v.settle(140);
   assert.match(hint(v), /⇧F7/, "the boundary announcement fires backward too, naming the table's chord");
   assert.equal(caret(v), "work:line 13", "and the announcing press does not move the caret");
 
-  v.key("F7", { shiftKey: true }); // second press crosses
+  v.key("F7", { shiftKey: true });
   await v.settle(200);
   assert.equal(v.activeDiffFile(), "src/a-two-blocks.ts");
   assert.equal(caret(v), "work:line 9 EDITED", "backward entry lands on the previous file's LAST change");
@@ -180,17 +140,6 @@ test("walking the review forward and backward visits the same changes", async ()
   v.close();
 });
 
-// Crossing files the reader has already ticked off, out loud.
-//
-// The walk skips viewed files on purpose: a viewed file's diff body is display:none, so stopping in one
-// would show an empty pane. It did it in silence, and ticking files off as you read is the normal way to
-// use this app — so F7 routinely jumped several entries down the sidebar with nothing on screen to say
-// why. Measured in the running app: with three files marked, F7 went from README.md straight to
-// src/analysis.ts and said nothing. The crossing is right; the silence was the defect.
-//
-// Names chosen against the MEASURED order, not an assumed one. The tree sorts by path, so these four
-// walk as four, one, three, two — the first version of this test marked the last two and then asserted
-// that stepping forward landed past them, which it cannot, because there is nothing past them.
 const SKIP_FILES = [
   { path: "src/one.ts", before: lines(20), after: lines(20).replace("line 3\n", "line 3 EDITED\n") },
   { path: "src/two.ts", before: lines(20), after: lines(20).replace("line 4\n", "line 4 EDITED\n") },
@@ -209,8 +158,6 @@ const walkFrom = (v, path, delta) => JSON.parse(v.window.eval(`(function(){
   return JSON.stringify(nextUnviewedTarget(from.hunk, from.path, ${delta}));
 })()`));
 
-// The premise the whole complaint rests on, asserted rather than assumed: the order F7 walks IS the order
-// the sidebar lists. If these ever diverge, every finding about "skipping" means something else.
 test("the walk order is the sidebar order", async () => {
   const { html: many } = await makeReviewHtml(SKIP_FILES);
   const v = await loadViewer(many);
@@ -228,7 +175,7 @@ test("the walk reports how many viewed files it crossed", async () => {
   const { html: many } = await makeReviewHtml(SKIP_FILES);
   const v = await loadViewer(many);
   try {
-    markViewed(v, ["src/one.ts", "src/three.ts"]); // the two in the MIDDLE of four, one, three, two
+    markViewed(v, ["src/one.ts", "src/three.ts"]);
     const walked = walkFrom(v, "src/four.ts", 1);
     assert.equal(walked.path, "src/two.ts", "the walk landed past both viewed files");
     assert.equal(walked.skipped, 2, "and it counted them");
@@ -238,7 +185,6 @@ test("the walk reports how many viewed files it crossed", async () => {
 });
 
 test("crossing nothing reports nothing", async () => {
-  // The other half: without this, a fix that always announced would read as correct above.
   const { html: many } = await makeReviewHtml(SKIP_FILES);
   const v = await loadViewer(many);
   try {
@@ -251,8 +197,6 @@ test("crossing nothing reports nothing", async () => {
 });
 
 test("it counts files, not change blocks", async () => {
-  // A viewed file with several change blocks is ONE thing skipped. Counting targets would say two for a
-  // file the reader sees as one row, and the sentence is about sidebar rows.
   const { html: multi } = await makeReviewHtml([
     { path: "src/aaa.ts", before: lines(30), after: lines(30).replace("line 2\n", "line 2 EDITED\n") },
     { path: "src/mmm-busy.ts", before: lines(30), after: twoBlocks },
@@ -260,9 +204,6 @@ test("it counts files, not change blocks", async () => {
   ]);
   const v = await loadViewer(multi);
   try {
-    // The invariant the count rests on: one entry per file, however many change blocks that file holds.
-    // Stepping BETWEEN blocks happens earlier, inside next(); this list is the file queue. If it ever
-    // becomes one entry per block, `skipped` starts counting blocks and the sentence stops being true.
     const entries = JSON.parse(v.window.eval(
       `JSON.stringify(diffNavTargets().filter(function(x){return x.path==='src/mmm-busy.ts';}).length)`));
     assert.equal(entries, 1, "the busy file is one entry in the walk, not one per change block");

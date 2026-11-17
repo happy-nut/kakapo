@@ -1,186 +1,58 @@
-// ===== The shortcut table =========================================================================
-// Every keyboard shortcut the app has, spelled once. Before this file a shortcut was written down in four
-// places that nothing kept in agreement: the chord inside an `if` in some viewer slice, the row in the
-// Settings sheet, the `data-keyhint` on whatever button does the same thing, and the README. Renaming a key
-// meant finding all four, and the sheet had already drifted — ⌘K, ⌥F1, ⌘Z, F2 and ⌘F7 all worked and none
-// of them were documented.
-//
-// The table is data, not behaviour: the viewer bundle gets it verbatim (scripts/copy-viewer-assets.mjs
-// emits it as a slice) and attaches the handlers by id, the Settings sheet renders from it, and
-// `data-keyhint` is filled from it. A rebind is then one string in one place.
-//
-// `keys` is a list because one action can answer to more than one combination — F8/⇧F8 are the two
-// directions of comment stepping, ⌥A/⌥U name the two compare modes outright. The handler is told which
-// one fired.
 
 export interface ShortcutDef {
   id: string;
-  /** Combinations that invoke it, in the display spelling. Index is passed to the handler. */
   keys: string[];
-  /** Translation key for the row's label. The English text lives in i18n.ts with every other string. */
   i18n: string;
-  /**
-   * The surface it acts on. Two actions may share a combination when they act on different surfaces —
-   * Space ticks a sidebar row and expands diff context, and neither has ever been ambiguous — so this is
-   * what makes a conflict check mean something. "any" is the whole window.
-   *
-   * "find" is a searching surface that owns the keyboard while it is up: the ⌘F bar, and the Find in
-   * Files dialog, whose three modifier toggles below take letters that mean something else in the window
-   * behind it. That is sound rather than lucky — the dialog consumes every key while it is open
-   * (KEY_OWNERS in 05-keymap.js), so the window-level chord cannot fire underneath it.
-   *
-   * "launcher" is the Search Everywhere dialog's own frame — its tab strip. It is listed apart from
-   * "find" because it is a TRUE modal scope and "find" is not: the ⌘F bar is an inline strip with the
-   * window still live around it, so a window chord does reach the page while it is open, and a `find`
-   * row may not take one. The launcher paints a scrim, is `aria-modal`, stands the menu accelerators
-   * down and answers every key from handleQuickOpenKey — so an `any` row genuinely cannot fire inside
-   * it, and a `launcher` row may reuse that chord. MODAL_SURFACES below is where that is written down.
-   */
   where: "any" | "code" | "tree" | "merged" | "history" | "find" | "launcher";
-  /**
-   * Why this one cannot be rebound. Absent means it can be.
-   *   "structural" — Esc, Tab, the arrows: conventions of the surface they act on, not preferences.
-   *   "menu"       — an Electron menu accelerator; the OS menu owns it, not the page.
-   */
   fixed?: "structural" | "menu";
 }
 
-/**
- * Surfaces that take the whole keyboard while they are up, so a window-level (`any`) chord does not
- * reach the page inside them.
- *
- * One list, read by the two checks that ask "would these two rows fight?" — the Settings sheet's rebind
- * guard (shortcutConflict, 00-shortcuts.js) and test/shortcut-registry.test.mjs. Written here because it
- * is a fact about the table, and because the two readers had the rule spelled into them separately: both
- * propagated `any` into every surface, which is right for the non-modal ones and wrong for this one. A
- * `launcher` row sharing Tab with `sidebarContent` is not a clash — the dialog answers Tab itself and
- * `sidebarContent` cannot run while it is open.
- */
 export const MODAL_SURFACES: string[] = ["launcher"];
 
 export const SHORTCUTS: ShortcutDef[] = [
-  // ---- App ----------------------------------------------------------------------------------------
   { id: "openFolder", keys: ["⌘O"], where: "any", i18n: "kbd.openFolder", fixed: "menu" },
   { id: "openNewWindow", keys: ["⌘⇧O"], where: "any", i18n: "kbd.openNewWindow", fixed: "menu" },
   { id: "openSettings", keys: ["⌘,"], where: "any", i18n: "kbd.openSettings", fixed: "structural" },
   { id: "openHistory", keys: ["⌘9"], where: "any", i18n: "kbd.openHistory" },
-  // Three chords, one row: the handler is told which fired. ⌥T is the third question the compare control
-  // can answer — how this working tree differs from a branch's TIP, as against what this branch has done
-  // since it left that branch (⌥A, a merge-base) or since its last commit (⌥U).
   { id: "compareMode", keys: ["⌥A", "⌥U", "⌥T", "⌥N"], where: "any", i18n: "kbd.compareMode" },
   { id: "compareRef", keys: ["⌥C"], where: "any", i18n: "kbd.compareRef" },
-  // Paste a pull request link and read it here. Not a compare MODE — it sets both sides at once from
-  // something the reader already has in the clipboard, which is a different gesture from picking either.
   { id: "openPullRequest", keys: ["⌥L"], where: "any", i18n: "kbd.openPullRequest" },
-  // Step the patch-set bar's base. The bracket family already means "move along a list here" (⌘[ / ⌘] walk
-  // the cursor's history, ⌘⇧[ / ⌘⇧] the tabs), and ⌥ is the modifier the compare controls use. Matched by
-  // `code`, so the "“" and "‘" a Mac puts out for ⌥[ and ⌥] never reach the lookup.
   { id: "patchSetStep", keys: ["⌥]", "⌥["], where: "any", i18n: "kbd.patchSetStep" },
   { id: "gotoLine", keys: ["⌘L"], where: "code", i18n: "kbd.gotoLine" },
   { id: "revealInTree", keys: ["⌥F1", "⌘↑"], where: "any", i18n: "kbd.revealInTree" },
   { id: "rowActions", keys: ["⌥Enter"], where: "tree", i18n: "kbd.rowActions", fixed: "structural" },
   { id: "closeDialog", keys: ["Esc"], where: "any", i18n: "kbd.closeDialog", fixed: "structural" },
 
-  // ---- Navigation ---------------------------------------------------------------------------------
   { id: "nextChange", keys: ["F7"], where: "any", i18n: "kbd.nextChange" },
   { id: "prevChange", keys: ["⇧F7"], where: "any", i18n: "kbd.prevChange" },
   { id: "nextComment", keys: ["F8", "⇧F8"], where: "any", i18n: "kbd.nextComment" },
   { id: "gotoDiagnostic", keys: ["F2", "⇧F2"], where: "code", i18n: "kbd.gotoDiagnostic" },
-  // IntelliJ's Show Error Description (⌃F1): the message of the problem the caret is on, in full and from
-  // the keyboard. The gutter already carries it in a dwell tooltip, which is a mouse affordance.
   { id: "errorDescription", keys: ["⌘F1"], where: "code", i18n: "kbd.errorDescription" },
-  // IntelliJ's Problems tool window, on its own chord. The diagnostics were always here; what was missing
-  // was asking about more than the one file on screen.
   { id: "problemsView", keys: ["⌘6"], where: "any", i18n: "kbd.problemsView" },
-  // IntelliJ Ultimate's Endpoints tool window, which has no chord of its own there — it is opened from
-  // View ▸ Tool Windows, or by name. So this digit is this app's choice, and it is the next one along in
-  // the tool-window family the table already keeps: ⌘1 Files, ⌘2 Changes, ⌘6 Problems, ⌘9 History.
   { id: "endpointsView", keys: ["⌘7"], where: "any", i18n: "kbd.endpointsView" },
-  // Quick Documentation (F1 on IntelliJ's own Mac keymap) and Expression Type (⌃⇧P). One `textDocument/
-  // hover` answers both — this app asked the server eight questions and none of them was "what IS this".
   { id: "quickDoc", keys: ["F1"], where: "code", i18n: "kbd.quickDoc" },
   { id: "expressionType", keys: ["⌘⇧P"], where: "code", i18n: "kbd.expressionType" },
-  // IntelliJ's tool-window digits: ⌘1 is its Project window, ⌘0 its Commit window, and this row was
-  // spelled that way. ⌘0 never arrived — the View menu's zoom reset holds `CommandOrControl+0`, and a menu
-  // accelerator is consumed before any renderer keydown runs (the comment above that menu says Chromium
-  // takes ⌘+/⌘−/⌘0 outright). The Changes half therefore sits one digit along from the Files half, beside
-  // ⌘9 for history: three sidebars, three digits, none of them claimed.
   { id: "filesChangesTab", keys: ["⌘1", "⌘2"], where: "any", i18n: "kbd.filesChangesTab" },
   { id: "sidebarNavigate", keys: ["↑↓", "Enter"], where: "tree", i18n: "kbd.sidebarNavigate", fixed: "structural" },
   { id: "sidebarContent", keys: ["Tab", "⇧Tab"], where: "any", i18n: "kbd.sidebarContent", fixed: "structural" },
   { id: "findInFile", keys: ["⌘F"], where: "any", i18n: "kbd.findInFile" },
   { id: "findNextPrev", keys: ["⌘G", "⌘⇧G"], where: "find", i18n: "kbd.findNextPrev" },
-  // The same step, from inside the find box, where Enter is what a search field answers to. It had no row
-  // at all: the two buttons beside the box spelled "↵" and "⇧↵" themselves, which is the one thing this
-  // table exists to stop. Structural — a search field's Enter is a convention of the surface, not a
-  // preference, and the find box reads it directly rather than through a rebind.
   { id: "findEnter", keys: ["↵", "⇧↵"], where: "find", i18n: "kbd.findEnter", fixed: "structural" },
   { id: "findInFiles", keys: ["⌘⇧F"], where: "any", i18n: "kbd.findInFiles" },
   { id: "recentFiles", keys: ["⌘E"], where: "any", i18n: "kbd.recentFiles" },
   { id: "searchExtensions", keys: ["⌥E"], where: "any", i18n: "kbd.searchExtensions" },
   { id: "excludeSearchNoise", keys: ["⌥P"], where: "any", i18n: "kbd.excludeSearchNoise" },
-  // IntelliJ's three Find in Files modifiers — `Cc`, `W`, `.*`. One ripgrep flag each (src/search.ts),
-  // and without them a reviewer hunting a pattern across a repository had to leave kakapo to do it.
-  // Match case is ⌥M rather than IntelliJ's mnemonic C: ⌥C is Compare against a ref, and a window-level
-  // chord owns every surface in this table — the dialog would shadow it rather than share it.
   { id: "searchMatchCase", keys: ["⌥M"], where: "find", i18n: "kbd.searchMatchCase" },
   { id: "searchWholeWords", keys: ["⌥W"], where: "find", i18n: "kbd.searchWholeWords" },
   { id: "searchRegex", keys: ["⌥X"], where: "find", i18n: "kbd.searchRegex" },
-  // IntelliJ's Find in Files scope selector: In Project / Project Production Files / Project Test Files /
-  // Module. It has no chord there (it is a dropdown), and a dropdown inside a dialog that owns the
-  // keyboard needs one here, so ⌥S cycles it — beside ⌥M/⌥W/⌥X, which are the toggles next to it.
   { id: "searchScope", keys: ["⌥S"], where: "find", i18n: "kbd.searchScope" },
-  // IntelliJ's Search In Selection (ToggleFindInSelection, ⌃⌥E in both the default and the Mac keymap),
-  // which narrows the in-file find to the block the reviewer had selected when they pressed ⌘F. ⌃ folds
-  // into ⌘ in this table, so it lands on ⌘⌥E — free, and beside the three toggles it sits next to.
   { id: "findInSelection", keys: ["⌘⌥E"], where: "find", i18n: "kbd.findInSelection" },
-  // IntelliJ's Search In Changes (Vcs.Diff.ToggleSearchInChanges), which has no chord there — it is a
-  // button on the diff toolbar — so ⌥D joins the ⌥M/⌥W/⌥X family of find-bar toggles beside it.
   { id: "searchChangesOnly", keys: ["⌥D"], where: "find", i18n: "kbd.searchChangesOnly" },
-  // IntelliJ's Search History, which its find toolbar opens as a dropdown from the field (⌥↓). A bar one
-  // line wide has nowhere to put a dropdown, so the same keys step through it in place. The chord is shared
-  // with the code surface's next/previous symbol and only answers here while the find FIELD has the
-  // keyboard — which is the same thing that stops IntelliJ's editor from seeing it.
   { id: "findHistory", keys: ["⌥↓", "⌥↑"], where: "find", i18n: "kbd.findHistory" },
-  // IntelliJ's Show Usages (⌃⌥F7, folded to ⌘⌥F7 here): the flat popup of usages at the caret, asked
-  // for outright.
-  //
-  // It used to answer to ⌘B as well, on the reading that "Show Usages" and "Declaration or Usages" are
-  // the same popup under two names. They are not, and the decompiled handler says so outright
-  // (GotoDeclarationOrUsageHandler2 / GtduKt.fromTargetData in app-client.jar): ⌘B shows usages ONLY
-  // when the caret is on a declaration, or on a reference that resolves to nothing. On an ordinary
-  // reference — which is where a reader presses it — it navigates to the declaration. Wiring the usages
-  // popup to ⌘B made the most-used navigation key in the app never navigate.
   { id: "defUsages", keys: ["⌘⌥F7"], where: "code", i18n: "kbd.defUsages" },
-  // IntelliJ's Find Usages: the same answer grouped by what each usage IS, which is the question ⌘B's flat
-  // popup cannot take. Its own chord, ⌥F7.
   { id: "findUsages", keys: ["⌥F7"], where: "code", i18n: "kbd.findUsages" },
-  // IntelliJ's Find Usages in File (⌃F7) and Highlight Usages in File (⌃⇧F7), which are one action here:
-  // paint this file's occurrences, writes apart from reads. The chords used to be a second spelling of
-  // F8/⇧F8's comment stepping — a duplicate that cost IntelliJ's two in-file usage keys to keep.
   { id: "highlightUsages", keys: ["⌘F7", "⌘⇧F7"], where: "code", i18n: "kbd.highlightUsages" },
-  // IntelliJ's next/previous occurrence of the element under the caret (⌃⌥↓/⌃⌥↑), which works whether or
-  // not the highlight is up.
   { id: "nextPrevOccurrence", keys: ["⌘⌥↓", "⌘⌥↑"], where: "code", i18n: "kbd.nextPrevOccurrence" },
-  // ---- The usage view's two toolbars ---------------------------------------------------------------
-  // IntelliJ's usage view is not a list, it is a tree divided by what the files ARE, and the division is
-  // a stack of grouping rules with ranks (UsageGroupingRulesDefaultRanks): non-code(0), scope(100),
-  // usage type(200), module(300), directory(400), file(500). Each rank is a toggle in its Group By
-  // toolbar, and beside it a filtering toolbar hides read accesses, write accesses or imports.
-  //
-  // The chords are IntelliJ's own, from `$default.xml` rather than the Mac keymap: that file spells the
-  // groupings ⌃⌥-something, which arrives here as ⌘⌥-something and lands on nothing already taken. The
-  // Mac keymap's plain ⌃M/⌃P/⌃T would have become ⌘M/⌘P/⌘T, and ⌘P is already the patch-set selector.
-  //
-  // One of those chords has to be read carefully: `$default.xml` gives UsageGrouping.Module TWO
-  // keystrokes, ⌃⌥M and ⌃⌥P, and names the directory rule ⌃⌥D (UsageGrouping.DirectoryStructure). ⌃⌥P
-  // is therefore the module's second spelling, not the directory's — this table used to have the
-  // directory on ⌘⌥P, which is the module chord said twice.
-  //
-  // Two deviations, both forced: Flatten Modules is ⌃⌥O there and ⌘⌥O is Go to Symbol here, so it sits on
-  // the module chord plus ⇧ (the ⌘F7/⌘⇧F7 pairing this app already uses, spelled in the order
-  // shortcutModifiers builds: ⌘⇧⌥); and Production/Test has no
-  // chord in IntelliJ at all — it is toolbar-only — so ⌘⌥S is this app's choice.
   { id: "usageGroupScope", keys: ["⌘⌥S"], where: "find", i18n: "kbd.usageGroupScope" },
   { id: "usageGroupType", keys: ["⌘⌥T"], where: "find", i18n: "kbd.usageGroupType" },
   { id: "usageGroupModule", keys: ["⌘⌥M"], where: "find", i18n: "kbd.usageGroupModule" },
@@ -193,154 +65,56 @@ export const SHORTCUTS: ShortcutDef[] = [
 
   { id: "goToImplementation", keys: ["⌘⌥B"], where: "code", i18n: "kbd.goToImplementation" },
   { id: "workspaceSymbol", keys: ["⌘⌥O"], where: "any", i18n: "kbd.workspaceSymbol" },
-  // IntelliJ's Go to Class. Not on its ⌘O — that opens a folder here, and a desktop app's ⌘O is not a
-  // chord to take — so it sits one modifier away from Go to Symbol, which is what it is a filter of.
   { id: "goToClass", keys: ["⌥O"], where: "any", i18n: "kbd.goToClass" },
-  // IntelliJ's Go to Related Symbol. Its ⌃⌘↑ folds onto ⌘↑, which reveals the file in the sidebar here.
   { id: "relatedSymbol", keys: ["⌥G"], where: "any", i18n: "kbd.relatedSymbol" },
-  // IntelliJ's Go to Custom Region, on its own chord.
   { id: "customRegion", keys: ["⌘⌥."], where: "code", i18n: "kbd.customRegion" },
-  // IntelliJ's Jump to Last Change, on its own chord. F7 steps the review; this stays in the file.
   { id: "lastChange", keys: ["⌘⇧Backspace"], where: "code", i18n: "kbd.lastChange" },
-  // The third hierarchy. IntelliJ puts the method hierarchy on ⌃⇧H, which folds onto ⌘⇧H — already the
-  // type hierarchy here, because IntelliJ's ⌃H folds onto ⌘H and macOS owns that one (Hide). The whole
-  // family is therefore shifted by one, and this is the chord left over.
   { id: "methodHierarchy", keys: ["⌘⇧M"], where: "code", i18n: "kbd.methodHierarchy" },
-  // IntelliJ's Go to Declaration, on IntelliJ's own chord — and it is the whole action, not half of it:
-  // on a reference it navigates to the declaration, on the declaration itself it shows the usages, and
-  // several targets open the chooser. ⌘↓ stays as a second key: it is this app's older spelling, and
-  // IntelliJ's own ⌘↓ (EditSource) is a tool-window action with nothing to collide with here.
   { id: "goToDef", keys: ["⌘B", "⌘↓"], where: "code", i18n: "kbd.goToDef" },
-  // IntelliJ's Quick Definition, on both of the chords it answers to there: the definition's own code
-  // without going to it, which is the difference from ⌘↓.
   { id: "quickDefinition", keys: ["⌥Space", "⌘Y"], where: "code", i18n: "kbd.quickDefinition" },
-  // IntelliJ's Go to Type Declaration, its structure popup and its Recent Locations, on IntelliJ's own
-  // chords. Next/previous symbol is the one that could not keep its chord: this table folds Ctrl into ⌘
-  // (one spelling for both platforms), so ⌃↓ and ⌘↓ are the same row — and ⌘↓ is Go to Definition.
   { id: "typeDeclaration", keys: ["⌘⇧B"], where: "code", i18n: "kbd.typeDeclaration" },
   { id: "fileStructure", keys: ["⌘F12"], where: "code", i18n: "kbd.fileStructure" },
-  // Next/previous declaration could not keep IntelliJ's chord (⌃↓/⌃↑ folds onto ⌘↓/⌘↑, which are Go to
-  // Definition and Reveal in Tree here), so it borrowed ⌥↓/⌥↑ — which turned out to be a borrowing from
-  // the action that owns them on IntelliJ's own Mac keymap, Extend Selection. It is handed back below and
-  // this moves into the bracket family, where the table already says "step along a list": ⌘[ / ⌘] walk the
-  // cursor's history, ⌘⇧[ / ⌘⇧] the tabs, ⌥[ / ⌥] the patch sets, and these the file's declarations.
   { id: "nextPrevSymbol", keys: ["⌘⌥]", "⌘⌥["], where: "code", i18n: "kbd.nextPrevSymbol" },
-  // IntelliJ's Extend / Shrink Selection, on the chords its Mac keymap gives them (EditorSelectWord and
-  // EditorUnSelectWord, `alt UP` / `alt DOWN`). `$default` spells them ⌃W / ⌃⇧W, which folds onto ⌘W —
-  // the menu's Close Tab — so the Mac keymap is the one to follow here.
   { id: "extendShrinkSelection", keys: ["⌥↑", "⌥↓"], where: "code", i18n: "kbd.extendShrinkSelection" },
   { id: "recentLocations", keys: ["⌘⇧E"], where: "any", i18n: "kbd.recentLocations" },
-  // ⇧⌘O (IntelliJ's Go to File) is Open in New Window here, which is a desktop-app convention worth
-  // keeping; ⌘P is the other chord every editor uses for "go to a file by name".
   { id: "searchFiles", keys: ["⌘P"], where: "any", i18n: "kbd.searchFiles" },
-  // IntelliJ's Search Everywhere, on its own chord. A double tap is spelled as a chord here and
-  // recognised by the one matcher (00-shortcuts.js) — not by a second handler with its own timing.
-  //
-  // Pressing it again while the All tab is up widens the scope instead of reopening, which is what
-  // IntelliJ does: SearchEverywhereBaseAction.showInSearchEverywherePopup calls toggleEverywhereFilter()
-  // when the action's own tab is already selected. Every other tab's chord switches to that tab.
   { id: "searchEverywhere", keys: ["⇧⇧"], where: "any", i18n: "kbd.searchEverywhere" },
-  // Tab / ⇧Tab inside that dialog step its tab strip — IntelliJ's SearchEverywhere.NextTab and
-  // SearchEverywhere.PrevTab, which its $default keymap puts on exactly these two keys. `launcher`, not
-  // `find`: see the note on `where`. Structural — Tab in a tabbed dialog is a convention of the surface.
   { id: "seNextTab", keys: ["Tab"], where: "launcher", i18n: "kbd.seNextTab", fixed: "structural" },
   { id: "sePrevTab", keys: ["⇧Tab"], where: "launcher", i18n: "kbd.sePrevTab", fixed: "structural" },
-  // IntelliJ's Find Action (⌃⇧A). Cheap here because the commands are already this table: the list is a
-  // search over it and running one is the call the keypress makes.
   { id: "findAction", keys: ["⌘⇧A"], where: "any", i18n: "kbd.findAction" },
-  // The file's counterpart: its test, or the source the test is for. Convention-based, as IntelliJ's is.
   { id: "goToTest", keys: ["⌘⇧T"], where: "any", i18n: "kbd.goToTest" },
-  // The two hierarchies. IntelliJ puts them on ⌃H and ⌃⌥H; this table spells Control and Command the
-  // same way, so they take the ⌘ forms — and pressing the same chord again flips the direction, which is
-  // what IntelliJ's two tabs do. ⌘H went to macOS (Hide), which is why the type hierarchy is on ⌘⇧H.
-  //
-  // The call hierarchy could not keep ⌘⌥H either, for the same kind of reason one step further out:
-  // `role: "appMenu"` (app-main.ts) expands to Hide / **Hide Others (⌘⌥H)** / Show All, and a menu
-  // accelerator is consumed before any renderer keydown runs — so that chord hid every other application
-  // and the hierarchy never opened. IntelliJ's own macOS keymap moves Call Hierarchy to ⌘⇧H, which is the
-  // type hierarchy here, so this takes IntelliJ's other name for it: the mnemonic in "Call Hierarch_y".
   { id: "typeHierarchy", keys: ["⌘⇧H"], where: "code", i18n: "kbd.typeHierarchy" },
   { id: "callHierarchy", keys: ["⌘⇧Y"], where: "code", i18n: "kbd.callHierarchy" },
   { id: "goToSuper", keys: ["⌘U"], where: "code", i18n: "kbd.goToSuper" },
-  // A place to come back to, with nothing to say about it — IntelliJ's F3. A comment is the right thing
-  // when there IS something to say, and kakapo already keeps those beside the code.
   { id: "toggleBookmark", keys: ["F3"], where: "code", i18n: "kbd.toggleBookmark" },
   { id: "showBookmarks", keys: ["⌘F3"], where: "any", i18n: "kbd.showBookmarks" },
-  // IntelliJ's mnemonic bookmarks: a digit per line. On ⌥ rather than ⌃ for the same reason as above —
-  // ⌘1/⌘2/⌘9 are already the Files panel, the Changes panel and history.
   { id: "assignBookmark", keys: ["⇧⌥1", "⇧⌥2", "⇧⌥3", "⇧⌥4", "⇧⌥5", "⇧⌥6", "⇧⌥7", "⇧⌥8", "⇧⌥9"], where: "code", i18n: "kbd.assignBookmark" },
   { id: "jumpBookmark", keys: ["⌥1", "⌥2", "⌥3", "⌥4", "⌥5", "⌥6", "⌥7", "⌥8", "⌥9"], where: "any", i18n: "kbd.jumpBookmark" },
   { id: "toggleFold", keys: ["⌘."], where: "code", i18n: "kbd.toggleFold" },
-  // IntelliJ's two whole-file fold actions and its recursive one. Collapse All and Collapse Recursively
-  // keep IntelliJ's own chords (⌃⇧- and ⌃⌥-, which fold to ⌘⇧- and ⌘⌥-). Expand All cannot: IntelliJ
-  // spells it ⌃⇧+, which folds to ⌘⇧+ — and ⌘⇧+ is the SAME PHYSICAL KEY as the View menu's zoom-in
-  // accelerator (`CommandOrControl+Plus` is Shift and the `=` key), so the menu would eat it. ⌘⌥= is one
-  // modifier away and free. This is the one collision two different spellings can hide, and
-  // test/menu-accelerators.test.mjs now expands `Plus` into both of them so it cannot hide again.
   { id: "collapseAll", keys: ["⌘⇧-"], where: "code", i18n: "kbd.collapseAll" },
   { id: "expandAll", keys: ["⌘⌥="], where: "code", i18n: "kbd.expandAll" },
   { id: "collapseRecursively", keys: ["⌘⌥-"], where: "code", i18n: "kbd.collapseRecursively" },
-  // IntelliJ's Compare Next / Previous File, which is what its diff viewer calls stepping through the
-  // stack of changed files, on the chords `$default.xml` gives them (⌃⇧→ / ⌃⇧←). F7 steps the CHANGES;
-  // this steps the files, which is the question "what else did it touch" rather than "what else here".
-  // ⌘⌥→ / ⌘⌥←, not ⌘⇧→ / ⌘⇧←. The second pair is "select to the start/end of the line" in every editor
-  // on this platform, and this app implements that gesture too (05-keymap.js, the line-edge branch, whose
-  // comment describes it exactly) — but THIS row is the only dispatched one of the two, so it consumed the
-  // key in runShortcut and the editor branch below was never reached. Measured in the running app: ⌘⇧→
-  // resolved to diffFileStep and selected nothing, on every file, while ⇧→ and ⇧⌥→ selected normally.
-  // Stepping files keeps the arrows and joins ⌘⌥↓ / ⌘⌥↑ (next/previous occurrence), which is the same
-  // "step through the thing under the caret" family and was free.
   { id: "diffFileStep", keys: ["⌘⌥→", "⌘⌥←"], where: "code", i18n: "kbd.diffFileStep" },
   { id: "prevNextTab", keys: ["⌘⇧[", "⌘⇧]"], where: "code", i18n: "kbd.prevNextTab" },
   { id: "cursorBackForward", keys: ["⌘[", "⌘]"], where: "code", i18n: "kbd.cursorBackForward" },
 
-  // ---- Editor -------------------------------------------------------------------------------------
   { id: "moveCaret", keys: ["←↑↓→"], where: "code", i18n: "kbd.moveCaret", fixed: "structural" },
   { id: "wordJump", keys: ["⌥←", "⌥→"], where: "code", i18n: "kbd.wordJump", fixed: "structural" },
   { id: "lineStartEnd", keys: ["⌘←", "⌘→"], where: "code", i18n: "kbd.lineStartEnd", fixed: "structural" },
   { id: "extendSelection", keys: ["⇧←↑↓→"], where: "code", i18n: "kbd.extendSelection", fixed: "structural" },
-  // The two modified selection gestures, declared because they are IMPLEMENTED (05-keymap.js: the
-  // word branch passes event.shiftKey, the line-edge branch reads it) and were claimed by nothing here.
-  // An undeclared chord is one the collision guard in test/shortcut-registry.test.mjs cannot compare
-  // against anything — which is how ⌘⇧→ came to be owned by `diffFileStep` while the editor's
-  // select-to-line-end branch sat below it, correct, commented, and unreachable.
-  //
-  // Structural, like the caret rows they belong to: the surface owns them, they have no SHORTCUT_ACTIONS
-  // entry, so `runShortcut` finds the row, finds no action, and declines — which is precisely what lets
-  // the key fall through to the editor. A dispatched row in this slot would swallow it again.
   { id: "selectByWord", keys: ["⇧⌥←", "⇧⌥→"], where: "code", i18n: "kbd.selectByWord", fixed: "structural" },
   { id: "selectToLineEdge", keys: ["⌘⇧←", "⌘⇧→"], where: "code", i18n: "kbd.selectToLineEdge", fixed: "structural" },
   { id: "selectEditor", keys: ["⌘A"], where: "code", i18n: "kbd.selectEditor" },
   { id: "copyLocation", keys: ["⌘K"], where: "code", i18n: "kbd.copyLocation" },
-  // IntelliJ's Copy as Patch, which it keeps on the Changes context menu with no chord of its own. ⇧⌥P
-  // joins the ⇧⌥ family: not a reading switch, but the same "about the file on screen" scope.
   { id: "copyAsPatch", keys: ["⇧⌥P"], where: "any", i18n: "kbd.copyAsPatch" },
-  // IntelliJ's Compare with Clipboard (⌘⇧B there is Go to Type Declaration here, and its own chord for
-  // this is none) — ⇧⌥C beside Copy as Patch, which is the other thing this app does with a patch.
   { id: "compareClipboard", keys: ["⇧⌥C"], where: "any", i18n: "kbd.compareClipboard" },
   { id: "pageUpDown", keys: ["PageUp", "PageDown"], where: "code", i18n: "kbd.pageUpDown", fixed: "structural" },
   { id: "expandDiffFold", keys: ["Space"], where: "code", i18n: "kbd.expandDiffFold", fixed: "structural" },
-  // One key, two contexts — like compareMode's ⌥A/⌥U, this is one row because it is one chord: in a .http
-  // file ⌥Enter runs the request, and on a line a language server flagged it drafts the change request that
-  // asks an agent to fix it (05-keymap.js). The second was reachable, documented nowhere, and named by a
-  // label that said only "Run HTTP request" — so the sheet and both READMEs described half of the key.
   { id: "runHttp", keys: ["⌘Enter", "⌥Enter"], where: "code", i18n: "kbd.runHttp" },
-  // The two other things a reviewer does with a .http file: run the whole file as the sequence it is
-  // written as, and take one request out of kakapo as a cURL command.
   { id: "runHttpAll", keys: ["⌘⇧Enter"], where: "code", i18n: "kbd.runHttpAll" },
   { id: "copyHttpCurl", keys: ["⌘⇧C"], where: "code", i18n: "kbd.copyHttpCurl" },
   { id: "toggleRendered", keys: ["⌥R"], where: "code", i18n: "kbd.toggleRendered" },
 
-  // ---- How the code is drawn ----------------------------------------------------------------------
-  // IntelliJ's reading switches, which it keeps in menus and gives no keystroke: Show Whitespaces, Show
-  // Indent Guides, Show Sticky Lines, Highlight Only Current Declaration (its Focus Mode), Essential
-  // Highlighting, and Align Changes In Side-by-Side Diff. The chords are therefore this app's own, and
-  // they are one ⇧⌥ family because they are one kind of switch — none of them changes the review, only
-  // how it is drawn. ⇧⌥ was free apart from the bookmark digits, and ⌥letter is already crowded.
-  //
-  // The pair with ⌥W is deliberate: ⌥W decides whether a long line WRAPS and ⇧⌥W whether its blanks are
-  // VISIBLE, and the app's other whitespace key, ⌘⇧W, decides whether they COUNT as a change. Three
-  // questions about whitespace that readers mix up, kept one modifier apart.
   { id: "showWhitespace", keys: ["⇧⌥W"], where: "code", i18n: "kbd.showWhitespace" },
   { id: "indentGuides", keys: ["⇧⌥I"], where: "code", i18n: "kbd.indentGuides" },
   { id: "stickyLines", keys: ["⇧⌥S"], where: "code", i18n: "kbd.stickyLines" },
@@ -352,7 +126,6 @@ export const SHORTCUTS: ShortcutDef[] = [
   { id: "toggleLineWrap", keys: ["⌥W"], where: "code", i18n: "kbd.toggleLineWrap" },
   { id: "closeTab", keys: ["⌘W"], where: "code", i18n: "kbd.closeTab", fixed: "menu" },
 
-  // ---- Review -------------------------------------------------------------------------------------
   { id: "toggleViewed", keys: ["Space"], where: "tree", i18n: "kbd.toggleViewed", fixed: "structural" },
   { id: "addComment", keys: ["?"], where: "code", i18n: "kbd.addComment" },
   { id: "allComments", keys: ["⌘⇧/"], where: "any", i18n: "kbd.allComments" },
@@ -360,65 +133,23 @@ export const SHORTCUTS: ShortcutDef[] = [
   { id: "ignoreWhitespace", keys: ["⌘⇧W"], where: "any", i18n: "kbd.ignoreWhitespace", fixed: "menu" },
   { id: "saveComment", keys: ["⌘Enter"], where: "merged", i18n: "kbd.saveComment", fixed: "structural" },
   { id: "reviewStops", keys: ["↑", "↓"], where: "code", i18n: "kbd.reviewStops", fixed: "structural" },
-  // `e` edits the comment box SELECTED IN THE REVIEW (06-diff-caret.js: selectedCommentRow), not one in
-  // the hand-off dock — the dock has no in-place editor and never had one. The row said "merged", so the
-  // Settings sheet advertised a key the dock does nothing with, on the one surface it does not work on.
   { id: "editComment", keys: ["e"], where: "code", i18n: "kbd.editComment", fixed: "structural" },
   { id: "deleteComment", keys: ["Backspace", "Delete"], where: "merged", i18n: "kbd.deleteComment", fixed: "structural" },
-  // The dock steps with the plain arrows and always has; ⌥↑/⌥↓ reached no branch in it at all, because
-  // every arrow branch there is guarded `!event.altKey`. The chord was invented for a row rather than
-  // read off one.
   { id: "stepComments", keys: ["↑", "↓"], where: "merged", i18n: "kbd.stepComments", fixed: "structural" },
-  // Enter on a card: close the dock, go to that comment's line, and open it for editing there. The dock's
-  // only route to editing, and it was in no table and no README.
   { id: "openComment", keys: ["Enter"], where: "merged", i18n: "kbd.openComment", fixed: "structural" },
-  // Was "send to pane" back when the app embedded a terminal. The terminal was removed; the row survived
-  // with nothing answering it, so the sheet advertised a chord that did nothing. Its surviving descendant
-  // is the hand-off — copying the review out and filing it away is how a review leaves kakapo now — so the
-  // chord goes there rather than being deleted. Structural like its merged siblings: the dock's own
-  // keydown owns these, and none of them read a rebind.
   { id: "mergedSend", keys: ["⌥Enter"], where: "merged", i18n: "kbd.mergedSend", fixed: "structural" },
-  // Copying out of this panel IS the hand-off, so it files what it copied — one card, or the whole panel
-  // after ⌘A. It used to copy and leave everything in the review, which meant the next hand-off carried
-  // the same comments again. "menu", not "structural": ⌘C is the Edit menu's accelerator (app-main.ts
-  // keeps the standard role so real text fields still work), so the page cannot rebind it.
   { id: "mergedCopy", keys: ["⌘C"], where: "merged", i18n: "kbd.mergedCopy", fixed: "menu" },
   { id: "maximizePanel", keys: ["⌘⇧'"], where: "merged", i18n: "kbd.maximizePanel" },
 
-  // ---- History ------------------------------------------------------------------------------------
   { id: "copyRevision", keys: ["⌘C"], where: "history", i18n: "kbd.copyRevision" },
   { id: "historyNavigate", keys: ["↑↓", "Enter"], where: "history", i18n: "kbd.historyNavigate", fixed: "structural" },
-  // Written in three places and the table in none: the handler (12-history.js), both READMEs, and the
-  // overlay's own hint line (`history.selectHint`). Structural for the same reason historyNavigate is —
-  // extending a selection with Shift and an arrow is a convention of a list, not a preference.
   { id: "historyRange", keys: ["⇧↑", "⇧↓"], where: "history", i18n: "kbd.historyRange", fixed: "structural" },
 ];
 
-// The Settings sheet, in order. Grouping lives here rather than on each row because History is a summary
-// of one surface and so repeats two rows that already appear above it — a `group` field on the row could
-// not have said that.
-/**
- * Chords the application menu REGISTERS — every one of them, including the two whose item forwards an
- * IPC message to the page (⌘W close-tab, ⌘⇧/ all-comments). Those two work for the row that owns them,
- * because the row is told what happened down its own channel; they are dead for anything else bound
- * there, because the menu takes the keystroke and runs its own item instead. A rebind has to ask the
- * wider question, which is why this list is wider than the one the table-row check uses.
- *
- * Data, kept honest by `test/menu-accelerators.test.mjs`, which builds the real menu and asserts this is
- * exactly what it eats. The Settings sheet reads it to refuse a rebind onto one: the sheet used to accept
- * ⌘M, ⌘0 and ⌘⇧Z without a word, save them, and leave the person with a binding that can never fire and
- * nothing on screen to say why. A forwarding item (Edit's undo/cut/copy/paste, and anything whose click
- * calls sendToFocused) is NOT here — those reach the page, which is the whole point of forwarding them.
- */
 export const MENU_OWNED_CHORDS: string[] = [
   "⌘+", "⌘-", "⌘0", "⌘=", "⌘O", "⌘W", "⌘⇧=", "⌘⇧O", "⌘⇧W",
 ];
 
-/**
- * ...and the four that exist only on macOS. `role: "appMenu"` is a macOS construct (app-main.ts builds it
- * under `process.platform === "darwin"`) and `role: "minimize"` carries an accelerator only there, so on
- * Linux and Windows nothing holds these and refusing them would turn away a chord that would have worked.
- */
 export const MENU_OWNED_CHORDS_MAC: string[] = ["⌘H", "⌘M", "⌘Q", "⌘⌥H"];
 
 export const SHORTCUT_GROUPS: { i18n: string; ids: string[] }[] = [
@@ -439,8 +170,6 @@ export const SHORTCUT_GROUPS: { i18n: string; ids: string[] }[] = [
     "toggleBookmark", "showBookmarks", "assignBookmark", "jumpBookmark",
     "toggleFold", "collapseAll", "expandAll", "collapseRecursively", "diffFileStep", "prevNextTab", "cursorBackForward",
   ] },
-  // IntelliJ's own two groups: "Usage View Grouping" and "Usage View Filtering" (UsageViewBundle). They
-  // are one category here because they are one panel — nine toggles over the same list.
   { i18n: "settings.kbd.cat.usages", ids: [
     "findUsages", "usageGroupScope", "usageGroupType", "usageGroupModule", "usageFlattenModules",
     "usageGroupDirectory", "usageGroupFile", "usageFilterRead", "usageFilterWrite", "usageFilterImports",
@@ -461,37 +190,8 @@ export const SHORTCUT_GROUPS: { i18n: string; ids: string[] }[] = [
   ] },
 ];
 
-/**
- * A row's chord in Electron's accelerator spelling, for DRAWING beside a menu item.
- *
- * Here rather than in app-main because the table is where a chord is written down, and this is a reading
- * of the table — the same reason the Settings sheet and the keyhints read it rather than keeping copies.
- *
- * The caller must set `registerAccelerator: false` on the item. These chords are dispatched in the PAGE
- * (SHORTCUT_ACTIONS), and a menu that registered one would consume the keystroke before any renderer
- * keydown ran — which is what made ⌘⌥H hide every other application and ⌘0 reset the zoom. Drawing it is
- * the whole point: a menu is worth having for a key you already know only if it tells you the key.
- *
- * Returns undefined for a row Electron has no spelling for — a two-key chord (⇧⇧) or a cluster (↑↓) — and
- * the item then simply carries no accelerator. An accelerator Electron cannot parse THROWS when the menu
- * is built, which would take the whole menu bar with it.
- */
-/**
- * What the person has rebound, as the MENU needs to see it.
- *
- * The overrides live in the renderer, where the Settings sheet writes them; the application menu is built
- * in main from this table and knew nothing about them. Rebinding `toggleFold` to ⌘⌥K therefore left
- * View ▸ Folding drawing "⌘." beside an action ⌘. no longer performs — a second copy of a chord, which
- * is the one thing this table exists to prevent. Main sets this from the persisted setting and rebuilds
- * the menu when it changes; everything else keeps reading the table.
- */
 let shortcutOverrides: Record<string, string[]> = {};
 export function setShortcutOverrides(next: unknown): void {
-  // Validated, not cast. This value comes off disk — AGENTS.md invites people to edit these JSON files by
-  // hand — and `electronAcceleratorFor` runs inside `Menu.buildFromTemplate`, where a throw takes the
-  // whole menu bar with it and, at startup, the window that was about to open. A `7` or a `null` in the
-  // array was enough: `rest.startsWith` is not a function. Anything that is not a non-empty string is
-  // dropped here, and the row falls back to the table.
   shortcutOverrides = {};
   if (!next || typeof next !== "object") return;
   for (const [id, keys] of Object.entries(next as Record<string, unknown>)) {
@@ -503,8 +203,6 @@ export function setShortcutOverrides(next: unknown): void {
 
 export function electronAcceleratorFor(id: string, index = 0): string | undefined {
   const override = shortcutOverrides[id];
-  // A short override array leaves the row's later combinations on the table's own spelling, which is what
-  // the page does too (shortcutKeys returns the override whole, so an absent entry is simply not bound).
   const chord = (Array.isArray(override) ? override[index] : undefined) || shortcutById(id)?.keys[index];
   if (!chord || typeof chord !== "string") return undefined;
   let rest = chord;
@@ -519,11 +217,6 @@ export function electronAcceleratorFor(id: string, index = 0): string | undefine
   };
   if (NAMED[rest]) return [...parts, NAMED[rest]].join("+");
   if (/^F([1-9]|1[0-9]|2[0-4])$/.test(rest)) return [...parts, rest].join("+");
-  // Anything else must be a single ASCII printable: a letter, a digit, or one of the punctuation keys this
-  // table uses (., -, =, /, [, ], ', `). The ASCII bound is what matters — Electron does NOT reject a
-  // symbol it cannot map, so `⇧⇧` came back as the accelerator "Shift+⇧" and `↵` as "↵", both of which
-  // would have been drawn in the menu exactly like that. A row this cannot spell gets no accelerator and
-  // keeps its place in the menu; the Settings sheet is where its real spelling is shown.
   if (!/^[\x20-\x7e]$/.test(rest)) return undefined;
   return [...parts, rest.toUpperCase()].join("+");
 }

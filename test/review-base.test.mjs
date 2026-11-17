@@ -1,7 +1,3 @@
-// The comparison base is selectable again (gap #5): the default still diffs the working tree against an
-// automatic base, but --base <ref> reviews it against any branch/tag/commit (so an already-committed AI
-// feature branch can be reviewed whole) and --staged reviews the index against HEAD. These tests exercise
-// buildDiffReview + validateReviewBase directly, which is exactly what parseArgs wires the flags into.
 import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -47,15 +43,14 @@ test("--base reviews already-committed changes that the default working-tree dif
   write(root, "svc.ts", "const value = 1;\n");
   git(["add", "-A"]);
   git(["commit", "-qm", "c1"]);
-  // The agent commits its change; the working tree is clean afterwards.
   write(root, "svc.ts", "const value = 2; // AGENT_EDIT\n");
   git(["add", "-A"]);
   git(["commit", "-qm", "c2"]);
 
-  const def = review(root, { base: "HEAD" }); // working tree vs HEAD — clean, nothing to review
+  const def = review(root, { base: "HEAD" });
   assert.equal(def.files, 0, "the default working-tree diff shows nothing for a committed change");
 
-  const branch = review(root, { base: "HEAD~1" }); // review the committed change against its parent
+  const branch = review(root, { base: "HEAD~1" });
   assert.equal(branch.files, 1, "--base surfaces the committed change");
   assert.match(branch.html, /AGENT_EDIT/, "the committed edit appears in the review");
 });
@@ -67,11 +62,9 @@ test("--staged reviews the index against HEAD, excluding unstaged edits", () => 
   git(["add", "-A"]);
   git(["commit", "-qm", "c1"]);
   write(root, "a.ts", "a2 STAGED\n");
-  git(["add", "a.ts"]);        // staged
-  write(root, "b.ts", "b2 UNSTAGED\n"); // left in the working tree only
+  git(["add", "a.ts"]);
+  write(root, "b.ts", "b2 UNSTAGED\n");
 
-  // The changed-file COUNT is the true diff signal (the standalone HTML also embeds browsable source, so a
-  // string can leak in outside the diff). Staged sees only the indexed file; the working tree sees both.
   const staged = review(root, { staged: true });
   assert.equal(staged.files, 1, "staged review shows only the one indexed file");
   assert.match(staged.html, /STAGED/, "and that file is the staged change");
@@ -86,8 +79,6 @@ test("sidebar project name resolves from the main repository, not a linked workt
   git(["add", "-A"]);
   git(["commit", "-qm", "c1"]);
 
-  // Worktrees (git worktree add, or Orca-managed worktrees) are routinely named after their branch — the
-  // exact setup where basename(root) alone would repeat the branch chip as the "project name" too.
   const branchName = "crypto-single-run-removal";
   const worktreeDir = join(dirname(root), branchName);
   dirs.push(worktreeDir);
@@ -97,11 +88,6 @@ test("sidebar project name resolves from the main repository, not a linked workt
   const build = review(worktreeDir);
   assert.match(build.html, new RegExp(`class="brand-project">${mainName}<`), "the bold project name names the main repository directory");
   assert.doesNotMatch(build.html, new RegExp(`class="brand-project">${branchName}<`), "the worktree's own branch-named directory is not shown as the project name");
-  // Asked of the element's CONTENT, not of what sits between the id and the ">": this pinned the attribute
-  // order, so adding the title that makes a truncated branch readable broke it without anything changing
-  // about the claim.
-  // By class, not id: the chip is rendered into both toolbars now (render.ts branchChip), and an id would
-  // have been two elements claiming one name.
   assert.match(build.html, new RegExp(`class="brand-branch-name"[^>]*>${branchName}<`), "the branch chip still names the actual branch");
   assert.match(build.html, new RegExp(`class="brand-branch-name"[^>]*title="${branchName}"`),
     "and carries the whole name as its tooltip, which is the only place a cut-off branch can still be read");

@@ -4,42 +4,18 @@ var quickPreviewScrollFrame = 0;
 var QUICK_PREVIEW_RADIUS = 60;
 var QUICK_PREVIEW_CHUNK = 120;
 
-// Cmd/Ctrl+A is the app menu's `selectAll` role, and that acts on the whole webContents — so inside this
-// dialog it highlighted the entire review page behind it instead of the text in the search box. Claim the
-// accelerator for as long as the dialog is up (same mechanism the merged dock uses, see 08-dock.js); the
-// focused <input> then handles Cmd+A itself, natively, and selects only its own text.
 var quickOpenHoldsMenu = false;
 function setQuickOpenOwnsEditKeys(owns) {
-  // Through the counter (01-core.js), so an overlapping owner — the merged dock, a rebind capture — does
-  // not have its own hold revoked when this one ends. Idempotent, because this is called on every keystroke.
   if (!!owns === quickOpenHoldsMenu) return;
   quickOpenHoldsMenu = !!owns;
   holdMenuShortcuts(quickOpenHoldsMenu);
 }
-// Claim the app menu's edit accelerators only while nothing in this dialog is being typed into. Claiming
-// them for as long as the dialog was open took Cmd+V and Cmd+C away from the search box along with Cmd+A —
-// in an Electron window those keys ARE the menu's roles, so pasting a query stopped working entirely. The
-// case the claim exists for is Recent files, which has no input and leaves nothing focused: there the
-// menu's selectAll would run against the whole review page behind the dialog.
 function syncQuickOpenEditKeys() {
   var focused = document.activeElement;
   var typing = !!focused && (focused.tagName === 'INPUT' || focused.tagName === 'TEXTAREA' || focused.isContentEditable);
   setQuickOpenOwnsEditKeys(!typing);
 }
-// The sections that live INSIDE this dialog. The other entries (review comments, history) are panels of
-// their own — reachable here, not embedded — so they just open and dismiss the launcher.
-// IntelliJ's tab strip is All / Classes / Files / Symbols / Actions / Text (SearchEverywhereTabsShortcutsUtils),
-// so those modes all live inside this dialog now rather than taking it over one at a time; Recent files is
-// this app's own extra row. The modes NOT listed (structure, usages, problems, hierarchy, bookmarks,
-// locations) are panels of their own, reached from here and then left alone.
 var QUICK_LAUNCHER_MODES = ['everywhere', 'recent', 'all', 'content', 'symbol', 'actions'];
-// hideRail: open this section on its own, with no rail beside it. ⌘E asks for that — it names the section
-// it wants, so a column of the other sections beside a short list of recent files is all frame and no list.
-// The dialog's title and its box are both written here rather than left to data-i18n, because what they
-// say depends on the mode and only this knows the mode. That is also why applyI18n calls this: the title
-// carried a data-i18n of the FILES string, so switching language with the dialog open relabelled a
-// structure search "Search files" in the new language. Idempotent, like the other repaints that list
-// calls — it reads quickMode and the strings, and writes two attributes.
 function paintQuickOpenMode() {
   if (!quickInput || !quickModeLabel) return;
   quickModeLabel.textContent = quickMode === 'everywhere'
@@ -70,8 +46,6 @@ function paintQuickOpenMode() {
   var quickPlaceholder = quickMode === 'everywhere'
     ? t('quickopen.everywherePlaceholder')
     : quickMode === 'symbol'
-    // The same question the title asks six lines above: ⌥O and ⌘⌥O share this mode, and the box said
-    // "워크스페이스 심볼" under a title reading "클래스로 가기".
     ? t(workspaceSymbolTypesOnly ? 'quickopen.goToClass' : 'quickopen.workspaceSymbols')
     : quickMode === 'content'
       ? t('quickopen.findInFiles')
@@ -92,26 +66,11 @@ function paintQuickOpenMode() {
                     : quickMode === 'actions'
                       ? t('actions.placeholder')
                       : t('quickopen.searchFiles');
-  // Eight of these ten modes give the box a sentence of its own — "Filter this file's symbols", "Filter
-  // actions" — which is what a placeholder is for: it says what to type. Two of them named the same string
-  // the title names, so the dialog opened with "Search files" written twice, one line apart, in 12px sans
-  // and 15px mono. Decided from the two values rather than by listing those modes a third time: this list
-  // has drifted from the title's before (see the note six lines up), and a repeat is a repeat whichever
-  // mode produces it. The input keeps its name either way — the title is its aria-labelledby.
   quickInput.setAttribute('placeholder', quickPlaceholder === quickModeLabel.textContent ? '' : quickPlaceholder);
 }
 
 function openQuickOpen(mode, hideRail) {
   if (!quickOpen || !quickInput || !quickModeLabel) return;
-  // Nothing stays open underneath. KEY_OWNERS puts the compare menu and the semantic peek above this one
-  // and explains that the order is harmless "because [they stand] down the moment [they are] hidden" —
-  // but Cmd+P opens OVER them, and then Escape went to the popover underneath while the dialog it was
-  // meant for stayed on screen. Worse, that popover's own restore pulled focus out to the toolbar pill,
-  // so a search dialog was up with the keyboard on the header.
-  //
-  // Closed here rather than reordered there: this is the surface that calls itself a true modal keyboard
-  // scope, and a modal with something live behind it is the contradiction, not the row order. Closed
-  // BEFORE the slot is taken, so the slot holds where their own dismissal left the reader.
   closeCompareMenu();
   closeSemanticPeek();
   closeQuickDoc();
@@ -119,13 +78,8 @@ function openQuickOpen(mode, hideRail) {
   quickMode = mode;
   paintQuickOpenMode();
   quickOpen.classList.remove('hidden');
-  // Recent files needs no search box — it's just the latest files. Hide the input and let typed letters
-  // narrow the list (IntelliJ-style speed search); the global keydown routes keys to handleQuickOpenKey.
   quickOpen.classList.toggle('quick-recent', mode === 'recent');
   quickOpen.classList.toggle('quick-content', mode === 'content');
-  // The usage view shares this strip: Find-in-Files' "comments & tests are noise" toggle (⌥P) keeps its
-  // meaning there, and beside it the Group By and Show chips of IntelliJ's two usage-view toolbars appear
-  // — #quick-open-usage-options, driven by 17-find-usages.js.
   quickOpen.classList.toggle('quick-usages', mode === 'usages');
   quickOpen.classList.toggle('quick-launcher', !hideRail && QUICK_LAUNCHER_MODES.indexOf(mode) >= 0);
   syncQuickLauncherRail();
@@ -133,44 +87,26 @@ function openQuickOpen(mode, hideRail) {
   recentFilter = '';
   quickInput.value = '';
   updateRecentFilterDisplay();
-  // The selection goes back to the top with it: the list is re-sorted by commit date on every read, so a
-  // carried-over index does not point at the row it pointed at last time — it points at whichever checkout
-  // has since moved into that slot. Row 0 is always the checkout you are in.
   renderQuickOpenResults();
-  // File search intentionally stays empty until the user types. Loading the whole project index on open
-  // made an untouched dialog look like an arbitrary file browser and spent work before there was a query.
-  // The first real file-name query requests the deferred index in renderQuickOpenResults().
-  // Picking a section is done with the rail: focus goes to the section's own panel, whether the pick came from
-  // a click or from Enter on the rail. Arrows then move in the list, ArrowLeft steps back to the rail.
   if (mode === 'recent') { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); syncQuickOpenEditKeys(); }
   else setTimeout(() => { quickInput.focus(); syncQuickOpenEditKeys(); }, 0);
 }
 
-// Mark the rail entry for the section on screen. The dock entries never mark: they close this dialog.
-// Which row is current is asked of QUICK_LAUNCHER_SECTIONS (24-search-everywhere.js) rather than compared
-// against quickMode here, because Classes and Symbols are the same mode with a flag — comparing modes lit
-// both of those rows at the same time.
 function syncQuickLauncherRail() {
   document.querySelectorAll('#quick-open-side .quick-open-side-item').forEach(function (item) {
     item.classList.toggle('active', quickLauncherSectionActive(item.dataset.section));
   });
 }
 
-// The rail: switch to a section that lives here, or hand off to the dock that owns the rest and get out of
-// the way. Wired once — the markup is static.
 document.getElementById('quick-open-side')?.addEventListener('click', function (event) {
   var button = event.target.closest && event.target.closest('.quick-open-side-item');
   if (!button) return;
   var section = button.dataset.section;
   if (switchQuickLauncherSection(section)) return;
-  closeQuickOpen(true); // handing over to another panel, which takes the keyboard itself
-  // Every other row owns a panel of its own. These used to be dispatched by clicking the matching activity-rail
-  // button; the rail is gone, so the row calls the panel directly — a row that quietly opened nothing is worse
-  // than no row at all. Blur first: the launcher is closing, and its own row must not keep the keyboard.
+  closeQuickOpen(true);
   if (button.blur) button.blur();
   if (section === 'history') openHistory();
 });
-// Title-row indicator for the Recent speed-search: the typed letters, or a muted "type to filter" hint.
 function updateRecentFilterDisplay() {
   if (!quickFilterEl) return;
   if (quickMode !== 'recent') { quickFilterEl.textContent = ''; quickFilterEl.className = 'quick-open-filter'; return; }
@@ -180,26 +116,16 @@ function updateRecentFilterDisplay() {
 
 function closeQuickOpen(navigating) {
   setQuickOpenOwnsEditKeys(false);
-  // Hand the keyboard back explicitly. Chromium drops focus from an element that becomes display:none, so
-  // in the app the focus would move on its own — but relying on that leaves the keyboard scope reading
-  // "a text field is focused" in any environment that does not (jsdom), and every code-level shortcut
-  // stands down while that is true. Saying it is cheaper than depending on it.
   var wasOpen = !!(quickOpen && !quickOpen.classList.contains('hidden'));
   var focused = document.activeElement;
   if (focused && quickOpen && quickOpen.contains(focused) && focused.blur) focused.blur();
   quickOpen?.classList.add('hidden');
-  // `navigating` is the caller about to move the view itself — see openQuickItem. Restoring there would
-  // hand the keyboard to a surface this same action is tearing down, which is how Enter, the palette's
-  // most-used key, ended on <body>.
   restoreOverlayFocus(quickOpen, wasOpen && !navigating);
   quickPreviewState = null;
   if (quickPreviewScrollFrame) cancelAnimationFrame(quickPreviewScrollFrame);
   quickPreviewScrollFrame = 0;
 }
 
-// The section rail is keyboard-reachable, not mouse-only: ArrowLeft steps into it from the list, arrows move
-// within it, Enter picks, and ArrowRight steps back to the results. Rail focus is real DOM focus (they are
-// buttons), so the browser draws it and Enter can simply click.
 function quickSideItems() {
   return Array.prototype.slice.call(document.querySelectorAll('#quick-open-side .quick-open-side-item'));
 }
@@ -213,34 +139,18 @@ function focusedQuickSideItem() {
   return el && el.closest ? el.closest('#quick-open-side .quick-open-side-item') : null;
 }
 
-// This dialog is a modal keyboard scope — while it is up, every key goes to it and menu accelerators are
-// suspended (setQuickOpenOwnsEditKeys). So it must never outlive being looked at: it had no outside-click
-// dismissal, and the terminal panel renders above it, so opening a terminal over an open launcher left an
-// INVISIBLE dialog eating every keystroke (spaces included) and killing Cmd+Shift+E along with every other
-// accelerator. A click anywhere outside its panel closes it.
 document.addEventListener('mousedown', function (event) {
   if (!quickOpen || quickOpen.classList.contains('hidden')) return;
   if (event.target && event.target.closest && event.target.closest('.quick-open-panel')) return;
   closeQuickOpen();
 }, true);
 
-// The same trap Settings has (08-dock.js), for the same reason, on the overlay that was left out of that
-// pass. This dialog is `role="dialog" aria-modal="true"` and paints a full-viewport scrim, so the pointer
-// genuinely cannot reach anything behind it — elementFromPoint over the sidebar's own tabs returns
-// #quick-open. Tab went out there anyway: one press from the search box landed on the Changes/Files switch
-// behind the scrim and the next seven walked the file tree, with the dialog still open and ⇧Tab unable to
-// come back. The keyboard has to be held wherever the pointer is.
 quickOpen?.addEventListener('keydown', function (event) {
   if (quickOpen.classList.contains('hidden')) return;
-  // Asked before the trap, because this listener runs before the document one (the event bubbles through
-  // #quick-open on its way there): the trap answers Tab with "keep the focus inside", so the tab strip
-  // would never have seen the key. Tab cannot escape either way — it switches tabs instead.
   if (handleQuickLauncherTabKey(event)) return;
   trapTabWithin(quickOpen, event);
 });
 
-// Focus moves between the search box, the extension filter and the rail while the dialog is up, and each
-// move changes whether the menu's edit keys belong to the page or to the field (see syncQuickOpenEditKeys).
 document.addEventListener('focusin', function () { if (quickOpen && !quickOpen.classList.contains('hidden')) syncQuickOpenEditKeys(); });
 document.addEventListener('focusout', function () {
   if (!quickOpen || quickOpen.classList.contains('hidden')) return;
@@ -248,31 +158,11 @@ document.addEventListener('focusout', function () {
 });
 
 function handleQuickOpenKey(event) {
-  // The hierarchy is a tree: ⇢ expands a row, ⇠ collapses it. Asked first, because ArrowLeft otherwise
-  // steps out to the section rail.
   if (handleHierarchyKey(event)) return true;
   if (handleUsageViewKey(event)) return true;
   if (handleProblemsKey(event)) return true;
   if (handleEndpointsKey(event)) return true;
-  // Tab / ⇧Tab step the tab strip. Asked here as well as in the panel's own keydown listener because the
-  // two cover different moments: the listener only sees keys that reach an element inside the dialog, and
-  // Recent files leaves nothing focused at all.
   if (handleQuickLauncherTabKey(event)) return true;
-  // The section rail prints a chord beside each row — data-keyhint-id, resolved by applyKeyHints — and this
-  // handler owns every key while the dialog is up, so those chords reached nothing at all. ⌘E and ⌘9 were
-  // drawn on screen next to "Recent files" and "History" while Find in Files was open, and pressing either
-  // did nothing; so did ⌘⇧F from Search files. A surface may not advertise a key it swallows.
-  //
-  // Asked of the rail itself, so a row's key does exactly what its click does and the two cannot drift —
-  // including the rows whose click closes this dialog and opens a panel of their own. The row already on
-  // screen closes, which is the toggle ⌘E spelled for 'recent' before this covered it (and ⌘6 still spells
-  // for the one mode that has no row). The modes that own one of these keys — hierarchy, usages, problems
-  // — answer above and never reach here.
-  //
-  // Except on the All tab, where the chord that opened it widens the scope rather than closing: that is
-  // SearchEverywhereBaseAction.showInSearchEverywherePopup, which calls toggleEverywhereFilter() when its
-  // own tab is already up and switches tabs otherwise. So ⇧⇧ then ⇧⇧ again means "look in the whole
-  // project, not just the change", which is what the gesture means in IntelliJ.
   var railItems = quickSideItems();
   for (var ri = 0; ri < railItems.length; ri += 1) {
     var railId = (railItems[ri].getAttribute('data-keyhint-id') || '').split(':')[0];
@@ -303,7 +193,6 @@ function handleQuickOpenKey(event) {
   }
   if (event.key === 'Escape') {
     event.preventDefault();
-    // Recent speed-search: first Esc clears the typed filter, a second Esc closes (IntelliJ behavior).
     if (quickMode === 'recent' && recentFilter) { recentFilter = ''; updateRecentFilterDisplay(); renderQuickOpenResults(); return true; }
     closeQuickOpen();
     return true;
@@ -324,8 +213,6 @@ function handleQuickOpenKey(event) {
     toggleContentSearchNoise();
     return true;
   }
-  // IntelliJ's Cc / W / .*, on the three letters the dialog can spare. Asked through the shortcut table
-  // rather than spelled here, so the Settings sheet and these branches cannot drift apart.
   if (quickMode === 'content') {
     var modifiers = [['searchMatchCase', 'matchCase'], ['searchWholeWords', 'wholeWords'], ['searchRegex', 'regex']];
     for (var mi = 0; mi < modifiers.length; mi += 1) {
@@ -355,7 +242,6 @@ function handleQuickOpenKey(event) {
     openQuickItem(quickItems[quickActive]);
     return true;
   }
-  // Recent files has no input box: type letters to filter the list, Backspace to delete (speed search).
   if (quickMode === 'recent') {
     if (event.key === 'Backspace') {
       event.preventDefault();
@@ -373,11 +259,6 @@ function handleQuickOpenKey(event) {
   return false;
 }
 
-// Typing a file name with the keyboard still in Korean produces the Hangul those keys compose, not the
-// letters — "Transfer" comes out "ㅆ뭬ㄴ랙". The keystrokes are recoverable: every syllable decomposes into
-// the jamo that made it, and each jamo has one dubeolsik key. So a Hangul query also searches as what it
-// would have typed in English, and a query that IS Korean (this project has 과제 안내.md) still matches
-// itself — both variants are tried.
 var DUBEOLSIK_CHO = ['r','R','s','e','E','f','a','q','Q','t','T','d','w','W','c','z','x','v','g'];
 var DUBEOLSIK_JUNG = ['k','o','i','O','j','p','u','P','h','hk','ho','hl','y','n','nj','np','nl','b','m','ml','l'];
 var DUBEOLSIK_JONG = ['','r','R','rt','s','sw','sg','e','f','fr','fa','fq','ft','fx','fv','fg','a','q','qt','t','T','d','w','c','z','x','v','g'];
@@ -399,62 +280,27 @@ function qwertyFromHangul(text) {
   }
   return out.toLowerCase();
 }
-// The strings a query should be tried as: what was typed, and — when it holds Hangul — the keys that typed it.
 function queryVariants(query) {
   if (!/[\uac00-\ud7a3\u3131-\u3163]/.test(query)) return [query];
   var latin = qwertyFromHangul(query);
   return latin === query ? [query] : [query, latin];
 }
-// NOT lower-cased, and that is the point: camel humps ARE case, so `SEC` can only find
-// `SearchEverywhereContributor` if the case survives to the matcher. Case-insensitivity has moved
-// inside it (minusculeMatchesQuery), where it belongs — the matcher ignores case when deciding whether
-// a character matches and uses it when deciding how WELL, which a lower-cased haystack cannot express.
-// The row's text in order of importance, NOT joined: see minusculeQueryScore (00-minuscule.js) on why
-// the fields are matched one at a time. Name first because that is what a reader types.
 function quickItemHaystack(item) {
   return [item.name, item.path, item.detail];
 }
-// The other half of queryVariants: does this haystack hold any variant of what was typed. Eight lists match
-// their own haystack — a symbol's name only, a file's path and name, a usage's path and line text, an
-// action's name and chords — but the RULE is one, and it was written out eight times. Changing how a query
-// matches (a fuzzy pass, a word-boundary bonus) is one edit here instead of eight that drift apart.
-//
-// It was `hay.includes(variant)` until IntelliJ's MinusculeMatcher was ported (00-minuscule.js), which is
-// the one edit this comment was written in anticipation of.
 function matchesQueryVariants(hay, queries) {
   return minusculeMatchesQuery(hay, queries);
 }
-// (matchedQuery() lived here: it picked the variant that matched so the ranker could score on it. The
-// ranker now takes the whole variant list and keeps the best score itself, so choosing one up front was
-// a matcher run spent on a decision made again downstream.)
 
-/**
- * What is being typed, right now — the one reader of the search box's text.
- *
- * Eleven row renderers across five slices draw a name, and every one of them needs this to mark the
- * characters that answered. Threading it through eleven signatures would have been eleven chances to
- * pass the wrong thing; the box is one place, so this asks it.
- */
 function quickTypedQuery() {
   var raw = quickMode === 'recent' ? recentFilter : ((quickInput && quickInput.value) || '');
   return String(raw || '').trim();
 }
 
-/**
- * A row's name, escaped, with the characters the query matched marked.
- *
- * IntelliJ bolds these in every list it has, and with camel-hump matching that stops being decoration:
- * `SEC` reaching `SearchEverywhereContributor` looks like a guess until the S, E and C are lit, and a
- * reader who cannot see why a row answered stops trusting the list. One function because the mark has
- * to survive escaping — marking first and escaping after would escape the markup, and escaping first
- * moves every offset the matcher gave us.
- */
 function quickNameHtml(name) {
   var text = String(name == null ? '' : name);
   var query = quickTypedQuery();
   if (!text || !query) return escapeHtml(text);
-  // The line suffix a query may carry (`app.ts:42`) is not part of any name, so it is stripped here for
-  // the same reason the filter strips it — quickLineAndColumn is the one reader of that shape.
   var ranges = minusculeQueryRanges(text, queryVariants(quickLineAndColumn(query).name));
   if (!ranges.length) return escapeHtml(text);
   var out = '';
@@ -463,9 +309,6 @@ function quickNameHtml(name) {
     var range = ranges[i];
     if (range.start < at) continue;
     out += escapeHtml(text.slice(at, range.start));
-    // `usage-hit` rather than a class of its own: the app already has one expression for "these are the
-    // characters that matched" (viewer.css) and it is already bold-not-background for the right reason —
-    // every row in a filtered list matches, so a highlight on all of them says nothing.
     out += '<b class="usage-hit">' + escapeHtml(text.slice(range.start, range.end)) + '</b>';
     at = range.end;
   }
@@ -474,7 +317,6 @@ function quickNameHtml(name) {
 
 function renderQuickOpenResults() {
   if (!quickResults) return;
-  // Recent mode filters its own list by the typed speed-search string; other modes use the search box.
   const isRecent = quickMode === 'recent';
   const rawQuery = (isRecent ? recentFilter : (quickInput?.value || '')).trim();
   if (quickMode === 'everywhere') { renderEverywhereResults(rawQuery); return; }
@@ -500,17 +342,8 @@ function renderQuickOpenResults() {
         && String(quickInput && quickInput.value || '').trim()) renderQuickOpenResults();
     });
   }
-  // `app.ts:42` — the line to land on, written after the file name, as IntelliJ's Go to File accepts it.
-  // Stripped before matching (nothing is named "app.ts:42") and carried on a COPY of the item, so the
-  // shared index entry does not keep a line number from an earlier search.
-  //
-  // Which separators count is IntelliJ's own answer, read from its pattern once in quickLineAndColumn
-  // (24-search-everywhere.js) — this used to accept only `:`, so `app.ts 42` and `app.ts#L42`, both of
-  // which work there, searched for a file with a space and a number in its name.
   const parsedQuery = quickLineAndColumn(rawQuery);
   const gotoLine = parsedQuery.lineIndex >= 0 ? parsedQuery.lineIndex + 1 : 0;
-  // As typed, not lower-cased: the matcher wants the case (see quickItemHaystack). `lowerQuery` below
-  // is for the plain substring searches that are not the matcher — an embedded file's contents.
   const query = gotoLine ? parsedQuery.name : rawQuery;
   const lowerQuery = query.toLowerCase();
   const queries = queryVariants(query);
@@ -525,10 +358,6 @@ function renderQuickOpenResults() {
       const hay = quickItemHaystack(item);
       return matchesQueryVariants(hay, queries);
     })
-    // Scored once per item, then sorted on the stored number. The comparator used to call the scorer —
-    // and therefore the matcher — on both sides of every comparison, which is O(n log n) matcher runs
-    // over a list that only needed n: cheap enough when the rule was `includes`, and not cheap at all
-    // now that it is a backtracking matcher over every path in the repository.
     .map((item) => ({ item, rank: scoreQuickItem(item, queries) }))
     .sort((a, b) => a.rank - b.rank || a.item.path.localeCompare(b.item.path))
     .map((scored) => scored.item)
@@ -546,12 +375,8 @@ function renderQuickOpenResults() {
     '<span class="quick-open-main">',
     '<span class="quick-open-name">' + quickNameHtml(item.name) + '</span>',
     '<span class="quick-open-path">' + escapeHtml(item.path) + '</span>',
-    // Which module, and whether it is test code — the two things IntelliJ's own Go to File row says
-    // besides the name (14-project-layout.js). Inside the main column, where the path it qualifies is.
     projectRowTagsHtml(item.path),
     '</span>',
-    // The type as its icon, not as the words "file - kotlin": the row is scanned, not read, and the icon is
-    // the same glyph the file tree uses for that type. The words stay as the tooltip.
     '<span class="quick-open-badge' + (item.kind === 'change' ? ' is-changed' : '') + '" title="' + escapeHtml(item.detail) + '">'
       + virtualTypeIcon(item.path) + '</span>',
     '</button>',
@@ -559,13 +384,6 @@ function renderQuickOpenResults() {
   renderQuickPreview(quickItems[quickActive]);
 }
 
-/**
- * ⌘⌥O every symbol, ⌥O types only — IntelliJ's Go to Symbol and its Go to Class.
- *
- * One mode with a flag rather than two: the list, the debounce and the engine label are identical and the
- * only difference is a word in the title and a filter main applies. (The filter is main's because the two
- * engines spell a kind differently — see isTypeLocation in analysis.ts.)
- */
 function openWorkspaceSymbols(typesOnly) {
   workspaceSymbolTypesOnly = typesOnly === true;
   workspaceSymbolQuery = '\0';
@@ -619,8 +437,6 @@ async function runWorkspaceSymbolSearch(query, seq) {
       text: String(item.text || ''),
     };
   }) : [];
-  // A declined search is not an empty project. Said in the label beside the count, because "0 results"
-  // with no reason is how a reviewer concludes the symbol does not exist.
   workspaceSymbolEngine = revisionDecline(response) !== null
     ? t('quickopen.revisionOff')
     : response && response.engine === 'lsp' ? (response.server || 'LSP') : 'index';
@@ -629,14 +445,6 @@ async function runWorkspaceSymbolSearch(query, seq) {
   renderWorkspaceSymbolResults(query);
 }
 
-/**
- * IntelliJ's file mask, as typed: a comma-separated list of globs over the file name, `!` to exclude.
- *
- * The field used to reduce every entry to an extension, so `*Service*.java` matched nothing and `!*.min.js`
- * was dropped silently. The entries pass through now and src/search.ts hands them to ripgrep's own
- * `--glob`, which reads the same spelling including the `!`. A bare `ts` or `.ts` still means `*.ts` —
- * that is what a reviewer typing in this field means, and it is what the field used to accept.
- */
 function contentSearchMasks() {
   var seen = new Set();
   return String(quickExtensionInput && quickExtensionInput.value || '')
@@ -657,15 +465,6 @@ function contentSearchMasks() {
     });
 }
 
-/**
- * Does one mask match this file NAME? `*` and `?` only; ripgrep does the real matching when there is one.
- *
- * Greedy with a single backtrack point, not a compiled regular expression — the same matcher as
- * maskMatchesName in src/search.ts, and for the reason written there: `*` became `[^/]*`, a mask may be
- * 48 characters, and `*a*a*a…` against a name that fails at the end took 1.07s on 33 characters and ten
- * times that per two more. It ran once per file of the index on every keystroke in this field, so a
- * review could be frozen by its own filter. Keep the two copies the same.
- */
 function contentSearchMaskMatches(mask, name) {
   var text = String(mask);
   var m = 0;
@@ -674,7 +473,6 @@ function contentSearchMaskMatches(mask, name) {
   var afterStar = 0;
   while (n < name.length) {
     var ch = m < text.length ? text.charAt(m) : '';
-    // `*` first: the literal comparison below also matches a `*` in the NAME, which swallowed the wildcard.
     if (ch === '*') { m += 1; star = m; afterStar = n; }
     else if (ch && (ch === '?' || ch === name.charAt(n))) { m += 1; n += 1; }
     else if (star >= 0) { m = star; afterStar += 1; n = afterStar; }
@@ -704,13 +502,8 @@ function contentSearchPathAllowed(path, masks, excludeNoise) {
   return !segments.some(function (segment) { return segment === 'test' || segment === 'tests' || segment === '__tests__'; })
     && !/(^test_.*|_test\.[^.]+$|\.(test|spec)\.[^.]+$)/.test(name);
 }
-// IntelliJ's Find in Files scope dropdown, minus the scopes this app has no answer for: it indexes no
-// library sources, and every file in a review is a project file, so "All Places" and "Project Files" are
-// the same list. "Changed files" is this app's own — the review IS a change, and "only where something
-// moved" is the scope a reviewer asks for that IntelliJ has no name for.
 var CONTENT_SEARCH_SCOPES = ['all', 'production', 'tests', 'module', 'changed'];
 
-/** Whether `path` is in the chosen scope. The exact rule — the globs sent with the query only narrow. */
 function contentSearchScopeAllows(path, scope) {
   if (!scope || scope === 'all') return true;
   if (scope === 'production') return projectScopeOf(path) === 'production';
@@ -723,13 +516,6 @@ function contentSearchScopeAllows(path, scope) {
   return true;
 }
 
-/**
- * Did this path move in the review?
- *
- * One reader, because two searches scope by it: Find in Files' "Changed files" scope above, and Search
- * Everywhere's narrow scope (seItemIsChanged, 24-search-everywhere.js). They had the lookup written out
- * separately, which is two places to go wrong about what "changed" means in a review.
- */
 function pathIsChanged(path) {
   var file = sourceByPath.get(path);
   return Boolean(file && file.changed);
@@ -782,13 +568,10 @@ function syncContentSearchControls() {
     pair[0].classList.toggle('active', pair[1]);
   });
 }
-/** The scope select's options and selection. Rebuilt rather than patched: one of them carries a name. */
 function syncContentSearchScope() {
   if (!quickScopeSelect) return;
   var module = projectCurrentModule();
   var offered = CONTENT_SEARCH_SCOPES.filter(function (scope) {
-    // A module scope with no module to name is not a scope. Neither is one in a single-module repo,
-    // where it would be the whole project under another name.
     return scope !== 'module' || (module && projectHasModules());
   });
   if (offered.indexOf(contentSearchScope) < 0) contentSearchScope = 'all';
@@ -799,7 +582,6 @@ function syncContentSearchScope() {
   quickScopeSelect.value = contentSearchScope;
 }
 
-/** ⌥S, and the select itself: the next scope round. Restarts the search — the answer changes with it. */
 function setContentSearchScope(scope) {
   if (CONTENT_SEARCH_SCOPES.indexOf(scope) < 0) return false;
   contentSearchScope = scope;
@@ -821,7 +603,6 @@ function cycleContentSearchScope() {
   return setContentSearchScope(offered[(at + 1) % offered.length]);
 }
 
-/** One of the three modifiers, by the flag's name. Restarts the search: the answer changes with it. */
 function toggleContentSearchModifier(which) {
   if (which === 'matchCase') contentSearchMatchCase = !contentSearchMatchCase;
   else if (which === 'wholeWords') contentSearchWholeWords = !contentSearchWholeWords;
@@ -831,13 +612,6 @@ function toggleContentSearchModifier(which) {
   restartContentSearch();
   return true;
 }
-/**
- * The message for a pattern that cannot be compiled, or '' when it can.
- *
- * Checked in the page, before anything is asked, because both searchers would otherwise answer "nothing
- * matched" — ripgrep by exiting 2, and the in-page fallback by having nothing to run. "No results" for a
- * typo in a pattern is the wrong answer, and it is the one a reviewer would believe.
- */
 function contentSearchPatternError(query) {
   if (!contentSearchRegex || !query) return '';
   try { new RegExp(query); return ''; } catch (error) { return String(error && error.message || error); }
@@ -862,7 +636,7 @@ function renderContentSearchResults(query) {
   var patternError = contentSearchPatternError(query);
   if (patternError) {
     contentSearchQuery = '';
-    contentSearchSeq += 1; // an answer already in flight is for a query that is no longer being asked
+    contentSearchSeq += 1;
     if (contentSearchTimer) clearTimeout(contentSearchTimer);
     contentSearchBusy = false;
     contentSearchItems = [];
@@ -916,8 +690,6 @@ function renderContentSearchResults(query) {
 function updateContentSearchStatus(query) {
   if (!query) { setQuickFilterChip(false, ''); return; }
   if (contentSearchBusy) { setQuickFilterChip(true, ''); return; }
-  // The "+" means "and more", so it belongs to the NUMBER — resultsLabel builds the whole sentence from
-  // the catalog (Korean puts the count after the noun), so the marker goes on the count it modifies.
   setQuickFilterChip(false, resultsLabel(String(contentSearchItems.length) + (contentSearchTruncated ? '+' : ''))
     + ' · ' + contentSearchEngine);
 }
@@ -978,13 +750,6 @@ function searchItemFromMatch(match) {
   };
 }
 
-/**
- * One compiled matcher for the in-page searcher, honouring the same three modifiers ripgrep is given.
- *
- * Case: `Cc` off keeps this app's long-standing smart-case behaviour (a lower-case query ignores case, a
- * query with a capital in it does not), which is what `--smart-case` means on the other side.
- * Returns null when the pattern cannot be compiled — the caller has already said so by then.
- */
 function localContentSearchMatcher(query, filters) {
   var source = filters.regex ? query : query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   if (filters.wholeWords) source = '\\b(?:' + source + ')\\b';
@@ -1048,9 +813,6 @@ function renderQuickPreview(item) {
   if (!preview) return;
   const previewSeq = ++quickPreviewSeq;
   quickPreviewState = null;
-  // A row with no file behind it — a command, the merged list's "more" — has nothing to preview. Said
-  // here rather than left to each caller: without it the lookup missed, and the pane drew an empty grey
-  // box where an action row's preview would be, which reads as "this file could not be read".
   if (!item || !item.path) { preview.innerHTML = ''; return; }
   const file = sourceByPath.get(item.path);
   if (!file || !file.embedded) {
@@ -1169,14 +931,10 @@ document.getElementById('quick-open-preview')?.addEventListener('scroll', handle
 
 function openQuickItem(item) {
   if (!item) return;
-  // An action is not a place: running it is the whole point, and it has no path to open.
   if (runFindActionItem(item)) return;
-  // The merged list's trailing "more" row is not a place either: it raises the per-group limit.
   if (expandEverywhereMore(item)) return;
-  // A recent location is a position (which pane, which side, which line), not a file — restoring it is a
-  // different act from opening its path.
   if (openRecentLocationItem(item)) return;
-  closeQuickOpen(true); // going somewhere — the destination takes the keyboard, not the palette's opener
+  closeQuickOpen(true);
   rememberRecent(item.path, item.kind);
   if ((item.kind === 'search' || item.kind === 'symbol') && sourceByPath.has(item.path)) {
     var searchFile = sourceByPath.get(item.path);
@@ -1194,7 +952,6 @@ function openQuickItem(item) {
   if (target >= 0) {
     setActive(target);
   } else if (activateDiffFile(item.path, true)) {
-    // Was a scroll to the file's anchor, which left the sidebar and breadcrumb pointing elsewhere.
   } else {
     showDiffView(false);
     const targetId = link.getAttribute('href')?.slice(1);
@@ -1227,9 +984,6 @@ function allQuickItems() {
 function recentItems() {
   const all = allQuickItems();
   const byPath = new Map(all.map((item) => [item.path, item]));
-  // A stored path the project does not have cannot be opened — a file since deleted or renamed, or (before
-  // core.quotePath was turned off) a git-escaped name that never existed on disk. Those rows do nothing when
-  // picked, so drop them. Only once the index is complete: until then `all` is partial and every row would go.
   const indexReady = !REVIEW_LAZY_LOAD || projectIndexLoaded;
   const items = loadRecent()
     .filter((item) => !indexReady || byPath.has(item.path))
@@ -1245,12 +999,6 @@ function recentItems() {
   return items;
 }
 
-// Lower sorts first here, which is why the matcher's degree is subtracted rather than added: the two
-// scales run in opposite directions. The hand-made 3000/2000/1000/500 ladder this replaces could not
-// tell `quickOpen` from `aQuickOpenThing` for `quick`, because `includes` answers the same for both.
-// Takes the whole variant list rather than one chosen variant: the scorer already tries each and keeps
-// the best, so asking matchedQuery() which one matched first was a third run of the matcher to pick an
-// answer this function would have found anyway.
 function scoreQuickItem(item, queries) {
   let score = item.recentRank ?? 9999;
   if (!queries.length || !queries.some(Boolean)) return score;
@@ -1280,7 +1028,3 @@ function baseName(path) {
   return String(path).split('/').filter(Boolean).pop() || String(path);
 }
 
-// A tree row is navigable only when it is actually visible — i.e. not tucked inside a collapsed
-// <details> folder. getClientRects alone is unreliable here: Chromium keeps collapsed <details>
-// content laid out (content-visibility), so its descendants still report rects. Walk the ancestor
-// <details> and treat anything inside a closed one (other than its own summary) as hidden.

@@ -6,9 +6,6 @@ import { RAW_PATHS } from "./git.js";
 import type { IpcMain, IpcMainEvent, IpcMainInvokeEvent, Shell } from "electron";
 
 export type ProjectPathIpcState = {
-  // `target` is the review's RIGHT side when it is a revision rather than the working tree (an A→B compare,
-  // or an automatic base against an upstream the checkout is behind). Existence has to be answered against
-  // it; see the handler below.
   options: { root: string; target?: string };
   reviewTarget?: string;
 };
@@ -22,10 +19,6 @@ export function resolveProjectPath(rootPath: string, requestedPath: unknown): st
   const target = resolve(root, requestedPath);
   const fromRoot = relative(root, target);
   if (fromRoot === ".." || fromRoot.startsWith("../") || fromRoot.startsWith("..\\") || isAbsolute(fromRoot)) return;
-  // A path that exists has to be contained canonically as well. A reviewed repository can track
-  // `shot.png -> ../../../../.ssh/id_rsa`: the check above accepts it because the LINK is inside the root,
-  // and every consumer below follows the link — Finder reveals the target, the terminal opens its
-  // directory. A path that does not exist yet keeps the lexical answer; there is nothing to follow.
   if (!existsSync(target)) return target;
   return containedRealPath(root, fromRoot);
 }
@@ -61,13 +54,6 @@ export function registerProjectPathIpc(
     return path ? { ok: true, path } : { ok: false };
   });
 
-  // "Is this file part of the review?" — the caller DELETES review comments on a `false`, so this has to be
-  // asked of the right side of the review, not of the working tree. In an A→B compare, or in a clean
-  // checkout behind its upstream (the automatic base reviews "what the remote has and you don't"), a file
-  // added on that side does not exist locally and yet reads perfectly well, because collectSourceFiles
-  // serves it from that revision's blob. Answering existsSync there deleted every comment on such a file
-  // the first time the comments dock was opened. The working tree is still the fast path: present locally
-  // is present, and only an apparent miss costs a `cat-file`.
   ipc.handle("kakapo:existing-project-paths", (event, request: { paths?: unknown[] }) => {
     const state = stateFromEvent(event);
     const requested = Array.isArray(request?.paths) ? request.paths.slice(0, 2000) : [];

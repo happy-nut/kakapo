@@ -1,37 +1,27 @@
-// Pure CLI parsing for the review flags, split out of app-main (which mixed it with window/watch/IPC/hub
-// orchestration). The flag semantics — option values, --staged/--base exclusivity, context validation — are
-// now unit-testable without git or Electron. The caller resolves the git-dependent bits (repo root, base
-// ref validation) from these parsed values; everything here is a pure function of argv.
-//
-// readOption/parsePositiveInteger already live in util.js (shared with the CLI entrypoint); re-export them
-// as the CLI-option helpers rather than keep a second copy.
 import { parsePositiveInteger, readOption } from "./util.js";
 import type { WhitespaceMode } from "./types.js";
 export { parsePositiveInteger, readOption };
 
 export type ParsedReviewArgs = {
-  requestedCwd: string | undefined; // raw --cwd (unresolved); caller resolves + checks it's a git repo
-  openPath: string | undefined; // absolute file to land on (`kakapo <file>`); caller relativises it to the root
+  requestedCwd: string | undefined;
+  openPath: string | undefined;
   // The launch NAMED a path (`kakapo <path>` / `--cwd`), rather than inheriting whatever cwd it started in.
   // A GUI launch inherits "/", which must reach the welcome screen and not a review of the whole disk.
   openedExplicitly: boolean;
   staged: boolean;
-  baseValue: string | undefined; // raw --base ref; caller validates it against the repo
+  baseValue: string | undefined;
   includeUntracked: boolean;
   context: number;
   watch: boolean;
   ignoreWhitespace: boolean;
-  // none | trim | all. `--ignore-whitespace` is the older spelling of `--whitespace=all`.
   whitespace: WhitespaceMode;
 };
 
-/** `--whitespace=none|trim|all`, falling back to the older boolean flag. An unknown value is "none". */
 function whitespaceMode(value: string | undefined, legacyIgnore: boolean): WhitespaceMode {
   if (value === "none" || value === "trim" || value === "all") return value;
   return legacyIgnore ? "all" : "none";
 }
 
-/** Parse the review flags from argv. Pure: no filesystem/git — the caller resolves root and validates base. */
 export function parseReviewArgs(args: string[]): ParsedReviewArgs {
   const staged = args.includes("--staged");
   const baseValue = readOption(args, "--base");
@@ -53,17 +43,6 @@ export function parseReviewArgs(args: string[]): ParsedReviewArgs {
   };
 }
 
-/**
- * What `--base` / `--staged` mean for a window opened on `windowRoot`, given a launch that named
- * `launchRoot`.
- *
- * They mean nothing outside the repository they were typed in. `kakapo --base HEAD~5` is a statement about
- * THIS history; carried into another repository — File > Open, a recent project, a second window, a folder
- * handed over by a second launch — it names a revision that one may not have. A repo with a single commit
- * answered `fatal: bad revision 'HEAD~5'`, its build threw, and the window it was opened for sat on the
- * loading mark for the rest of the session. The reading preferences (context, watch, whitespace) are not
- * about a revision and travel fine, which is why only these three are cleared.
- */
 export function compareSelectionFor(
   launchRoot: string,
   windowRoot: string,

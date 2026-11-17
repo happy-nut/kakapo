@@ -1,9 +1,3 @@
-// What the reviewed repository is made of — modules and test roots (src/project-layout.ts).
-//
-// Every assertion here is against a real directory tree, because the whole point of this module is that
-// it does not guess: it reads the project's own declarations and checks the filesystem. A test that
-// stubbed the filesystem would pass while the thing it guards (is `testSrc` a test root? only the .iml
-// knows) was broken.
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
@@ -14,7 +8,6 @@ import { readProjectLayout, moduleForPath, isTestSourcePath } from "../dist/proj
 const made = [];
 after(() => made.forEach((dir) => rmSync(dir, { recursive: true, force: true })));
 
-/** A throwaway repo. `files` maps a relative path to its content; a path ending in `/` is a bare directory. */
 function repo(files) {
   const dir = mkdtempSync(join(tmpdir(), "kakapo-layout-"));
   made.push(dir);
@@ -39,8 +32,6 @@ ${folders.map((line) => `      ${line}`).join("\n")}
 </module>
 `;
 
-// ---- 1. IntelliJ's own files ----------------------------------------------------------------------
-
 test("modules.xml names the modules and the .iml says which roots are tests", () => {
   const dir = repo({
     ".idea/modules.xml": `<?xml version="1.0" encoding="UTF-8"?>
@@ -52,7 +43,6 @@ test("modules.xml names the modules and the .iml says which roots are tests", ()
     </modules>
   </component>
 </project>`,
-    // `testSrc` is a test root in no convention anywhere. Only the .iml knows, which is the point.
     "app/billing-app.iml": iml([
       '<sourceFolder url="file://$MODULE_DIR$/src" isTestSource="false" />',
       '<sourceFolder url="file://$MODULE_DIR$/testSrc" isTestSource="true" />',
@@ -107,8 +97,6 @@ test("IntelliJ's answer wins over the build manifest in the same repo", () => {
   assert.equal(layout.source, "intellij");
   assert.deepEqual(layout.modules.map((module) => module.name), ["one"]);
 });
-
-// ---- 2. the build tool's workspace ----------------------------------------------------------------
 
 test("pnpm workspace globs expand, and a module is called what its own manifest calls it", () => {
   const dir = repo({
@@ -170,8 +158,6 @@ test("a Gradle project path's colons are directories, and Maven lists its module
   assert.deepEqual(maven.testRoots, ["service/src/test"], "src/test covers src/test/java — one prefix, same answer");
 });
 
-// ---- 3. conventions -------------------------------------------------------------------------------
-
 test("a plain repo is one module whose test roots are the ones that exist", () => {
   const dir = repo({ "src/index.ts": "", "test/index.test.ts": "", "docs/readme.md": "" });
   const layout = readProjectLayout(dir);
@@ -204,13 +190,7 @@ test("the deepest module root owns the path", () => {
   assert.equal(moduleForPath(layout, "tools/a.ts").name, "root");
 });
 
-// ---- what the reviewed repository is allowed to make this read ---------------------------------------
-// Three bugs from the 2026-10-26 bounty, each confirmed against readProjectLayout before it was fixed.
-
 test("a Cargo workspace is found however its [workspace] keys are ordered", () => {
-  // `[^[]*?members` could not cross the `[` of an earlier array, so `exclude` or `default-members`
-  // above `members` — which is where a formatter that sorts keys alphabetically puts both — read as
-  // "this is not a workspace" and the repo lost every module it had.
   const dir = repo({
     "Cargo.toml": '[workspace]\nresolver = "2"\nexclude = ["old"]\ndefault-members = ["crates/a"]\nmembers = ["crates/a"]\n',
     "crates/a/Cargo.toml": '[package]\nname = "crate-a"\n',
@@ -222,8 +202,6 @@ test("a Cargo workspace is found however its [workspace] keys are ordered", () =
 });
 
 test("only `packages:` in pnpm-workspace.yaml names a module", () => {
-  // pnpm 10 puts other lists in this file. Reading every `- item` in it as a package pattern invented a
-  // module for any that happened to name a directory that exists.
   const dir = repo({
     "pnpm-workspace.yaml": "packages:\n  - 'packages/*'\nonlyBuiltDependencies:\n  - esbuild\n",
     "packages/ui/package.json": '{"name":"@acme/ui"}',
@@ -235,8 +213,6 @@ test("only `packages:` in pnpm-workspace.yaml names a module", () => {
 });
 
 test("a reviewed repository cannot point the layout outside itself", () => {
-  // `.idea/modules.xml` is content of the repo under review. This one named an .iml two directories
-  // above the review root; kakapo read it and took its source folders into the layout.
   const dir = repo({
     ".idea/modules.xml": '<project><component><modules>'
       + '<module filepath="$PROJECT_DIR$/../../OUTSIDE.iml" />'
@@ -259,8 +235,6 @@ test("a workspace member cannot climb out of the repository either", () => {
     "package.json": '{"name":"root","workspaces":["../escape-target","packages/*"]}',
     "packages/ui/package.json": '{"name":"@acme/ui"}',
   });
-  // The escape target has to EXIST, or the directory check already drops it and this test passes against
-  // the bug. It is a sibling of the throwaway repo, inside the same temp directory.
   const outside = join(dir, "..", "escape-target");
   mkdirSync(outside, { recursive: true });
   writeFileSync(join(outside, "package.json"), '{"name":"outside"}');
@@ -270,12 +244,6 @@ test("a workspace member cannot climb out of the repository either", () => {
   assert.ok(!layout.modules.some((m) => m.name === "outside"), "and its manifest was never read");
 });
 
-// Every manifest here is read through util's decoder, which honours a byte-order mark and drops it. It
-// used to be read by a local `readTextFile` that called `readFileSync(path, "utf8")` — the same NAME as
-// the decoder two files over and different behaviour. A UTF-8 BOM is what Windows editors write by
-// default, and left in the string it is an invisible first character: JSON.parse throws on it, a TOML
-// section lookup misses the first line, and `<project` is no longer how modules.xml starts. The layout
-// then came back as a plain one-module repo with nothing anywhere saying why.
 test("a manifest written with a byte-order mark is still read", () => {
   const bom = (text) => "﻿" + text;
   const npm = readProjectLayout(repo({

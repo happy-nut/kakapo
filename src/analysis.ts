@@ -44,51 +44,22 @@ export type AnalysisKind =
   | "definition"
   | "references"
   | "implementation"
-  // Where the TYPE of the thing under the caret is declared, rather than the thing itself — IntelliJ's
-  // Go to Type Declaration. The same request shape as the three above.
   | "typeDefinition"
   | "workspaceSymbol"
-  // The open file's own structure: what the structure popup lists, what the sticky header and Focus Mode
-  // read the enclosing declarations from (enclosingSymbols, 16-reading-modes.js), and what
-  // next/previous-declaration walks. Answered in `symbols`, not in `locations`.
-  //
-  // NOT the breadcrumb, which this used to say: the trail above the source view is the file's PATH and
-  // nothing else, by design — the README gives that as the reason Show File Path was not ported.
   | "documentSymbol"
-  // The two hierarchies, one direction each: who calls this / what this calls, and what this extends /
-  // what extends it. A server that does not implement them says so, which is not the same answer as
-  // "nothing found" — see fallbackReason.
   | "callers"
   | "callees"
   | "supertypes"
   | "subtypes"
-  // What the thing under the caret IS, in prose — `textDocument/hover`. The only question in this list
-  // whose answer is not a position, and the one two IntelliJ actions were missing for: Quick Documentation
-  // renders the whole answer, Expression Type takes its first line. Answered in `hover`.
   | "hover"
-  // Where the file folds, and every occurrence of one symbol inside its own file. Both are about the file
-  // rather than about a position in the index, and both are answered only by a language server — an index
-  // of names cannot tell a fold from a brace or a read from a write. Answered in `folds` / `highlights`.
   | "foldingRange"
   | "documentHighlight"
-  // The constructs enclosing the caret, innermost first — what IntelliJ's Extend Selection (⌥↑) grows
-  // along and Shrink Selection (⌥↓) walks back down. A position question like the four above, but its
-  // answer is a CHAIN rather than a place to go, so it is answered in `selection`.
   | "selectionRange"
-  // Every HTTP endpoint the project declares — IntelliJ Ultimate's Endpoints tool window. Answered in
-  // `endpoints`, off the same regex index that answers workspace symbols when no server does, because no
-  // language server reports routes: what declares one is a framework's own API, not the language's.
   | "endpoints"
-  // What the server would write above a declaration and inside a line — IntelliJ's Code Vision and its
-  // inlay hints. Decoration, not navigation: answered in `lenses` / `hints`.
   | "codeLens"
   | "inlayHint"
-  // The file's tokens as the language's own parser sees them, which is what the source view's hand-written
-  // tokenizer can only approximate. Answered in `tokens`.
   | "semanticTokens";
 
-// Questions about a FILE rather than about a position in one. They take the same request shape, but the
-// caret's side tells them nothing: the file a server reads is the file on disk either way.
 const FILE_LEVEL_KINDS = new Set(["documentSymbol", "foldingRange", "codeLens", "inlayHint", "semanticTokens", "workspaceSymbol"]);
 
 export type AnalysisRequest = {
@@ -99,17 +70,7 @@ export type AnalysisRequest = {
   query?: string;
   symbol?: string;
   limit?: number;
-  /**
-   * Which diff pane the caret was in. "old" means the line number belongs to the BASE file, and the only
-   * text on disk is the new one — see runQuery, which declines the language server for it by name.
-   */
   side?: string;
-  /**
-   * Only for kind "workspaceSymbol": keep types only — IntelliJ's Go to Class, as opposed to its Go to
-   * Symbol. Filtered HERE rather than in the page because the two engines label a kind differently: a
-   * language server sends LSP's numeric SymbolKind and the regex index sends its own word, and the page
-   * would need both tables to tell a class from a function.
-   */
   types?: boolean;
 };
 
@@ -123,70 +84,29 @@ export type AnalysisResponse = {
   serverSource?: LanguageServerCommand["source"];
   symbol?: string;
   locations: AnalysisLocation[];
-  /** Only for kind "documentSymbol": the file's structure, flattened in reading order. */
   symbols?: AnalysisSymbol[];
-  /** Only for kind "hover": Markdown. Empty when neither the server nor the index had anything to say. */
   hover?: string;
-  /** Only for kind "foldingRange". Absent (not empty) when the server does not implement the request. */
   folds?: AnalysisFoldingRange[];
-  /** Only for kind "selectionRange": the constructs around the caret, innermost first. */
   selection?: AnalysisSelectionRange[];
-  /** Only for kind "endpoints": every route the project declares, in reading order. */
   endpoints?: Endpoint[];
-  /** Only for kind "documentHighlight", each occurrence labelled read / write / neither. */
   highlights?: AnalysisHighlight[];
-  /** Only for kind "codeLens": one entry per declaration the server has something to say about. */
   lenses?: AnalysisCodeLens[];
-  /** Only for kind "inlayHint". */
   hints?: AnalysisInlayHint[];
-  /** Only for kind "semanticTokens". Absent when the server registered no legend for them. */
   tokens?: AnalysisSemanticToken[];
   fallbackReason?: string;
-  /**
-   * The server was asked and answered that it does not offer this capability — a permanent no, not a
-   * "not yet". Without it the viewer could only see a heuristic answer carrying some `fallbackReason`
-   * prose, which it read as "the analyzer is still starting": ⌘U on a TypeScript file therefore said
-   * "try again in a moment" every time, forever, about a question tsserver had already declined.
-   */
   unsupported?: boolean;
-  /**
-   * The language server was reached and replied — with nothing, which is an ANSWER. Absent when the ask
-   * could not be made at all (no server for this file, a timeout, a crash), where "not found" would be a
-   * claim nobody made and "still reading" is the honest thing to say.
-   */
   serverAnswered?: boolean;
-  /**
-   * No language server covers this file's language at all — a `.md`, a `.css`, anything outside the
-   * bundled set. Permanent, and distinct from "every server we tried failed", which is not.
-   */
   noServer?: boolean;
-  /**
-   * The caret was in the diff's BASE pane, on a line that exists only there, so no language server was
-   * asked — its position names a line of the old file (see runQuery). Also permanent, and for the same
-   * reason as noServer it must not be reported as "try again in a moment": stepping to the new side is
-   * the thing that changes the answer, not waiting.
-   */
   baseSide?: boolean;
   error?: string;
-  /**
-   * Set whenever this answer describes a REVISION rather than the working tree, whether or not it found
-   * anything. Such an answer can only ever come from the index — no language server can be pointed at a
-   * revision — so it is name-matched by construction, and the reviewer has to be told that in different
-   * words from "still indexing": nothing is indexing, and no better answer is coming later.
-   */
   revision?: string;
-  /**
-   * Set when the question could not be asked at all, as opposed to asked and answered with nothing.
-   * `"revision"`: that revision could not be read, so an empty answer would mean "nothing there" when it
-   * actually means "nothing was looked at".
-   */
   declined?: "revision";
 };
 
 export type DiagnosticsResponse = {
   ok: boolean;
   generation: number;
-  available: boolean; // false when no language server covers this file — the regex fallback cannot diagnose
+  available: boolean;
   engine: "lsp" | "index";
   diagnostics: LspDiagnostic[];
   server?: string;
@@ -194,10 +114,6 @@ export type DiagnosticsResponse = {
   error?: string;
 };
 
-// `indexing` is the window this app used to have no name for: the server has answered `initialize` and is
-// building its model, so navigation works but answers from the regex index rather than semantically. It is
-// the state a reviewer hits on their first keystroke after opening a project, and the one worth saying out
-// loud — both while it lasts and when it ends.
 export type AnalysisPhase = "idle" | "starting" | "indexing" | "ready" | "fallback" | "failed";
 
 export type AnalysisStatus = {
@@ -208,8 +124,6 @@ export type AnalysisStatus = {
   serverSource?: LanguageServerCommand["source"];
   fallbackReason?: string;
   error?: string;
-  // Did the server confirm it had analysed the warm-up file, or did the index budget simply run out? The
-  // chip reads the same either way; this is here so a reviewer who asks can be told which it was.
   indexed?: boolean;
   updatedAt: string;
 };
@@ -222,14 +136,9 @@ type AnalysisOptions = {
   coldQueryBudgetMs?: number;
   files?: IndexedFile[];
   onStatus?: (status: AnalysisStatus) => void;
-  // The symbol scan kept between launches (analysis-cache.ts). Supplied by the app, which knows the user-data
-  // directory and which repository this workspace belongs to; absent in tests and on the CLI path, where a
-  // build simply scans everything as before.
   symbolCache?: SymbolCache;
 };
 
-// What syncIndex needs from one of the review's file records. Structural rather than importing SourceFile,
-// so the analysis layer keeps knowing nothing about how a review is built.
 export type IndexedFileState = {
   path: string;
   signature: string;
@@ -238,14 +147,8 @@ export type IndexedFileState = {
 };
 
 const MAX_LOCATIONS = 500;
-// How many files syncIndex will read from disk itself before handing the job back to buildProjectIndex.
-// Matched to that builder's own read batch: one batch is work worth doing inline, and anything larger is a
-// base change or a branch switch dressed up as a save, where a batched, yielding rebuild is cheaper.
 const MAX_INLINE_INDEX_READS = 32;
 
-// The wait before a fallen language server is started again, doubling per fall and capped. See
-// `restarting`: short at first because the common fall is one slow request timing out on a server that is
-// otherwise fine, capped so a server that cannot run is not respawned by every keystroke.
 const SERVER_RESTART_BASE_MS = 1_000;
 const SERVER_RESTART_MAX_MS = 60_000;
 
@@ -262,73 +165,31 @@ function uniqueLocations<T extends AnalysisLocation>(items: T[], limit = MAX_LOC
   return out;
 }
 
-// The server-identity fields every analysis status carries, projected once from a language-server command
-// (family/name/source -> family/server/serverSource) so a shape change touches one place, not five setStatus calls.
 function serverFields(server: LanguageServerCommand): { family: string; server: string; serverSource: LanguageServerCommand["source"] } {
   return { family: server.family, server: server.name, serverSource: server.source };
 }
 
-// Where a location's file actually is. A definition OUTSIDE the review root carries an absolute path —
-// a stdlib header, a gem, a crate in ~/.cargo, site-packages, GOROOT — and join(root, "/usr/include/x.h")
-// silently produces "<root>/usr/include/x.h", a path that exists nowhere. Every read of a library location
-// failed that way, which left it with no text, which got it dropped by the text filter in
-// navigationLocations. The server had answered with a real file on disk and the reviewer was told the
-// definition could not be found. Every language with dependencies outside the project was affected; the
-// JVM `jrt:`/`jar:` case was the same failure reached by a different route.
 function locationFilePath(root: string, path: string): string {
   return isAbsolute(path) ? path : join(root, path);
 }
 
-/**
- * Is the review showing something other than the working tree?
- *
- * `undefined` and the literal `"worktree"` both mean the files on disk, which is what this analyzer reads.
- * Anything else is an A→B compare whose right side is a revision (app-main.ts: "exact right/new side
- * revision for an A→B compare"), and the same test already guards path existence in app-path-ipc.ts.
- */
 function readingARevision(target: string | undefined): target is string {
   return Boolean(target) && target !== "worktree";
 }
 
 export class ProjectAnalysis {
   private indexPromise?: Promise<RegexIndex>;
-  /**
-   * The revision the review is currently showing, when it is not the working tree.
-   *
-   * Everything this class reads comes from `locationFilePath`, i.e. from disk, so when the canvas is
-   * showing revision B the index describes a DIFFERENT text than the one being read. That mismatch has two
-   * shapes and the second is the dangerous one: a symbol that was renamed answers with nothing (which at
-   * least looks like an answer of "none"), while a symbol that merely MOVED answers with the file it lives
-   * in today — a file that may not have existed in the revision on screen — and nothing distinguishes that
-   * from a correct jump. So navigation declines here rather than guessing.
-   */
   private reviewTarget?: string;
-  /** Built indexes keyed by revision. A revision's tree is immutable, so these never need invalidating. */
   private revisionIndexes = new Map<string, Promise<RegexIndex>>();
   private clients = new Map<string, LspClient>();
-  // What fell over, how often, and when. A Set here meant the quarantine was PERMANENT: one tsserver that
-  // timed out a single request left every later ⌘B, ⌘⌥B, ⌥F7 and ⌘U on every .ts file in the window
-  // answering off the regex index, under a status chip reading "heuristic" and no way back short of
-  // reopening the folder. Measured in the real app: the first file asked answered `engine: "lsp"`, the
-  // next three answered `No language server is available`, and reversing the order moved the failure with
-  // it — the file was never the reason. A server that falls is restarted now; the count only lengthens the
-  // wait, so one that cannot run does not respawn on every keypress.
   private failedServers = new Map<string, { attempts: number; at: number }>();
   private readonly resolveServer: (root: string, path: string) => LanguageServerCommand | undefined;
-  // How long the background warm-up waits for a server to confirm it has analysed the file. Generous
-  // because nothing is waiting on it, bounded because a server that never diagnoses must not leave the
-  // status chip saying "indexing" forever. Overridable so tests do not spend a minute on it.
   private readonly indexBudgetMs: number;
-  // How long one navigation question waits for a server that has NOT said it is ready yet. Small, because
-  // during that window the server usually has no answer at all and the regex index does — see
-  // withDeadlineWhileIndexing.
   private readonly coldQueryBudgetMs: number;
   private readonly fixedFiles?: IndexedFile[];
   private readonly symbolCache?: SymbolCache;
   private readonly onStatus?: (status: AnalysisStatus) => void;
   private generation = 0;
-  // What the built index holds, path → the review's signature for it. The index itself does not carry these:
-  // buildProjectIndex reads the tree directly and has no cheaper hash to offer than the content it just read.
   private indexedSignatures = new Map<string, string>();
   private syncChain: Promise<void> = Promise.resolve();
   private status: AnalysisStatus = { generation: 0, phase: "idle", updatedAt: new Date().toISOString() };
@@ -342,31 +203,8 @@ export class ProjectAnalysis {
     this.onStatus = options.onStatus;
   }
 
-  /**
-   * Bring the built symbol index back in line with the review's own file records, re-indexing only what
-   * actually changed.
-   *
-   * This replaces invalidate() on the rebuild path. Discarding the index meant the next question rebuilt it
-   * from scratch: ripgrep walk, read every file, scan every line — 210ms on this repository, ~1,900ms of
-   * scan alone on a 3,000-file one, in the main process, once per save, because one file changed.
-   *
-   * The review's records are the right authority for this. Measured on this repository, every file the index
-   * holds appears in them (191 of 212; the other 21 are markdown and images the index skips), and all 212
-   * carry a signature — a content hash for files the build read, mtime+size for the ones it deferred past
-   * its byte budget. So comparing signatures says exactly which files moved, and a changed file's content is
-   * already in hand: the build keeps changed files regardless of that budget, so the common save needs no
-   * disk read at all.
-   *
-   * Returns what it did, so a test can tell a real patch from an accidental full rebuild.
-   */
   syncIndex(files: IndexedFileState[]): Promise<"seeded" | "unchanged" | "patched" | "rebuilt"> {
-    // Saves happen in the working tree. A revision's tree cannot change, so there is nothing to patch and
-    // patching would touch the OTHER index — the working-tree one, which is not what is being served.
     if (this.reviewTarget) return Promise.resolve("unchanged");
-    // One at a time. Rebuilds arrive as fast as files are saved — a watch session, or an agent writing a
-    // directory — and two overlapping syncs read the same signature map before either writes it, so the
-    // second records its content under the first's signature and the NEXT save sees "unchanged" and skips a
-    // file that really did move. Patching twice is harmless; losing a signature is a stale index.
     const run = this.syncChain.then(() => this.syncIndexNow(files), () => this.syncIndexNow(files));
     this.syncChain = run.then(() => undefined, () => undefined);
     return run;
@@ -380,8 +218,6 @@ export class ProjectAnalysis {
       next.set(path, file);
     }
 
-    // Nothing built yet: the lazy build will read the working tree itself, so these signatures describe what
-    // it is about to produce. Recording them is the whole of the work.
     if (!this.indexPromise) {
       this.indexedSignatures = new Map([...next].map(([path, file]) => [path, file.signature]));
       this.bumpGeneration();
@@ -398,9 +234,6 @@ export class ProjectAnalysis {
       return "unchanged";
     }
 
-    // An unchanged file whose signature moved is one the build read and then dropped to stay inside its
-    // byte budget, so its content has to come off disk. One batch of those is worth doing here; more than
-    // that is a base change wearing a save's clothing, and buildProjectIndex reads in batches and yields.
     const needsRead = stale.filter((file) => typeof file.content !== "string" || !file.content.length);
     if (needsRead.length > MAX_INLINE_INDEX_READS) {
       this.invalidate();
@@ -440,11 +273,6 @@ export class ProjectAnalysis {
     });
   }
 
-  /**
-   * Tell the analyzer which revision the review is showing. Called wherever the review's target is applied,
-   * so the two cannot drift: a compare that moves to a revision silently is exactly the state this exists
-   * to make visible. `undefined` or "worktree" restores ordinary navigation.
-   */
   setReviewTarget(target: string | undefined): void {
     this.reviewTarget = readingARevision(target) ? target : undefined;
   }
@@ -466,7 +294,6 @@ export class ProjectAnalysis {
     return { ...this.status };
   }
 
-  /** How many files the kept symbol scan served and how many had to be scanned — for the perf trace. */
   symbolCacheStats(): { hits: number; misses: number } | undefined {
     return this.symbolCache?.stats();
   }
@@ -476,9 +303,6 @@ export class ProjectAnalysis {
     this.clients.clear();
   }
 
-  /** Every live language-server process this analysis has spawned, with its family — the memory watchdog
-   *  (app-main.ts) weighs fleets by pid and exempts families whose bulk is by design (the JVM Kotlin server
-   *  is 1.3 GB when healthy; trading its restart for memory is a known bad deal). */
   serverPids(): { pid: number; family: string }[] {
     const out: { pid: number; family: string }[] = [];
     for (const client of this.clients.values()) {
@@ -488,21 +312,7 @@ export class ProjectAnalysis {
     return out;
   }
 
-  // Start at most one process per resolved language-server command and open one changed document. The app
-  // schedules this only after its review page loads, so semantic navigation is warm without delaying paint.
   async prewarm(paths: string[]): Promise<void> {
-    // Start the regex index first, and do not wait for it.
-    //
-    // The index is what answers navigation WHILE the servers are still reading the project — that is its
-    // whole job. Building it lazily meant the reviewer's first keystroke in exactly that window paid to
-    // build it, on top of whatever it had already spent waiting for the server. Measured on this
-    // repository: 155 ms for 189 files and 2.4 MB, and it scales with the project, so the repositories
-    // where the warm-up window is longest are also the ones where the fallback costs most to produce.
-    //
-    // Nothing awaits this. prewarm runs after the review has painted, so the work lands where no keystroke
-    // is waiting on it; by the time one is, the index is already built and getIndex() returns the same
-    // settled promise. The catch is only so a failure here cannot surface as an unhandled rejection —
-    // queries await the same promise and handle it themselves.
     void this.getIndex().catch(() => undefined);
 
     const seen = new Set<string>();
@@ -531,32 +341,18 @@ export class ProjectAnalysis {
     const generation = this.generation;
     const started = performance.now();
     const result = await this.runQuery(request);
-    // The page has to tell "no server will ever answer about this line" from "the server is still waking
-    // up", because it says a different sentence for each and "try again in a moment" is the one thing that
-    // can never come true for a line of the old file.
-    //
-    // Only where a POSITION was declined. A file-level question — this file's symbols, its folds, its code
-    // lenses — is about the file on disk and was answered by a server that read it, so flagging those as
-    // base-side would be the flag saying something untrue about an answer that is perfectly good.
     const baseSide = request.side === "old" && !this.reviewTarget && !FILE_LEVEL_KINDS.has(request.kind)
       ? { baseSide: true }
       : {};
     return { ...result, ...baseSide, generation, durationMs: Math.round((performance.now() - started) * 10) / 10 };
   }
 
-  // Diagnostics for a single file, sourced only from a real language server. Unlike navigation there is no
-  // regex fallback: heuristics cannot judge correctness, so an unsupported language reports available:false
-  // rather than a misleading empty "no problems". A transport failure quarantines the server like navigation.
   async diagnostics(path: string): Promise<DiagnosticsResponse> {
     const generation = this.generation;
     const relative = safeRelativePath(this.root, path);
     if (!relative) {
       return { ok: false, generation, available: false, engine: "index", diagnostics: [], error: "A project-relative source path is required" };
     }
-    // A language server reads the working tree, so on a revision its diagnostics describe different text:
-    // the line numbers still land, which is what makes it bad — squiggles appear on revision-B lines for
-    // problems in the file as it is today. `available: false` is the existing way to say "nothing can
-    // judge this file", and that is exactly true here.
     if (this.reviewTarget) {
       return { ok: true, generation, available: false, engine: "index", diagnostics: [] };
     }
@@ -573,45 +369,21 @@ export class ProjectAnalysis {
 
   private async runQuery(request: AnalysisRequest): Promise<AnalysisResult> {
     const path = safeRelativePath(this.root, request.path);
-    // A language server reads the working tree and cannot be pointed at a revision without materializing
-    // files, so on a revision it is not asked at all: an answer from a server about today's text, offered
-    // while the canvas shows commit B, is the confident-but-wrong jump this whole branch exists to stop.
-    // The index, by contrast, is built FROM the revision (see getIndex), so it answers about what is on
-    // screen — heuristically, which is the honest grade for a name-matching index and is already how this
-    // app labels an index answer.
     const revision = this.reviewTarget;
     const onRevision = Boolean(revision);
-    // A language server reads the WORKING TREE, so two carets sit outside its reach, and a question resolved
-    // by POSITION about either comes back truthful and wrong. A revision is the first, for the reason just
-    // given. The diff's BASE pane is the second: its line number names a line of the old file, so ⌘⌥B on a
-    // deleted `openSourceAt(…)` call answered with lib.es5.d.ts's String.replace — new-file line 255 is a
-    // `.replace(…)`, and the server described the position it was handed. caretSourceLoc already maps an
-    // UNCHANGED base row onto its working-tree twin, so a line that still arrives marked "old" exists only
-    // in the base. The symbol's NAME survives either move, which is why the base side is offered at all, so
-    // both decline the server by name and let the index answer — heuristically, the honest grade for it.
     const declineReason = onRevision
       ? `Reading ${revision}, which no language server can be pointed at`
       : request.side === "old"
         ? "This line is in the diff's base pane, not in the working tree a language server reads"
         : "";
-    // (B) introduced a new way to be silently empty: a revision whose tree could not be read at all yields
-    // an index with no files, and then every answer is `[]` — "nothing there" when the truth is "nothing was
-    // looked at". That is the exact failure this branch set out to remove, so it is declined by name.
     if (revision && (await this.getIndex()).files.size === 0) {
       return { ok: false, engine: "index", confidence: "heuristic", locations: [], revision, declined: "revision" };
     }
     try {
       if (request.kind === "workspaceSymbol") return await this.workspaceSymbols(path, request.query ?? request.symbol ?? "", request.limit, request.types === true);
-      // Project-wide, like workspaceSymbol — it needs no path, and asking for one would make the list
-      // unavailable until a file happened to be open.
       if (request.kind === "endpoints") return await this.projectEndpoints();
       if (!path) return { ok: false, engine: "index", confidence: "heuristic", locations: [], revision, error: "A project-relative source path is required" };
-      // A file's structure is about the file, not about a position in it, so it skips symbolContext (which
-      // exists to work out what the caret is on) and has its own index fallback.
       if (request.kind === "documentSymbol") return await this.documentSymbols(path, onRevision);
-      // Both are language-server-only questions, and both are about the file rather than the index, so
-      // they take the same shape as the structure above: ask the client for this path, or answer "not
-      // supported" so the caller can keep its own fallback rather than read an empty list as a fact.
       if (request.kind === "foldingRange") return await this.foldingRanges(path, onRevision);
       if (request.kind === "selectionRange") return await this.selectionRanges(path, request, onRevision);
       if (request.kind === "documentHighlight") return await this.documentHighlights(path, request, declineReason);
@@ -651,8 +423,6 @@ export class ProjectAnalysis {
         ? await this.fallbackDefinitions(context.symbol, path, context.lineIndex, context.column)
         : request.kind === "references"
           ? await this.fallbackReferences(context.symbol, true, path, context.lineIndex)
-          // A type declaration is a declaration: the name index cannot tell a type's from a value's, so the
-          // heuristic answer is the same set of declarations the definition fallback offers.
           : request.kind === "typeDefinition"
             ? await this.fallbackDefinitions(context.symbol, path, context.lineIndex, context.column)
             : await this.fallbackImplementations(context.symbol);
@@ -664,11 +434,6 @@ export class ProjectAnalysis {
         symbol: context.symbol,
         locations,
         fallbackReason: lsp.fallbackReason ?? "Language server returned no semantic locations",
-        // Did the server ANSWER, or could it not be asked? Not derivable from the reason: lspLocations
-        // writes one for an empty reply too, so every attempt to read this off the prose got it wrong in
-        // one direction or the other — a reply of "nothing" reported as "still reading the project",
-        // forever, or a genuine timeout reported as "no definition found", which is a claim nobody made.
-        // The helper says it, because the helper is where the two are still distinguishable.
         serverAnswered: lsp.answered === true,
         noServer: lsp.noServer === true,
       };
@@ -699,10 +464,6 @@ export class ProjectAnalysis {
   }
 
   private getIndex(): Promise<RegexIndex> {
-    // On a revision the index is built FROM that revision, so every answer below describes the text on
-    // screen. Cached per revision because a compare is switched back and forth while reading, and because
-    // a revision's tree cannot change under us — unlike the working tree, which is why only this side of
-    // the branch needs syncIndex and invalidate at all.
     if (this.reviewTarget) {
       const revision = this.reviewTarget;
       const cached = this.revisionIndexes.get(revision);
@@ -717,33 +478,13 @@ export class ProjectAnalysis {
     return this.indexPromise;
   }
 
-  /**
-   * One file's text, from whatever the review is actually showing.
-   *
-   * This is the routing point. Four call sites used to read `locationFilePath(root, path)` directly — the
-   * working tree — so on a revision they resolved the symbol under the caret, filtered candidates and
-   * built result previews from a different text than the one on screen. They all come through here now,
-   * and nothing downstream had to learn about revisions.
-   *
-   * On a revision the answer comes from the index rather than from git: `RegexIndex.files` already holds
-   * the content of every indexed file (the masking cache next door relies on the same property), so there
-   * is no second read and no process to spawn. A path the index does not hold — not code, over the size
-   * cap, absent from this revision — returns undefined, which is what the old `catch` produced too.
-   */
   private async readSource(path: string): Promise<string | undefined> {
     if (this.reviewTarget) {
       const indexed = (await this.getIndex()).files.get(path);
-      // Absent from the index means absent from the revision being reviewed — except for a library path,
-      // which is in no index in any mode. Falling back for a project file would quietly read the working
-      // tree in place of the revision.
       if (indexed !== undefined || !isKnownLibraryPath(path)) return indexed;
     }
     const file = locationFilePath(this.root, path);
-    try { return await readFile(file, "utf8"); } catch { /* not a file — it can still be a path INTO one */ }
-    // A definition inside an archive (`…/phpactor.phar/vendor/jetbrains/phpstorm-stubs/date/date.php`) is a
-    // real location whose text only the library reader can produce. It matters here and not just in the
-    // source view: navigationLocations drops a location it can see no visible characters on, so without
-    // this every PHP stdlib definition came back "definition not found" — the server having answered it.
+    try { return await readFile(file, "utf8"); } catch { }
     return readLibrarySourceFile(file)?.content;
   }
 
@@ -764,15 +505,6 @@ export class ProjectAnalysis {
       : { lineIndex, column: col };
   }
 
-  /**
-   * The text behind a non-file definition target, for the source view to paint.
-   *
-   * The URI has to have come from a server in this session (isKnownExternalUri) and its scheme has to be
-   * one some language's server can read; the sample filename is how the right server is chosen, since a
-   * `jdt://` URI carries no path for serverCandidates to classify. Returns the empty string when there is
-   * no server, no answer, or an error — the caller turns that into "it is over there" rather than an
-   * empty editor.
-   */
   async externalSourceText(uri: string): Promise<string> {
     if (!isKnownExternalUri(uri)) return "";
     const sample = externalUriSampleFile(uri);
@@ -801,23 +533,10 @@ export class ProjectAnalysis {
     return undefined;
   }
 
-  /**
-   * Is a server CONFIGURED for this file's language, healthy or not?
-   *
-   * `clientFor` returns undefined for two very different reasons — nothing resolves for this language, or
-   * what does is inside the wait before its restart — and a per-call `attempted` flag cannot tell them
-   * apart, because `failedServers` outlives the call. Deriving "no server covers this language" from it
-   * meant one tsserver crash turned every later ⌘B on every `.ts` file into "this language is not
-   * supported", which is a claim about the project rather than about a server that fell over.
-   */
   private hasServerFor(path: string): boolean {
-    // The SAME candidate list clientFor builds, so the two cannot disagree. Asking the bundled resolver
-    // independently answered "yes, covered" for a project whose injected resolver returns nothing — a
-    // state clientFor can never resolve out of, where the reader would be told to try again forever.
     return this.serverCandidates(path).length > 0;
   }
 
-  /** The servers that could serve this file, best first — healthy or not. */
   private serverCandidates(path: string): LanguageServerCommand[] {
     const primary = this.resolveServer(this.root, path);
     const servers = primary ? [primary] : [];
@@ -832,15 +551,6 @@ export class ProjectAnalysis {
     return `${server.command}\0${server.args.join("\0")}`;
   }
 
-  /**
-   * Is this server inside the wait after its last fall?
-   *
-   * Doubling, capped: 1s after the first fall, 2s after the second, up to a minute. The first wait is
-   * short because the overwhelming case is a server that timed out one slow request and runs perfectly on
-   * the next ask; the cap is there because a server that cannot start at all would otherwise be respawned
-   * by every keystroke. The count is never cleared, so a server that keeps dying is asked ever more
-   * rarely rather than being declared missing.
-   */
   private restarting(key: string): boolean {
     const failure = this.failedServers.get(key);
     if (!failure) return false;
@@ -873,12 +583,8 @@ export class ProjectAnalysis {
       attempted.add(key);
       try {
         await client.warmup(path);
-        // Up and talking, not yet useful: say so, then get the indexing over with here rather than under
-        // the reviewer's first keystroke. Nothing waits on this — prewarm is called after the review paints.
         this.setStatus("indexing", serverFields(client.server));
         const analysed = await client.awaitAnalysed(path, this.indexBudgetMs);
-        // Budget expiry is not a failure: the server is up and answering, and some servers never diagnose
-        // some files. Either way this is as ready as it is going to say it is.
         this.setStatus("ready", { ...serverFields(client.server), indexed: analysed });
         return;
       } catch (error) {
@@ -889,22 +595,6 @@ export class ProjectAnalysis {
     this.setStatus("fallback", { fallbackReason: `No language server is available for ${path}` });
   }
 
-  // A cold server answers its first questions only after it has read the project — tens of seconds on a
-  // large Gradle/Kotlin workspace — and REQUEST_TIMEOUT_MS lets one question sit there for eight of them.
-  // Every navigation key pressed in that window paid the whole wait and then usually got the regex index's
-  // answer anyway, because the server had nothing to give yet. So while the server has not reported
-  // `ready`, stop WAITING at a deadline and let the index answer now.
-  //
-  // The request is not cancelled. It keeps running, which is exactly what warms the server up, and the
-  // first question asked after `ready` waits as long as it needs to.
-  //
-  // `onLateSuccess` is how the NEXT question gets to skip the deadline. An answer that arrives after the
-  // budget is still an answer: it is the server saying it can read this project now. Dropping it on the
-  // floor left the phase wherever warm-up had put it, so every following keystroke was deadlined too — and
-  // warm-up's own signal is one file's diagnostics publish, bounded at 90 seconds. A session trace on this
-  // repository sat at `indexing` for 90,002ms twice, answering from the regex index the whole time while a
-  // server that could answer sat beside it. One cold keystroke is the price; ninety seconds of them is a
-  // lost signal.
   private withDeadlineWhileIndexing<T>(
     work: Promise<T>,
     onLateSuccess?: () => void,
@@ -917,8 +607,6 @@ export class ProjectAnalysis {
         done = true;
         resolve({ settled: false });
       }, this.coldQueryBudgetMs);
-      // One timer left armed held this project's whole test suite open for six hours. Nothing here is
-      // worth keeping the process alive for.
       if (typeof timer.unref === "function") timer.unref();
       work.then(
         (value) => {
@@ -927,21 +615,11 @@ export class ProjectAnalysis {
           clearTimeout(timer);
           resolve({ settled: true, value });
         },
-        // A rejection after the deadline has already passed belongs to the warm-up, not to this question;
-        // the handler is still attached so it cannot surface as an unhandled rejection.
         (error) => { if (done) return; done = true; clearTimeout(timer); reject(error); },
       );
     });
   }
 
-  /**
-   * What the caret is on, in prose.
-   *
-   * A revision skips the server outright — no language server can be pointed at one — and takes the index
-   * answer, which is the same arrangement every other kind here uses. That is not a decline: the
-   * declaration line IS an answer about a revision, and a reader asking "what is this" gets the signature
-   * rather than a refusal.
-   */
   private async hoverAt(
     path: string,
     context: { symbol?: string; lineIndex: number; column: number },
@@ -963,8 +641,6 @@ export class ProjectAnalysis {
         hover: lsp.hover,
       };
     }
-    // The index knows the line a symbol was declared on, which is the part of a hover a reader is usually
-    // after. Fenced, so the renderer highlights it as the code it is rather than as a paragraph.
     const index = await this.getIndex();
     const declaration = (index.definitions.get(context.symbol ?? "") ?? [])[0];
     const text = declaration?.declaration?.trim() ?? "";
@@ -1006,8 +682,6 @@ export class ProjectAnalysis {
         fallbackReason: answer.value ? undefined : "Language server returned no hover",
       };
     } catch (error) {
-      // Hover is an optional capability and a server that lacks it must not be quarantined for saying so —
-      // the same reasoning the location path applies to `implementation`.
       return { hover: "", fallbackReason: errorMessage(error) };
     }
   }
@@ -1018,9 +692,6 @@ export class ProjectAnalysis {
     column: number,
     method: "textDocument/definition" | "textDocument/references" | "textDocument/implementation" | "textDocument/typeDefinition",
     symbol = "",
-    // `answered` / `noServer` are the distinctions the caller cannot make: this helper writes a `fallbackReason` for an
-    // empty REPLY as well as for a failed ask, and those are opposite situations for a reader. An empty
-    // reply is a dead end; a failed ask is "nobody has said yet".
   ): Promise<{ server?: string; serverSource?: LanguageServerCommand["source"]; locations: AnalysisLocation[]; fallbackReason?: string; answered?: boolean; noServer?: boolean }> {
     let attempted = false;
     let lastError = "";
@@ -1031,11 +702,6 @@ export class ProjectAnalysis {
           ? "All available language servers failed"
           : `No language server is available for ${path}`);
         this.setStatus("fallback", { fallbackReason });
-        // Nothing covers this file's language — a .md, a .css, anything outside the bundled set. That is
-        // permanent, and the viewer had no way to see it: it read the answer as "the analyzer is still
-        // starting" and told the reader to try again in a moment, on a file where no later attempt can
-        // ever differ. Asked of the RESOLVER, not of this call's attempts: a quarantined server is a
-        // server, and saying its language is unsupported would be a worse lie than the one this replaced.
         return { locations: [], fallbackReason, noServer: !this.hasServerFor(path) };
       }
       attempted = true;
@@ -1046,57 +712,12 @@ export class ProjectAnalysis {
           () => this.setStatus("ready", serverFields(server.server)),
         );
         if (!answer.settled) {
-          // Not an error and not a dead end: the server simply has not read enough of the project yet.
-          // Returning no locations drops through to the regex index below, and `fallbackReason` is what
-          // makes the renderer label it as the partial answer rather than as the whole truth.
           return { locations: [], fallbackReason: "The language server is still reading the project" };
         }
         let locations = uniqueLocations(answer.value);
-        // tsserver and friends commonly report the local import BINDING rather than the declaration it
-        // points at. Go-to-definition that lands on `import { thing } from …` has not answered the
-        // question, so follow the indirection here instead of making the reviewer press the key twice.
-        //
-        // This used to fire only when the server returned EXACTLY ONE location, and only when a regex
-        // matched that one line as an import statement — so it missed both of the shapes that actually
-        // turn up: a server that returns the binding alongside something else, and a binding inside a
-        // multi-line `import {\n  thing,\n} from …`, whose line is just `  thing,` and matches nothing.
-        // Asking the index what counts as a declaration covers every shape and every language it knows.
-        //
-        // Following a location that really was the declaration is harmless by construction: the server
-        // sends back the same place, the filter below drops it, and the original answer stands. The bound
-        // is there so a server returning a long list cannot turn one keystroke into a dozen round trips.
-        //
-        // Two things this is NOT allowed to do, both of which it used to:
-        //
-        //   - Ask tsserver for the SOURCE definition. `_typescript.goToSourceDefinition` answers a
-        //     different question — "where is the JavaScript behind this typing" — and for a package that
-        //     ships typings and no readable implementation it answers with the package's entry file,
-        //     line 1. So ⌘B on `app` from `import { app } from "electron"` landed on
-        //     node_modules/electron/index.js:1, a CommonJS launcher shim, while the server had already
-        //     named node_modules/electron/electron.d.ts:26341 — `const app: App;` — correctly. IntelliJ
-        //     has no such step: Go to Declaration goes to the declaration (GtdKt.fromTargetData in
-        //     app-client.jar), and the JS implementation is a different action there too.
-        //
-        //   - Decide whether a target "is a declaration" by looking its NAME up in the project index.
-        //     A library target is in no index, so that test fell through to whether the project happens
-        //     to declare the same name somewhere — and this project has a `const app` in a test file, so
-        //     electron's `app` was thrown away and electron's `BrowserWindow`, which nothing here
-        //     declares, was kept. Navigation that works or not depending on an unrelated file's local
-        //     variable name is not navigation.
-        //
-        // What is left is the case the follow-up was written for, and only that: the binding lives in
-        // the file the question was asked from, so that is the only place worth asking again.
         if (method === "textDocument/definition" && locations.length && locations.length <= 4) {
           const resolved: AnalysisLocation[] = [];
           for (const candidate of locations) {
-            // A target that is not a file cannot be asked a follow-up question. `client.locations` opens
-            // the document first, and `jdt://contents/java.util/List.class` has no document: the open
-            // lstat'd `<root>/jdt:/contents/java.util/List.class`, threw ENOENT, and the catch below turned
-            // the server's correct answer into "Language server returned no semantic locations" with the
-            // ENOENT as the reason. So EVERY definition in compiled code — every JDK class, every class in
-            // a dependency jar — was discarded here, one layer above the normalizer that had been fixed to
-            // produce it, and the reader was told the definition could not be found. It is also already
-            // the declaration by construction: a class file holds no import binding to follow.
             if (candidate.external) { resolved.push(candidate); continue; }
             if (candidate.path !== path) { resolved.push(candidate); continue; }
             let followed = uniqueLocations(
@@ -1113,22 +734,15 @@ export class ProjectAnalysis {
           serverSource: client.server.source,
           locations,
           fallbackReason: locations.length ? undefined : "Language server returned no semantic locations",
-          answered: true, // it replied — with nothing, which is still a reply
+          answered: true,
         };
       } catch (error) {
-        // A server may legitimately omit one capability (commonly implementation). Keep it alive for
-        // definition/references; only quarantine transport/process failures that cannot recover in-window.
         if (!this.transportFailure(error)) {
-          // An error REPLY is an answer: the server was reached, understood the request and refused it —
-          // commonly `implementation`, which the comment above says a server may legitimately omit. Left
-          // unflagged, the viewer read it as "the analyzer is still starting" and told the reader to try
-          // again in a moment, on every press, forever, beside a status bar reading ready.
           const fallbackReason = errorMessage(error);
           return { locations: [], fallbackReason, answered: true };
         }
         lastError = errorMessage(error);
         this.quarantine(client, error);
-        // A failed explicit/project-local server is followed by the packaged sidecar in clientFor().
       }
     }
   }
@@ -1144,10 +758,6 @@ export class ProjectAnalysis {
           break;
         }
         try {
-          // Filter BEFORE capping. Capping first spends the whole budget on symbols that are about to be
-          // thrown away: ⌥O (Go to Class) on an empty query answered "결과 1개" because 200 symbols came
-          // back and 199 of them were not types. The number on screen was an artifact of the order these
-          // two ran in, not a count of anything.
           const cap = Math.max(1, Math.min(Number(limit) || 200, 500));
           const matched = await client.workspaceSymbols(query);
           const locations = uniqueLocations(typesOnly ? matched.filter(isTypeLocation) : matched, cap);
@@ -1181,20 +791,6 @@ export class ProjectAnalysis {
     return { ok: true, engine: "index", confidence: "heuristic", locations, fallbackReason };
   }
 
-  /**
-   * The open file's structure.
-   *
-   * The language server is asked first and the regex index answers when it cannot — which is the same
-   * arrangement as every other query here, and matters more for this one: the structure popup is how a
-   * reader moves through a large file, and a file in a language with no bundled server still has functions
-   * in it. The index answer is flat (it reads declarations line by line, so it has no nesting to report)
-   * and labelled heuristic, which is the honest grade.
-   */
-  /**
-   * Where the open file folds. No index fallback: the viewer keeps its own brace walk for exactly the case
-   * this cannot answer, and an empty list from here would be indistinguishable from "this file has no
-   * folds", which would silently take the folds away from every C-like file while a server was starting.
-   */
   private async foldingRanges(path: string, onRevision: boolean): Promise<AnalysisResult> {
     if (onRevision) {
       return {
@@ -1226,12 +822,6 @@ export class ProjectAnalysis {
     }
   }
 
-  /**
-   * The two decoration requests, which are one method because they are one shape: ask the server about the
-   * open file, hand back what it said, and say so plainly when it has no such provider. Neither has an
-   * index fallback — a regex index cannot infer a parameter name or count a usage, and drawing a guess as
-   * if the compiler had said it is the one thing decoration must never do.
-   */
   private async decoration(
     kind: "codeLens" | "inlayHint" | "semanticTokens", path: string, request: AnalysisRequest, onRevision: boolean,
   ): Promise<AnalysisResult> {
@@ -1250,10 +840,6 @@ export class ProjectAnalysis {
         ? await client.codeLenses(path)
         : kind === "semanticTokens"
           ? await client.semanticTokens(path)
-          // No `limit` means this file's hints, all of them: the page asks once per file and paints the
-          // whole body, so a 2000-line window was a ceiling nobody could see — hints simply stopped
-          // partway down a long file. The client cuts the range to the document, so "all of them" is a
-          // range the server can resolve rather than a guess about how long the file is.
           : await client.inlayHints(path, request.line ?? 0, request.limit ?? Number.MAX_SAFE_INTEGER);
       this.setStatus("ready", serverFields(client.server));
       const base = {
@@ -1276,7 +862,6 @@ export class ProjectAnalysis {
     }
   }
 
-  /** Every occurrence of the caret's symbol in its own file, labelled read / write / neither. */
   private async documentHighlights(path: string, request: AnalysisRequest, declineReason: string): Promise<AnalysisResult> {
     if (declineReason) {
       return {
@@ -1303,13 +888,6 @@ export class ProjectAnalysis {
     }
   }
 
-  /**
-   * The constructs enclosing the caret, innermost first — Extend / Shrink Selection.
-   *
-   * Server-only on purpose. The index knows names and their positions; what encloses a position is a
-   * question about the grammar, and a heuristic answer here would be a selection that grows to the wrong
-   * thing — worse than the key doing nothing, because the reader would act on it.
-   */
   private async selectionRanges(path: string, request: AnalysisRequest, onRevision: boolean): Promise<AnalysisResult> {
     if (onRevision) {
       return {
@@ -1336,13 +914,6 @@ export class ProjectAnalysis {
     }
   }
 
-  /**
-   * Every endpoint the project declares.
-   *
-   * Read off the regex index, which already holds each file's text and its masked form — so this costs a
-   * scan of what is in memory and never touches the disk. Heuristic by construction and labelled as such:
-   * no language server reports routes, and the frameworks' own shapes are what a reader would grep for.
-   */
   private async projectEndpoints(): Promise<AnalysisResult> {
     const index = await this.getIndex();
     const files = [...index.files].map(([path, content]) => ({
@@ -1363,9 +934,6 @@ export class ProjectAnalysis {
       while (true) {
         const client = this.clientFor(path);
         if (!client) {
-          // Only when nothing was ever tried. A server that started and then failed has already put its
-          // own reason here, and replacing it with "no language server is available" says the opposite of
-          // what happened — which is what a Ruby file reported after sorbet died on it.
           if (!attempted) fallbackReason = `No language server is available for ${path}`;
           this.setStatus("fallback", { fallbackReason });
           break;
@@ -1398,8 +966,6 @@ export class ProjectAnalysis {
     if (content === undefined) {
       return { ok: true, engine: "index", confidence: "heuristic", locations: [], symbols: [], revision: this.reviewTarget, fallbackReason };
     }
-    // One file through the same declaration scanner the project index is built with, so the popup lists
-    // what Find Usages would have found in this file and nothing invented for the occasion.
     const symbols = buildRegexSymbolIndex([{ path, content }]).symbols
       .slice()
       .sort((a, b) => a.lineIndex - b.lineIndex)
@@ -1423,14 +989,6 @@ export class ProjectAnalysis {
     };
   }
 
-  /**
-   * The call and type hierarchies.
-   *
-   * Each direction is one question, asked of the language server and — when it cannot answer — of the
-   * regex index, with one exception named below. A server that does not implement the request is reported
-   * as such rather than as an empty answer: "clangd has no call hierarchy" and "nothing calls this" are
-   * different facts, and a reader who cannot tell them apart will believe the wrong one.
-   */
   private async hierarchy(
     kind: "callers" | "callees" | "supertypes" | "subtypes",
     path: string,
@@ -1440,9 +998,9 @@ export class ProjectAnalysis {
     const context = await this.symbolContext(path, request.line, request.column, request.symbol);
     if (!context.symbol) return { ok: true, engine: "index", confidence: "heuristic", locations: [], symbol: "" };
     let fallbackReason = declineReason;
-    let unsupported = false; // the server answered and said it does not offer this capability
-    let noServer = false;    // nothing covers this file's language at all — permanent
-    let answeredWithError = false; // the server replied, and the reply was an error — still a reply
+    let unsupported = false;
+    let noServer = false;
+    let answeredWithError = false;
     let attempted = false;
     if (!declineReason) {
       while (true) {
@@ -1450,7 +1008,7 @@ export class ProjectAnalysis {
         if (!client) {
           if (!attempted) {
             fallbackReason = `No language server is available for ${path}`;
-            noServer = !this.hasServerFor(path); // configured-but-quarantined is not "unsupported"
+            noServer = !this.hasServerFor(path);
           }
           this.setStatus("fallback", { fallbackReason });
           break;
@@ -1463,13 +1021,6 @@ export class ProjectAnalysis {
           this.setStatus("ready", serverFields(client.server));
           if (!answer.supported) {
             fallbackReason = `${client.server.name} does not offer ${kind === "callers" || kind === "callees" ? "a call hierarchy" : "a type hierarchy"}`;
-            // A capability the server declines is a PERMANENT no, and the viewer had no way to see that:
-            // every heuristic answer with a reason read as "still starting", so ⌘U on a TypeScript file
-            // answered "try again in a moment" every time, forever, for a question tsserver had already
-            // said it does not answer. One boolean, rather than the viewer parsing English prose.
-            // Paired with `answeredWithError` so the two flags cannot disagree: a server that DECLINED a
-            // capability has answered, and a reader of either flag alone must reach the same conclusion.
-            // Today only the order of two branches in showSemanticNavigationFailure keeps them apart.
             unsupported = true;
             answeredWithError = true;
             break;
@@ -1486,8 +1037,6 @@ export class ProjectAnalysis {
               locations,
             };
           }
-          // The server answered, and the answer is "none". Say so as a semantic answer rather than
-          // falling through to a heuristic that will invent neighbours for it.
           return {
             ok: true,
             engine: "lsp",
@@ -1499,17 +1048,11 @@ export class ProjectAnalysis {
           };
         } catch (error) {
           fallbackReason = errorMessage(error);
-          // An error REPLY is the server answering — the same reasoning lspLocations applies one function
-          // above. Without it, a gopls or rust-analyzer that rejects prepareCallHierarchy on a position
-          // that is not callable left ⌘⌥B saying "try again in a moment" on every press, forever.
           if (!this.transportFailure(error)) { answeredWithError = true; break; }
           this.quarantine(client, error);
         }
       }
     }
-    // Heuristic answers. Callers are references, which the index can find. Callees cannot be done this
-    // way at all: a name index knows where names appear, not which of them are calls made from inside
-    // this body, and a list of every identifier in a function is not a call hierarchy.
     if (kind === "callees") {
       return {
         ok: true,
@@ -1518,8 +1061,6 @@ export class ProjectAnalysis {
         symbol: context.symbol,
         locations: [],
         revision: this.reviewTarget,
-        // BOTH facts: why the server did not answer, and why the index cannot stand in for it. Either
-        // alone leaves the reader to conclude that the function calls nothing.
         fallbackReason: (fallbackReason ? fallbackReason + "; " : "")
           + "a name index cannot tell a call from a mention",
         unsupported,
@@ -1544,21 +1085,8 @@ export class ProjectAnalysis {
     };
   }
 
-  /**
-   * Supertypes and subtypes read off declaration TEXT, for the languages whose syntax says it on the line:
-   * `class Foo extends Bar implements Baz`, `class Foo(Bar):`, `struct Foo: Bar`.
-   *
-   * Heuristic and labelled as such — it reads a line, not a type system, so a generic parameter named like
-   * a base class will be reported. That is still the difference between an answer and nothing for the
-   * languages whose bundled server has no type hierarchy at all.
-   */
   private async typeRelatives(name: string, direction: "supertypes" | "subtypes"): Promise<AnalysisLocation[]> {
     const index = await this.getIndex();
-    // Rust states the relationship in a block of its own rather than on the type's line:
-    // `impl Runnable for Store`. Those lines are read from the FILES rather than from the symbol index,
-    // which records declarations and not relationships — and changing what the index records to suit one
-    // query would change what every other query sees. Measured: without this, every Rust type reported no
-    // supertypes at all whenever rust-analyzer was not answering (it offers no type hierarchy either).
     const implementations: { trait: string; type: string; path: string; lineIndex: number }[] = [];
     for (const [filePath, content] of index.files) {
       if (!/\.rs$/i.test(filePath) || !content.includes("impl ")) continue;
@@ -1591,8 +1119,6 @@ export class ProjectAnalysis {
     const bases = new Set<string>();
     for (const record of declarations) {
       const text = record.declaration || "";
-      // Everything after extends/implements, or inside the parentheses of a Python class header, up to the
-      // body. Names only — generics, commas and qualifiers are separators here.
       const tail = /(?:\bextends\b|\bimplements\b|\bis\b)([^{;]*)/.exec(text)?.[1]
         ?? /\bclass\s+\w+\s*\(([^)]*)\)/.exec(text)?.[1]
         ?? "";
@@ -1601,7 +1127,6 @@ export class ProjectAnalysis {
         if (base && base !== name && !/^(public|private|protected|final|abstract|static|object|metaclass)$/i.test(base)) bases.add(base);
       }
     }
-    // …and the same blocks in the other direction: what this type is given by an `impl X for Name`.
     for (const relation of implementations) {
       if (relation.type === name) bases.add(relation.trait);
     }
@@ -1643,7 +1168,6 @@ export class ProjectAnalysis {
       while ((match = annotation.exec(line))) bindings.add(match[1]);
       while ((match = construction.exec(line))) bindings.add(match[1]);
     }
-    // Propagate one common constructor-injection shape: `self.runner = runner` where `runner: Runner`.
     for (const line of lines) {
       const alias = /\b([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s*=\s*([A-Za-z_][A-Za-z0-9_]*)\b/.exec(line);
       if (alias && bindings.has(alias[2])) bindings.add(alias[1]);
@@ -1679,10 +1203,6 @@ export class ProjectAnalysis {
     }
     const sameFile = hits.filter((item) => item.path === currentPath);
     if (sameFile.length === 1) return sameFile.map((item) => ({ ...item }));
-    // A common Python method name (`execute`, `run`, `get`, …) is not a definition identity. Returning every
-    // class that happens to declare it makes heuristic output look authoritative while being mostly noise.
-    // Fail closed unless receiver/class context above identifies an owner; a language server can still
-    // provide complete polymorphic results when one is available.
     const pythonMethods = hits.filter((item) => item.path.endsWith(".py") && Boolean(item.container));
     if (pythonMethods.length > 1) {
       const standalone = hits.filter((item) => !item.path.endsWith(".py") || !item.container);
@@ -1700,9 +1220,6 @@ export class ProjectAnalysis {
     const origin = index && originPath != null && originLine != null
       ? (index.definitions.get(symbol) ?? []).find((item) => item.path === originPath && item.lineIndex === originLine && item.path.endsWith(".py") && item.container)
       : undefined;
-    // Generic names such as `execute` can exceed the normal display cap before ripgrep reaches the one
-    // receiver-qualified call we need. Scan a larger bounded set only when a Python owner is known, then
-    // apply the strict receiver filter below and still return at most MAX_LOCATIONS.
     const result = await searchProject(this.root, symbol, origin ? 2000 : MAX_LOCATIONS + 1);
     const bindings = new Map<string, Set<string>>();
     const matches = result.matches.filter((match) => {
@@ -1744,19 +1261,13 @@ export class ProjectAnalysis {
       .map((item) => ({ ...item }));
   }
 
-  // Drop server-reported locations that don't point at code (a comment/string/blank line). This needs the
-  // MASKED form of each result line — but only for the result files, so mask those directly instead of
-  // building (and, on every LSP-success nav, rebuilding) the whole-repo symbol index. Masking full file
-  // content keeps multi-line comment/string awareness; each result file is read once for text + mask.
   private async navigationLocations(locations: AnalysisLocation[], limit = MAX_LOCATIONS): Promise<AnalysisLocation[]> {
     if (!locations.length) return [];
     const unique = uniqueLocations(locations, limit);
     const rawByPath = new Map<string, string[]>();
     const maskedByPath = new Map<string, string[]>();
     await Promise.all(Array.from(new Set(unique.map((item) => item.path))).map(async (path) => {
-      if (documentPath(path)) return; // non-code doc target — filtered out below without a read
-      // Unreadable (absent from this revision, over the cap, not code) leaves both maps unset, and the
-      // filter below falls back to per-line masking of item.text — the old catch's behaviour.
+      if (documentPath(path)) return;
       const content = await this.readSource(path);
       if (content !== undefined) {
         rawByPath.set(path, content.split(/\r?\n/));
@@ -1767,13 +1278,9 @@ export class ProjectAnalysis {
       .map((item) => ({ ...item, text: item.text ?? rawByPath.get(item.path)?.[item.lineIndex] ?? "" }))
       .filter((item) => {
         if (documentPath(item.path)) return false;
-        // Nothing to read and nothing to judge: an external target has no text by definition, and the
-        // "does this line have visible characters" test below would drop every one of them.
         if (item.external) return true;
         const codeLine = maskedByPath.get(item.path)?.[item.lineIndex] ?? maskNonCode(item.text ?? "", item.path)[0] ?? "";
         const start = Math.max(0, Number(item.column) || 0);
-        // Some servers report the beginning of indentation rather than the identifier itself. Looking from
-        // that point to the end keeps those valid locations while a comment/string range remains all spaces.
         return /\S/.test(codeLine.slice(start));
       });
   }
@@ -1787,9 +1294,6 @@ export class ProjectAnalysis {
   }
 }
 
-// What counts as a type for Go to Class. The two engines answer differently and both are read: a language
-// server sends LSP's numeric SymbolKind (mapped by name here so the list is readable), and the regex index
-// sends the word its declaration patterns matched.
 const TYPE_KIND_NAMES = new Set(["class", "interface", "struct", "enum", "object", "trait"]);
 function isTypeLocation(item: AnalysisLocation & { symbolKind?: string }): boolean {
   if (typeof item.symbolKind === "string" && item.symbolKind) return TYPE_KIND_NAMES.has(item.symbolKind);

@@ -1,28 +1,8 @@
-// The .http file format, parsed. This is the half of the HTTP Client that reads; 11-http-run.js is the half
-// that sends, and 11-http-script.js runs the scripts a file attaches to a request.
-//
-// The format is IntelliJ's (JetBrains calls it the HTTP Client; the files are .http/.rest), and the point of
-// following it exactly is that the same file works in both tools — a reviewer reads a request in kakapo and
-// runs it in the IDE, or the other way round, without editing anything.
-//
-// One parse serves three readers: the gutter (which line gets a Run button), the highlighter (what each
-// token is), and the runner (what to send). They used to disagree about where a request ended, which is why
-// every request carries its own line span.
 
 function isHttpFile(path) {
   return /\.(http|rest)$/i.test(path || '');
 }
 
-// A FUNCTION, not module-level constants, for the reason tokenSets() in 11-render-http.js is one: the
-// slices are concatenated into one script, and the diff view decorates a restored .http file at LOAD time
-// (01-diff-model.js -> decorateDiffHttpRuns -> parseHttpRequests) — before a statement in this slice has
-// run. As `let` that read throws; as `var` it reads `undefined`, and `undefined['GET']` is where the parse
-// stopped. A call is always answerable.
-//
-// GRAPHQL is a request line like any other and is sent as a POST with a {query, variables} body.
-// WEBSOCKET is one too: Node ships a WebSocket client, so the messages a file lists can actually be sent
-// (http-socket.ts). GRPC is the one that stays unsendable — it needs a protobuf runtime, which is a
-// dependency this CLI does not take, and a Run button that cannot send is worse than none.
 var HTTP_SYNTAX = null;
 function httpSyntax() {
   if (HTTP_SYNTAX) return HTTP_SYNTAX;
@@ -32,8 +12,6 @@ function httpSyntax() {
       WEBSOCKET: 1,
     },
     unsupported: { GRPC: 1, GRPCS: 1 },
-    // The comment-line directives that are syntax rather than prose — the highlighter colours exactly
-    // these, so a typo'd `# @no-redirectt` stays grey and is visibly not doing anything.
     directives: {
       'no-redirect': 1, 'no-cookie-jar': 1, 'no-log': 1, 'no-auto-encoding': 1,
       'use-os-credentials': 1, timeout: 1, 'connection-timeout': 1, name: 1,
@@ -42,12 +20,10 @@ function httpSyntax() {
   return HTTP_SYNTAX;
 }
 
-/** A fresh regex per call: a shared global one carries `lastIndex` between unrelated scans. */
 function httpVarPattern() {
   return /\{\{\s*([^{}\s][^{}]*?)\s*\}\}/g;
 }
 
-// `# @timeout 600`, `// @connection-timeout 2 m`. Seconds unless the unit says otherwise, as in IntelliJ.
 function httpDurationMs(value) {
   const match = /^\s*([\d.]+)\s*(ms|s|m)?\s*$/i.exec(String(value || ''));
   if (!match) return 0;
@@ -64,7 +40,6 @@ function emptyHttpDirectives() {
   };
 }
 
-// A comment line that is a request directive rather than prose. Returns true when it consumed the line.
 function applyHttpDirective(line, directives) {
   const match = /^\s*(?:#+|\/\/)\s*@([\w-]+)(?:[=\s]+(.*))?$/.exec(line);
   if (!match) return false;
@@ -80,20 +55,12 @@ function applyHttpDirective(line, directives) {
   return false;
 }
 
-// `# @name login` / `# @name = login` / `### login`.
-/**
- * `run ./other.http`, `run #Named`, `run #Named (@host=example.com, @user=ada)`, `import ./other.http`.
- *
- * A file that runs other files is how IntelliJ composes a suite out of request files, and the overrides
- * are how one call differs from the next. Returns null for any other line.
- */
 function parseHttpRunLine(line) {
   const match = /^\s*(run|import)\s+(.+?)\s*$/.exec(line);
   if (!match) return null;
   const verb = match[1];
   let rest = match[2];
   const overrides = {};
-  // The parenthesised tail is a list of `@name = value` pairs, which apply to this call only.
   const tail = /\(([^)]*)\)\s*$/.exec(rest);
   if (tail) {
     rest = rest.slice(0, tail.index).trim();
@@ -103,7 +70,6 @@ function parseHttpRunLine(line) {
     });
   }
   if (!rest) return null;
-  // `run #Name` runs one request; `run path.http` runs the file; `run path.http#Name` does both at once.
   const named = /^(.*?)#([^#]+)$/.exec(rest);
   return {
     verb: verb,
@@ -118,20 +84,12 @@ function httpRequestName(line) {
   return named ? named[1].trim() : '';
 }
 
-/**
- * `< ./body.json`, `<@ ./body.json`, `<@utf-8 ./body.json`.
- *
- * The `@` is the whole difference and it decides who reads the file: without it the bytes go out untouched
- * (main reads them, so a PNG stays a PNG), with it the text is substituted for {{variables}} first — which
- * means the renderer has to read it, and a binary file would not survive the trip.
- */
 function httpBodyFileSpec(line) {
   const match = /^\s*<(@([\w-]*))?\s+(.+?)\s*$/.exec(line);
   if (!match) return null;
   return { path: match[3], substitute: Boolean(match[1]), encoding: (match[2] || '').toLowerCase() };
 }
 
-/** `> {% … %}`, `> ./handler.js`, `>> out.json`, `>>! out.json`. */
 function httpRedirectSpec(line) {
   const output = /^\s*>>(!?)\s+(.+?)\s*$/.exec(line);
   if (output) return { kind: 'output', path: output[2], force: output[1] === '!' };
@@ -142,31 +100,18 @@ function httpRedirectSpec(line) {
   return rest ? { kind: 'script', inline: false, path: rest } : null;
 }
 
-/**
- * Parses an IntelliJ-style .http file into a list of requests. Each request tracks the line of its request
- * line (for the gutter Run button) and the line span it covers (for placing the inline response and for
- * ⌘/⌥Enter).
- *
- * `vars` keeps the RAW text of each `@name = value`, not a resolved value: a variable may reference another
- * one, and a dynamic variable ({{$uuid}}) has to be evaluated per request rather than once per parse.
- */
 function parseHttpRequests(content) {
   const lines = String(content).split(/\r?\n/);
   const requests = [];
   const vars = {};
-  // `import other.http` — files whose named requests `run #Name` may address.
   const imports = [];
-  // Which lines belong to a {% … %} block, so the highlighter can treat them as JavaScript instead of as
-  // .http syntax. Collected here because the parser is the only pass that knows where a block ends.
   const scriptLines = {};
   let curr = null;
   let phase = 'pre';
-  let script = null; // an unterminated {% … %} block being collected
+  let script = null;
   function flush() {
     if (!curr) return;
     if (script && script.sink) { script.sink.text = script.lines.join('\n'); script = null; }
-    // A `run` line is a request in every way that matters here: it gets a gutter button, a response slot
-    // and a place in the file's order. It simply has no URL of its own.
     if (curr.url || curr.runSpec) {
       curr.body = curr.bodyLines.join('\n').replace(/\s+$/, '');
       requests.push(curr);
@@ -184,7 +129,6 @@ function parseHttpRequests(content) {
     const rawLine = lines[i];
     const trimmed = rawLine.trim();
     if (script) {
-      // Inside a {% … %} block, nothing else is syntax — a `###` in a script is JavaScript.
       scriptLines[i] = true;
       const end = rawLine.indexOf('%}');
       if (end < 0) { script.lines.push(rawLine); if (curr) curr.endLine = i; continue; }
@@ -208,14 +152,11 @@ function parseHttpRequests(content) {
     if (phase === 'pre') {
       if (trimmed === '') continue;
       if (trimmed.indexOf('#') === 0 || trimmed.indexOf('//') === 0) {
-        // A comment above the request line is where names and directives live.
         const name = httpRequestName(rawLine);
         if (name) { curr.name = name; continue; }
         applyHttpDirective(rawLine, curr.directives);
         continue;
       }
-      // `< {% … %}` / `< ./script.js` before the request line is a PRE-REQUEST script. The same `<` after
-      // the headers is an external body — the phase is the only thing that tells them apart.
       if (trimmed.charAt(0) === '<') {
         const inline = /^\s*<\s*\{%([\s\S]*)$/.exec(rawLine);
         if (inline) {
@@ -232,8 +173,6 @@ function parseHttpRequests(content) {
       }
       const varMatch = /^@([\w.$-]+)\s*=\s*(.*)$/.exec(trimmed);
       if (varMatch) { vars[varMatch[1]] = varMatch[2].trim(); continue; }
-      // `run`/`import` before any request line. `import` only makes a file's requests addressable, so it
-      // carries no button of its own; `run` is the thing that executes.
       const runLine = parseHttpRunLine(trimmed);
       if (runLine) {
         if (runLine.verb === 'import') { imports.push(runLine.path); continue; }
@@ -241,8 +180,6 @@ function parseHttpRequests(content) {
         curr.method = 'RUN';
         curr.kind = 'run';
         curr.startLine = i;
-        // Named after the LINE, not after what it targets: `run #profile` named "profile" made the line
-        // itself answer a search for the request called profile — so it found, and ran, itself.
         curr.name = curr.name
           || ('run ' + (runLine.path || '') + (runLine.requestName ? '#' + runLine.requestName : '')).trim();
         flush();
@@ -262,7 +199,7 @@ function parseHttpRequests(content) {
             : syntax.unsupported[upper] ? 'unsupported' : 'http';
         target = trimmed.slice(sp + 1).trim();
       } else {
-        curr.method = 'GET'; // the short form: a bare URL on its own line
+        curr.method = 'GET';
         target = trimmed;
       }
       const version = /\s+(HTTP\/[\d.]+(?:\s*\(Prior Knowledge\))?)\s*$/i.exec(target);
@@ -273,8 +210,6 @@ function parseHttpRequests(content) {
       continue;
     }
     if (phase === 'headers') {
-      // A URL split across lines: every continuation is indented and starts with /, ? or & (IntelliJ's
-      // rule). Only before the first header, because after one a `  /x` line is a malformed header.
       if (!curr.headers.length && /^\s+[/?&#]/.test(rawLine) && !/^\s*#/.test(rawLine)) {
         curr.url += trimmed;
         continue;
@@ -285,7 +220,6 @@ function parseHttpRequests(content) {
         continue;
       }
       if (trimmed.charAt(0) === '>') {
-        // A handler or an output redirect can follow the headers with no body in between.
         const spec = httpRedirectSpec(rawLine);
         if (spec && spec.kind === 'output') { curr.output = { path: spec.path, force: spec.force }; continue; }
         if (spec && spec.inline) {
@@ -303,7 +237,6 @@ function parseHttpRequests(content) {
       if (colon > 0) curr.headers.push({ name: rawLine.slice(0, colon).trim(), value: rawLine.slice(colon + 1).trim() });
       continue;
     }
-    // phase === 'body'
     if (trimmed.charAt(0) === '>') {
       const spec = httpRedirectSpec(rawLine);
       if (spec && spec.kind === 'output') { curr.output = { path: spec.path, force: spec.force }; continue; }
@@ -318,7 +251,6 @@ function parseHttpRequests(content) {
       }
       if (spec) { curr.handler = { path: spec.path }; continue; }
     }
-    // `< ./body.json` is the whole body; a later inline line would contradict it, so the first one wins.
     if (!curr.bodyLines.length && !curr.bodyFile && trimmed.charAt(0) === '<') {
       const spec = httpBodyFileSpec(rawLine);
       if (spec) { curr.bodyFile = spec; continue; }
@@ -326,8 +258,6 @@ function parseHttpRequests(content) {
     curr.bodyLines.push(rawLine);
   }
   flush();
-  // Unnamed requests are addressable by position, as in IntelliJ (#1, #2 …), and a duplicate name gets its
-  // position appended so {{name.response…}} always refers to exactly one request.
   const taken = Object.create(null);
   requests.forEach(function (request, index) {
     request.index = index;
@@ -338,11 +268,6 @@ function parseHttpRequests(content) {
   return { requests: requests, vars: vars, scriptLines: scriptLines, imports: imports };
 }
 
-/**
- * `multipart/form-data` body -> parts. A part whose Content-Disposition carries a filename and whose content
- * is `< ./file` is sent as that file's bytes (main reads it); without a filename the same reference means
- * "send the file's contents as this field's text", which is IntelliJ's rule and a real difference on the wire.
- */
 function parseHttpMultipart(bodyText, boundary) {
   const delimiter = '--' + boundary;
   const parts = [];
@@ -356,7 +281,7 @@ function parseHttpMultipart(bodyText, boundary) {
       inHeaders = Boolean(current);
       return;
     }
-    if (!current) return; // the preamble before the first delimiter is not part of the body
+    if (!current) return;
     if (inHeaders) {
       if (trimmed === '') { inHeaders = false; return; }
       const colon = line.indexOf(':');
@@ -383,10 +308,6 @@ function parseHttpMultipart(bodyText, boundary) {
   });
 }
 
-/**
- * A WEBSOCKET body is a list of messages separated by `===`, and `=== wait-for-server` means "hold here
- * until the server has said something" — which is how a handshake is written down in the order it happens.
- */
 function splitSocketMessages(bodyText) {
   const messages = [];
   let current = { text: '', waitForServer: false };
@@ -401,16 +322,9 @@ function splitSocketMessages(bodyText) {
   messages.push(current);
   return messages
     .map(function (message) { return { text: message.text.replace(/^\s+|\s+$/g, ''), waitForServer: message.waitForServer }; })
-    // A separator with nothing after it is the end of the list, not an empty message. One that only says
-    // "wait" is kept, because waiting IS the instruction.
     .filter(function (message) { return message.text || message.waitForServer; });
 }
 
-/**
- * A GRAPHQL request's body is the operation, optionally followed by a JSON object of variables. Split from
- * the END: the operation itself contains braces, so the only reliable marker is a trailing block that
- * parses as JSON on its own.
- */
 function splitGraphqlBody(bodyText) {
   const text = String(bodyText || '');
   const blocks = text.split(/\n\s*\n/);
@@ -420,24 +334,16 @@ function splitGraphqlBody(bodyText) {
       try {
         const variables = JSON.parse(tail);
         return { query: blocks.slice(0, -1).join('\n\n').trim(), variables: variables };
-      } catch (error) { /* not variables after all — it is part of the operation */ }
+      } catch (error) { }
     }
   }
   return { query: text.trim(), variables: null };
 }
 
-// ---- variables --------------------------------------------------------------------------------------
-
 function httpSharedVars() {
   return httpEnvironments.$shared || {};
 }
 
-/**
- * The selected environment's `SSLConfiguration`, or undefined.
- *
- * Carried with the request so main knows to take the client-certificate path; the certificate itself is
- * read there, from inside the review, and never passes through here.
- */
 function currentHttpSsl() {
   const store = httpEnvironments.$ssl || {};
   const raw = store[currentHttpEnvName];
@@ -446,11 +352,9 @@ function currentHttpSsl() {
 }
 
 function currentHttpEnv() {
-  // The selected environment overrides $shared, which is the base every environment shares.
   return Object.assign({}, httpSharedVars(), httpEnvironments[currentHttpEnvName] || {});
 }
 
-/** Everything a {{name}} in `path`'s file can resolve against, in IntelliJ's precedence order. */
 function httpScope(path, requestIndex) {
   return {
     path: path,
@@ -460,8 +364,6 @@ function httpScope(path, requestIndex) {
     processEnv: httpEnvironments.$env || {},
     globals: httpGlobals,
     requestVars: httpRequestVars.get(path + '#' + requestIndex) || {},
-    // Which element of a collection this run is for. A variable whose value is a JSON array makes the
-    // request a loop — one send per element — and this is the index the {{name}} resolves at.
     iteration: 0,
     responses: httpResponsesByName,
   };
@@ -492,16 +394,8 @@ function httpFakerWords() {
   return HTTP_FAKER_WORDS_CACHE;
 }
 
-/**
- * `{{$uuid}}`, `{{$timestamp}}`, `{{$random.integer(1, 10)}}` … Returns `undefined` for a name this port
- * does not implement, so the caller can say so instead of sending the literal text.
- *
- * IntelliJ's `$random.*` is backed by Java Faker's several hundred generators. The handful below are the
- * ones .http files actually use; the rest resolve to undefined and are reported by name.
- */
 function httpDynamicValue(name) {
   if (name === '$uuid' || name === '$random.uuid') {
-    // crypto.randomUUID is present in Electron and in jsdom; the fallback keeps a browser review working.
     if (window.crypto && typeof window.crypto.randomUUID === 'function') return window.crypto.randomUUID();
     return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (char) {
       const value = Math.random() * 16 | 0;
@@ -511,8 +405,8 @@ function httpDynamicValue(name) {
   if (name === '$timestamp') return String(Math.floor(Date.now() / 1000));
   if (name === '$isoTimestamp') return new Date().toISOString();
   if (name === '$randomInt') return String(httpRandomInt(0, 1001));
-  if (name === '$projectRoot') return ''; // paths stay repository-relative: main is the only side that knows the root
-  if (name === '$historyFolder') return '$historyFolder'; // a sentinel main maps to its own user-data mirror
+  if (name === '$projectRoot') return '';
+  if (name === '$historyFolder') return '$historyFolder';
   const call = /^\$random\.([\w.]+)(?:\(([^)]*)\))?$/.exec(name);
   if (!call) return undefined;
   const generator = call[1];
@@ -534,15 +428,8 @@ function httpDynamicValue(name) {
   return undefined;
 }
 
-/**
- * Minimal JSONPath, enough for what .http files ask of it: `$.a.b`, `$.a[0].b`, `$['a.b']`, and `..name` for
- * the first match at any depth. Returns undefined when the path does not exist, which is how a caller tells
- * "no such field" from "the field is empty".
- */
 function httpJsonPath(value, path) {
   const raw = String(path || '');
-  // The recursive form is recognised BEFORE the leading `$.` is stripped: stripping first turns `$..id`
-  // into `.id`, which reads as an ordinary path and finds nothing.
   const recursive = /^\$?\.\.(.+)$/.exec(raw);
   if (recursive) {
     const wanted = recursive[1].split(/[.[]/)[0];
@@ -567,7 +454,6 @@ function httpJsonPath(value, path) {
   return cursor;
 }
 
-/** `{{login.response.body.$.token}}` / `{{login.response.headers.Location}}`. */
 function httpResponseReference(name, scope) {
   const match = /^([\w.$-]+?)\.response\.(body|headers|status)(?:\.(.+))?$/.exec(name);
   if (!match) return undefined;
@@ -585,19 +471,10 @@ function httpResponseReference(name, scope) {
   return typeof resolved === 'object' ? JSON.stringify(resolved) : String(resolved);
 }
 
-/**
- * One {{name}} -> its value, or undefined when nothing defines it.
- *
- * Precedence, nearest scope first: a pre-request script's variables, client.global, the file's own
- * `@name =`, the selected environment (which already has $shared folded under it), then the dynamic and
- * namespaced forms. `depth` stops a variable that references itself from recursing.
- */
 function httpVarValue(name, scope, depth) {
   const level = Number(depth) || 0;
   if (level > 10) return undefined;
   const resolveRaw = function (raw) {
-    // A collection: `@ids = [1, 2, 3]` is not the string "[1, 2, 3]" but three values, and the request
-    // is sent once per element. Which one is on `scope.iteration`, set by the runner.
     const element = httpCollectionElement(raw, scope);
     if (element !== undefined) raw = element;
     return String(raw).indexOf('{{') < 0 ? String(raw) : applyHttpVars(raw, scope, level + 1);
@@ -616,8 +493,6 @@ function httpVarValue(name, scope, depth) {
   if (Object.prototype.hasOwnProperty.call(scope.env, name)) return resolveRaw(scope.env[name]);
   const reference = httpResponseReference(name, scope);
   if (reference !== undefined) return reference;
-  // A dotted name is a JSONPath into a variable whose value is JSON — {{client.host.url}} reads
-  // {"host": {"url": …}} out of the `client` variable (IntelliJ 2024.2+).
   const dot = name.indexOf('.');
   if (dot > 0) {
     const head = name.slice(0, dot);
@@ -628,18 +503,12 @@ function httpVarValue(name, scope, depth) {
       try {
         const nested = httpJsonPath(typeof raw === 'string' ? JSON.parse(raw) : raw, name.slice(dot + 1));
         if (nested !== undefined) return typeof nested === 'object' ? JSON.stringify(nested) : String(nested);
-      } catch (error) { /* not JSON: then this really is an undefined variable */ }
+      } catch (error) { }
     }
   }
   return undefined;
 }
 
-/**
- * The element this run wants, when a variable's value is a JSON array.
- *
- * Returns undefined for everything that is not a collection, which is how a value that merely starts with
- * `[` (a header, a path) stays the string it is.
- */
 function httpCollectionElement(raw, scope) {
   const text = String(raw == null ? '' : raw).trim();
   if (text.charAt(0) !== '[') return undefined;
@@ -651,7 +520,6 @@ function httpCollectionElement(raw, scope) {
   return typeof value === 'object' ? JSON.stringify(value) : String(value);
 }
 
-/** How many times a request has to be sent: the longest collection among the variables it mentions. */
 function httpCollectionLength(text, scope) {
   let longest = 1;
   const pattern = httpVarPattern();
@@ -667,12 +535,11 @@ function httpCollectionLength(text, scope) {
     try {
       const parsed = JSON.parse(value);
       if (Array.isArray(parsed)) longest = Math.max(longest, parsed.length);
-    } catch (error) { /* not a collection after all */ }
+    } catch (error) { }
   }
   return longest;
 }
 
-/** Substitutes every {{name}} in `text`. An unknown name is left verbatim so the runner can name it. */
 function applyHttpVars(text, scope, depth) {
   return String(text == null ? '' : text).replace(httpVarPattern(), function (whole, name) {
     const value = httpVarValue(name, scope, depth);
@@ -680,7 +547,6 @@ function applyHttpVars(text, scope, depth) {
   });
 }
 
-/** The first {{name}} in `text` that nothing resolves — the request's reason for not being sent. */
 function httpUnresolvedVar(text, scope) {
   const pattern = httpVarPattern();
   let match;

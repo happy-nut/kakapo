@@ -1,8 +1,3 @@
-// The layout crosses the build → viewer boundary, and the page classifies a path with it.
-//
-// This is the seam worth a test of its own: project-layout.ts is unit-tested against real directories and
-// the grouping is tested against a stubbed layout, so without this the two halves could agree with their
-// own tests and disagree with each other — which is what "the island is named in three files" invites.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { makeReviewHtml, cleanupFixtures } from "./helpers/fixture.mjs";
@@ -10,7 +5,6 @@ import { loadViewer } from "./helpers/dom.mjs";
 
 let html;
 before(async () => {
-  // A pnpm workspace with a declared test root that NO path convention would find: `packages/ui/verify`.
   ({ html } = await makeReviewHtml([
     { path: "pnpm-workspace.yaml", before: undefined, after: "packages:\n  - 'packages/*'\n" },
     { path: "packages/ui/package.json", before: undefined, after: JSON.stringify({ name: "@acme/ui" }) },
@@ -42,11 +36,7 @@ test("the island reaches the page, and a path is classified by what the project 
 
 test("a declared test root no convention would guess is still a test root", async () => {
   const v = await loadViewer(html);
-  // `verify/` is not in any convention list — it is a test root here only because the build found it...
-  // which it does NOT, so this asserts the honest answer: production. The declared-root path is covered
-  // by project-layout.test.mjs against an .iml, where a declaration actually exists to be read.
   assert.equal(v.window.projectScopeOf("packages/ui/verify/button.ts"), "production");
-  // And the convention still answers where nothing was declared.
   assert.equal(v.window.semanticTestPath("packages/data/test/store.test.ts"), true);
   assert.equal(v.window.semanticTestPath("packages/ui/src/Button.ts"), false);
   assert.equal(v.window.projectScopeOf("dist/bundle.min.js"), "generated", "build output is not production code");
@@ -64,10 +54,6 @@ test("a single-module repo gets no module division at all", async () => {
 });
 
 test("a library file is a library file as soon as it says so, cached answer or not", async () => {
-  // The scope cache is keyed by path and lives for the life of the layout, but one of its inputs does
-  // not: a tab restored from the last session names a library file whose record has not arrived yet, so
-  // the first classification falls through to the conventions — `node_modules` reads as GENERATED — and
-  // the cached answer outlived the record by the whole session.
   const v = await loadViewer(html);
   await v.settle(20);
   const path = "node_modules/@acme/dep/index.d.ts";

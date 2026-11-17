@@ -1,8 +1,3 @@
-// CORE USER FLOW: choosing a light or dark theme.
-//
-// The whole UI (chrome, diff2html, syntax tokens) reads :root CSS variables, and the light theme just
-// overrides them under html[data-theme="light"]. The toggle lives in Settings → General, mirrors the
-// language toggle (live switch, persisted), and the choice must survive a reopen.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -21,9 +16,6 @@ test("defaults to dark, with a theme selector in settings", async () => {
   const v = await loadViewer(html);
   assert.equal(v.document.documentElement.getAttribute("data-theme"), "dark");
   assert.equal(v.document.documentElement.getAttribute("data-syntax-theme"), "default");
-  // One flat grid, not two dropdowns: every card is a whole named theme that already IS light or dark.
-  // System used to lead the list; it was the only entry that had an appearance to resolve, which meant every
-  // reader of the setting had to resolve it before the value meant anything.
   const names = v.$all("#settings-theme-grid .theme-card-name").map((n) => n.textContent);
   assert.ok(!names.includes("System"), "the theme is picked, not delegated");
   assert.deepEqual(names, ["Kakapo Dark", "Kakapo Light", "Darcula", "IntelliJ Light",
@@ -51,8 +43,6 @@ test("application chrome uses a neutral high-contrast palette without replacing 
   v.close();
 });
 
-// Theme is one grid of cards keyed by (family, appearance); language is still a custom dropdown (a button
-// that opens .mc-dropdown), so a language pick is: click the trigger, then click the matching item.
 function pickTheme(v, id) {
   const card = v.$(`#settings-theme-grid .theme-card[data-theme-id="${id}"]`);
   assert.ok(card, `the grid offers ${id}`);
@@ -95,16 +85,7 @@ test("the Darcula family follows interface appearance across chrome and Review t
   assert.equal(v.document.documentElement.getAttribute("data-syntax-theme"), "darcula");
   assert.equal(v.window.localStorage.getItem("kakapo-syntax-theme"), "darcula");
 
-  // What this is testing is that picking the family re-points the token at the Darcula member — not that
-  // the member holds one particular hex. A literal copied in here fails the next time the palette moves
-  // to clear a contrast floor, which is a guard going off at the wrong target: it happened, the keyword
-  // moved from #cc7832 to #d58d52 for AA against --panel and again when the sweep started asking about
-  // the diff's own fills. So ask the stylesheet what Darcula declares, and assert the document resolved
-  // to exactly that, and that it is not the value the base theme would have given. The floor itself is
-  // owned by test/token-contrast.test.mjs, which is what catches a palette drifting under it.
   const styles = Array.from(v.document.querySelectorAll("style"), (s) => s.textContent || "").join("\n");
-  // `:root {` appears more than once — render.ts injects its own one-line block for the app icon — so take
-  // the first block under this selector that actually declares the property, not merely the first block.
   const declared = (selector, name) => {
     for (let at = styles.indexOf(selector + " {"); at >= 0; at = styles.indexOf(selector + " {", at + 1)) {
       const block = styles.slice(at, styles.indexOf("}", at));
@@ -160,10 +141,6 @@ test("the GitHub family carries Primer's own palette on both sides", async () =>
   v.close();
 });
 
-// A family is four things that must all name it: two CSS variable blocks, a code canvas, three swatches, a
-// row in the settings grid, a name in each locale — and the SYNTAX_FAMILIES list a stored preference is
-// checked against. Missing the last one is invisible until you reopen the app (see the test after this one),
-// which is exactly how 'github' shipped half-added.
 test("every theme family is complete on all six surfaces", async () => {
   const v = await loadViewer(html);
   const css = Array.from(v.document.querySelectorAll("style"), (s) => s.textContent || "").join("\n");
@@ -175,7 +152,6 @@ test("every theme family is complete on all six surfaces", async () => {
   for (const family of families) {
     for (const mode of ["dark", "light"]) {
       const head = `:root[data-theme="${mode}"][data-syntax-theme="${family}"] {`;
-      // The default family IS the base :root palette, so it has no [data-syntax-theme] block of its own.
       if (family === "default") continue;
       const at = css.indexOf(head);
       assert.ok(at >= 0, `${family} defines its ${mode} member`);
@@ -192,20 +168,11 @@ test("every theme family is complete on all six surfaces", async () => {
     if (family !== "default") {
       assert.ok(css.includes(`data-syntax-theme="${family}"] #diff2html-container`), `${family} paints its code canvas`);
     }
-    // No System swatch any more: it previewed the two halves a family flipped between, and nothing flips —
-    // the theme IS light or dark, picked directly.
     assert.ok(!css.includes(`data-swatch="${family}-system"`), `${family} has no leftover System swatch`);
   }
   v.close();
 });
 
-// The three families added for colour were added because the picker had none — so "it has colour" cannot come
-// at the cost of "you can read it". Every token in them clears WCAG AA (4.5:1) against its own ground, which
-// is what the lightness-walk on Solarized's accents is for: published Solarized puts keywords at 2.97:1 on
-// base3, and a theme chosen for contrast that is the least readable one on offer would be a joke.
-//
-// The four older families are deliberately NOT held to this. Darcula's own comment colour is 3.59:1 and
-// retuning JetBrains' palette is not this test's business; the bar applies to what we chose ourselves.
 test("the colour families are readable: every token clears 4.5:1 on its own background", () => {
   const css = readFileSync(new URL("../src/viewer.css", import.meta.url), "utf8");
   const channels = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
@@ -238,9 +205,6 @@ test("the colour families are readable: every token clears 4.5:1 on its own back
   }
 });
 
-// The bug this pins: the settings grid and the boot-time validation kept two copies of the family list, and
-// 'github' was only ever added to one. Picking GitHub Dark worked for the session and came back as Kakapo on
-// the next launch — a setting that silently forgets itself, in the one place a user goes to make it stick.
 test("a chosen family survives a reopen, whichever family it is", async () => {
   const core = readFileSync(new URL("../src/viewer/01-core.js", import.meta.url), "utf8");
   const families = core.match(/var SYNTAX_FAMILIES = \[([^\]]+)\]/)[1].match(/'([^']+)'/g).map((s) => s.slice(1, -1));

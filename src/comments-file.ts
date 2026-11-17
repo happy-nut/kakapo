@@ -3,91 +3,44 @@ import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "no
 import { dirname, join } from "node:path";
 import { kakapoGitDataFile, kakapoSharedDataFile } from "./git.js";
 
-// ONE store for the whole review conversation. A reviewer's question, an agent's answer, an agent's Explain
-// note and a follow-up to any of them are the same thing — a comment with an author and, optionally, a parent
-// — so they live in one file as one list, instead of the three stores this replaces (comments in the app's
-// settings blob, answers.json, annotations.json), each with its own shape, lifetime and sync path.
-//
-// JSONL, not JSON: an agent replies by APPENDING one line, which is the write it is least likely to get
-// wrong (no in-place field edit inside a nested array, no chance of truncating someone else's turn), and a
-// half-written trailing line costs one record instead of the whole file. It is also far cheaper to read into
-// an agent's context than an indented document that repeats every key.
 export type ThreadRecord = {
   id: number;
-  re?: number; // the record this replies to; absent on a root comment
-  by?: "me" | "agent"; // absent = the reviewer
-  kind?: "q" | "c" | "note"; // absent = "q"; "note" is an agent's unprompted explanation
+  re?: number;
+  by?: "me" | "agent";
+  kind?: "q" | "c" | "note";
   path?: string;
   line?: number;
   from?: number;
   to?: number;
   side?: "old" | "new";
-  anchor?: string; // the commented line's text, so the comment can follow it when the file changes
+  anchor?: string;
   title?: string;
-  // The two notes that carry a change's story: where it goes wrong ("problem") and where that is beaten
-  // ("fix"). Absent on everything else, which is most notes — the point of marking them is that a reviewer
-  // with two minutes reads these and stops. The viewer draws them louder (agentCardHtml, 23-annotations.js).
-  role?: "key" | "problem" | "fix"; // "key" is what is written now; the older two still read back as the mark
-  // Which view the reviewer was in when they wrote it, so going back to it goes back THERE. Absent on an
-  // agent's note: a note was never written in a view, and the diff is the right place to read one.
+  role?: "key" | "problem" | "fix";
   view?: "diff" | "source";
-  // Which part of the explanation this note belongs to. The reader walks notes group by group, and inside a
-  // group in the order they were appended — that order is the argument the agent is making, and it is not the
-  // order the lines happen to sit in the file. Absent on a reviewer's own comment, which keeps file order.
   group?: number;
   addressed?: boolean;
   text: string;
 };
 
-// `.git/worktrees/<name>/kakapo/comments.jsonl` (or `.git/kakapo/comments.jsonl` for a non-worktree clone).
-// git never tracks its own `.git/` contents, so this never shows up in `git status`, but it still sits inside
-// the worktree filesystem a cwd-sandboxed coding agent can reach — unlike a path under Electron's userData
-// directory, which sits outside the repo entirely. Undefined outside a git repo (the renderer then falls
-// back to its own localStorage copy, which is all a browser/static build ever had).
 export function commentsFilePath(root: string): string | undefined {
   return kakapoGitDataFile(root, "comments.jsonl");
 }
 
-// The agent's NOTES live one level up, in the git dir the repository shares with all of its worktrees. A
-// workspace is created for a task and deleted when the task is done — so knowledge written beside the
-// conversation died with the worktree that happened to be open when it was learned, and the next Explain
-// started from nothing. What was learned about the codebase outlives any one task; the conversation about a
-// particular diff does not, and stays where it was.
 export function knowledgeFilePath(root: string): string | undefined {
   return kakapoSharedDataFile(root, "knowledge.jsonl");
 }
 
-// Knowledge is shared by every worktree of a repository, but a note is ANCHORED — it names a file and a line.
-// A note written about a file that does not exist in this workspace has nothing to attach to here: the card
-// cannot render, yet the count on the tree still counted it and F8 still walked to it, which sent the caret to
-// a file it could not open and left it at the top. So a shared note arrives only where its file does.
-//
-// Same-file drift (the line moved, or this branch changed it) is a different problem and already has an
-// answer: the record carries the text of the line it was written on, and the renderer re-finds it.
 function notesForWorkspace(records: ThreadRecord[], root: string): ThreadRecord[] {
   return records.filter((record) => {
-    if (!record.path) return true; // a note with no anchor belongs to the repository, not to a file
+    if (!record.path) return true;
     return existsSync(join(root, record.path));
   });
 }
 
-// A record is knowledge when the agent wrote it about the code on its own — not a reply, not a question. Its
-// replies stay with the conversation they belong to, so a note can be discussed in one workspace without that
-// discussion following the note into every other one.
 export function isKnowledge(record: ThreadRecord): boolean {
   return record.by === "agent" && record.kind === "note" && record.re == null;
 }
 
-// The file teaches its own format, so the prompt handed to an agent only has to name the path.
-//
-// Including the next free id is not a convenience. There are TWO files — this workspace's conversation and
-// the notes shared across every worktree of the repository — and they are ONE id space: a reply in the
-// conversation may answer a note in the shared file, so an id has to mean one thing across both. But an agent
-// is only ever pointed at the file it is writing to, so "highest id in this file + 1" was the only rule it
-// could follow, and the two files number themselves independently: comments reached 20 while notes reached
-// 18, and the next note and the next answer both claimed 19. Two records, one id, and everything that
-// resolves a parent by id — a reply's anchor, its thread, its delete — picks whichever it happens to find.
-// The renderer sees both files and cannot be fooled; the agent sees one and needs to be told.
 function headerFor(nextId: number): string[] {
   return [
     "# kakapo review thread — one JSON object per line, oldest first. Lines starting with # are ignored.",
@@ -114,30 +67,22 @@ export function readThread(file: string | undefined): ThreadRecord[] {
     if (!trimmed || trimmed.startsWith("#")) continue;
     try {
       const record = JSON.parse(trimmed) as ThreadRecord;
-      // A line the agent is still writing parses as garbage: drop that ONE record and keep the rest, rather
-      // than throwing away a conversation because its last line arrived half-formed.
       if (record && typeof record === "object" && Number.isFinite(record.id)) records.push(record);
     } catch {
-      /* skip this line */
     }
   }
   return records;
 }
 
-// `nextId` is the id space's high-water mark across BOTH files, so whichever one is being written tells an
-// agent the same truth. Defaults to this file's own contents for callers that have only one (tests, and the
-// no-shared-file case where the two really are the same file).
 export function writeThread(file: string, records: ThreadRecord[], nextId?: number): void {
   const floor = records.reduce((max, record) => Math.max(max, Number(record.id) || 0), 0) + 1;
   mkdirSync(dirname(file), { recursive: true });
   writeFileSync(file, headerFor(Math.max(floor, Number(nextId) || 0)).concat(records.map((record) => JSON.stringify(record))).join("\n") + "\n");
 }
-// The next id nobody has used, in either file. The only place that can answer it is the one that holds both.
 export function nextThreadId(...records: ThreadRecord[][]): number {
   return records.reduce((max, list) => list.reduce((m, r) => Math.max(m, Number(r.id) || 0), max), 0) + 1;
 }
 
-// mtime+size: a bare stat gates the read+parse, so an idle poll tick costs one syscall.
 function fileSignature(file: string | undefined): string | undefined {
   if (!file || !existsSync(file)) return undefined;
   try {
@@ -148,8 +93,6 @@ function fileSignature(file: string | undefined): string | undefined {
   }
 }
 
-// Legacy notes, read once: a workspace that was annotated before the stores were unified still has an
-// annotations.json, and its notes are folded into the new file the first time the renderer asks for it.
 function legacyNotes(root: string): Array<{ path?: string; line?: number; title?: string; text?: string }> {
   const file = kakapoGitDataFile(root, "annotations.json");
   if (!file || !existsSync(file)) return [];
@@ -168,21 +111,9 @@ export type CommentsIpcState = {
   commentsSig?: string;
   knowledgeFile?: string;
   knowledgeSig?: string;
-  // Every record this window has actually been handed, serialized. A write may only drop a record the
-  // renderer had the chance to delete, and this is the only place that knows which those are.
   delivered?: Set<string>;
 };
 
-/**
- * Point a window's state at one repository's thread files.
- *
- * Here rather than at the call sites because there are two of them — a window opening, and a window being
- * switched to another repo — and the fields they have to agree on are every field the handlers below read.
- * They did not agree: `knowledgeFile` was set by neither, so `readThread(undefined)` returned nothing, the
- * split in `comments-write` never ran, and the shared notes file was dead in the shipped app while three
- * test files exercised it by constructing the state themselves. `delivered` belongs here for the same
- * reason — it answers "has this window's renderer seen this record", which is a question about one repo.
- */
 export function attachThreadFiles(state: CommentsIpcState, root: string): void {
   state.commentsFile = commentsFilePath(root);
   state.knowledgeFile = knowledgeFilePath(root);
@@ -191,7 +122,6 @@ export function attachThreadFiles(state: CommentsIpcState, root: string): void {
   state.delivered = undefined;
 }
 
-// Records on their way to the renderer. Returned as-is so call sites read as the send they already were.
 function deliver(state: CommentsIpcState, records: ThreadRecord[]): ThreadRecord[] {
   const delivered = (state.delivered ??= new Set<string>());
   for (const record of records) delivered.add(JSON.stringify(record));
@@ -208,35 +138,16 @@ export function registerCommentsIpc(ipc: IpcMain, stateFromEvent: CommentsStateR
     const exists = existsSync(state.commentsFile);
     state.commentsSig = fileSignature(state.commentsFile);
     state.knowledgeSig = fileSignature(state.knowledgeFile);
-    // Two files, one list. The renderer has always worked from a single thread and assigns the next id from
-    // the highest it can see, so merging on read is what keeps the id space global across both of them.
     return {
       path: state.commentsFile,
       notesPath: state.knowledgeFile ?? state.commentsFile,
       exists: exists || existsSync(state.knowledgeFile ?? ""),
-      // Whether THIS workspace has a conversation of its own, which is a different question from whether
-      // there is anything to show. A sibling worktree's shared notes make `exists` true in a workspace
-      // that has never had a comment in it, and the renderer decides whether to fold in the pre-unification
-      // stores on that flag — so on its own it would skip the migration and lose them.
       conversationExists: exists,
       records: deliver(state, readThread(state.commentsFile).concat(notesForWorkspace(readThread(state.knowledgeFile), state.options.root))),
       legacyNotes: exists ? [] : legacyNotes(state.options.root),
     };
   });
 
-  // The renderer owns editing and sends the whole list it holds. Anything on disk that this window was never
-  // HANDED is a record the renderer had no chance to delete — a turn an agent appended, or a shared note
-  // another workspace owns and this one filtered out on read — so it is kept.
-  //
-  // This used to be inferred from id ORDER (`id > knownMaxId`), and that was wrong twice over. The number the
-  // renderer sent was its own ALLOCATION counter, already bumped for the comment being saved, while main read
-  // it as "the highest id on disk" — so when an agent followed the file header's NEXT FREE ID and the
-  // reviewer's next comment claimed the same number, which is the ordinary case because both allocate from
-  // one counter, the agent's answer was neither kept nor returned: it was deleted and never shown. And
-  // because `comments-read` filters the shared notes file down to the paths this workspace has, every note
-  // about another worktree's files sat below that same threshold and was erased by the next unrelated save.
-  // Ids cannot answer "has the renderer seen this" at all, because two different records legitimately share
-  // one id; what main delivered can, and main is the only process that knows it.
   ipc.handle("kakapo:comments-write", (event, payload: { records?: ThreadRecord[] }) => {
     const state = stateFromEvent(event);
     if (!state || !state.commentsFile || !Array.isArray(payload?.records)) return { ok: false };
@@ -248,14 +159,6 @@ export function registerCommentsIpc(ipc: IpcMain, stateFromEvent: CommentsStateR
     const keptShared = state.knowledgeFile ? undelivered(state.knowledgeFile) : [];
     let nextFree = [payload.records, keptHere, keptShared]
       .reduce((max, list) => list.reduce((m, r) => Math.max(m, Number(r.id) || 0), max), 0) + 1;
-    // A record the renderer never saw can hold an id the renderer has since allocated for something else.
-    // Both are real, so the one nobody is pointing at yet is renumbered rather than dropped.
-    //
-    // "Nobody is pointing at it" was not true. The file header tells an agent how to reply — `"re":<id you
-    // are answering>` — so an agent that appends a note AND a follow-up to its own note leaves two records
-    // this window has never seen, one of which points at the other. Renumbering the parent alone left the
-    // child's `re:` on a number that now belongs to one of the REVIEWER's comments, and the agent's
-    // follow-up appeared, silently and plausibly, under something it was never about.
     const remapped = new Map<number, number>();
     const renumberCollisions = (records: ThreadRecord[]): ThreadRecord[] =>
       records.map((record) => {
@@ -264,44 +167,27 @@ export function registerCommentsIpc(ipc: IpcMain, stateFromEvent: CommentsStateR
         remapped.set(Number(record.id), id);
         return { ...record, id };
       });
-    // Applied to both files at once, after both have been renumbered: an undelivered reply in this
-    // workspace's conversation may answer an undelivered note in the shared one. Only records that were
-    // themselves never delivered are re-pointed — whatever the renderer sent means the id it sent.
     const reparent = (records: ThreadRecord[]): ThreadRecord[] =>
       records.map((record) => {
         const moved = record.re == null ? undefined : remapped.get(Number(record.re));
         return moved === undefined ? record : { ...record, re: moved };
       });
-    // Split on the way out, exactly as they were merged on the way in: what the agent learned about the code
-    // goes to the shared file, the conversation stays with this workspace. Each file keeps whatever arrived in
-    // it since the renderer last looked.
-    // No shared file (a repo git could not resolve) means no split: everything goes where it always went,
-    // rather than knowledge being filtered out of the only file there is and lost.
     const shared = state.knowledgeFile;
     const mine = shared ? payload.records.filter((record) => !isKnowledge(record)) : payload.records;
     const learned = shared ? payload.records.filter(isKnowledge) : [];
-    // Renumber across both files first, then re-point the replies among them — in that order, because a
-    // reply may answer a record in the file that has not been renumbered yet.
     let arrivedHere = renumberCollisions(keptHere);
     let arrivedShared = shared ? renumberCollisions(keptShared) : [];
     arrivedHere = reparent(arrivedHere);
     arrivedShared = reparent(arrivedShared);
     const here = mine.concat(arrivedHere);
     const there = shared ? learned.concat(arrivedShared) : [];
-    // Both files carry the SAME next free id, computed across both — that is what makes them one id space to
-    // an agent, which only ever sees the one it was pointed at.
     const nextId = nextThreadId(here, there);
-    // Everything written is now in the renderer's hands: it sent `mine`/`learned`, and `arrived*` goes back
-    // in the reply below. Marking them delivered is what keeps the NEXT save from reading them back as
-    // records this window never saw and duplicating the whole conversation.
     writeThread(state.commentsFile, deliver(state, here), nextId);
-    state.commentsSig = fileSignature(state.commentsFile); // our own write must not come back as a change
+    state.commentsSig = fileSignature(state.commentsFile);
     if (shared) {
       writeThread(shared, deliver(state, there), nextId);
       state.knowledgeSig = fileSignature(shared);
     }
-    // Kept on disk is not the same as shown here: a shared note about a file this workspace does not have is
-    // preserved above but filtered out of the reply, exactly as comments-read filters it.
     return {
       ok: true,
       path: state.commentsFile,
@@ -309,43 +195,23 @@ export function registerCommentsIpc(ipc: IpcMain, stateFromEvent: CommentsStateR
     };
   });
 
-  // The hand-off document goes to disk beside the thread file, so the terminal only has to carry the line that
-  // names it (sendWholeDocToTerminal, 08-dock.js). Every byte of that document was already on disk anyway —
-  // pasting it back was a copy of the review, and a thread with a few turns quoted per comment made the copy
-  // kilobytes long. Overwritten on every send: it is the CURRENT request, not a log.
   ipc.handle("kakapo:comments-request-write", (event, payload: { text?: string; name?: string }) => {
     const state = stateFromEvent(event);
     if (!state || !state.commentsFile || typeof payload?.text !== "string") return { ok: false };
-    // A name so the two kinds of hand-off cannot overwrite each other: a review request and an Explain
-    // instruction are both "the current request", but they are sent from different places and an agent may
-    // still be reading one when the other is sent. Sanitised to a plain basename — this path is built from
-    // renderer input, and the only thing it may choose is which of OUR files it is.
     const wanted = typeof payload.name === "string" ? payload.name.replace(/[^a-z0-9._-]/gi, "") : "";
     const file = join(dirname(state.commentsFile), wanted && wanted.endsWith(".md") ? wanted : "request.md");
     try {
       mkdirSync(dirname(file), { recursive: true });
       writeFileSync(file, payload.text.endsWith("\n") ? payload.text : payload.text + "\n");
     } catch {
-      return { ok: false }; // the renderer pastes the document itself instead
+      return { ok: false };
     }
     return { ok: true, path: file };
   });
 }
 
-// Polled on an independent timer by app-main.ts (not gated by --watch): an agent writes into this file
-// whether or not the diff itself is being watched. The whole list is pushed — it is small, and a full swap
-// cannot drift the way a delta can.
-// `force` re-sends what is on disk even when nothing has changed since the last send, and it exists because
-// the signature is consumed by SENDING rather than by the renderer receiving. A workspace that was off screen
-// when an agent finished — the reviewer walked away, which is exactly what you do while an Explain run goes —
-// got its push into a view that could not use it, and the mark saying "already delivered" was set anyway. On
-// coming back nothing had changed, so nothing was sent, and a codebase map that was sitting complete on disk
-// simply never appeared. Activation forces; the poll does not, because re-sending every second is how a
-// reviewer's own half-typed edits get overwritten by the file underneath them.
 export function syncCommentsFile(state: CommentsIpcState, force = false): void {
   if (!state.commentsFile || state.win.isDestroyed()) return;
-  // Either file changing is news: an agent in ANOTHER workspace can add knowledge while this one is open, and
-  // that is the whole point of the shared file — it should arrive here without a reload.
   const sig = fileSignature(state.commentsFile);
   const shared = fileSignature(state.knowledgeFile);
   if (!force && sig === state.commentsSig && shared === state.knowledgeSig) return;

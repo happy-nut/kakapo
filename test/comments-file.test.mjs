@@ -1,9 +1,3 @@
-// comments.jsonl — the whole review conversation in one file (issue #10). A reviewer's question, an agent's
-// answer and an agent's Explain note are the same kind of thing, so they are one list of records here rather
-// than three stores with three shapes. kakapo writes what it knows; an agent replies by APPENDING a line.
-//
-// What this has to get right: the app saving a comment must never swallow a line the agent appended a moment
-// earlier, and a half-written trailing line must cost one record rather than the conversation.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
@@ -46,10 +40,8 @@ test("an agent's appended reply survives the app saving the comments around it",
     h.write([ask(1, "why a CLI?"), ask(2, "why not a library?")]);
     assert.deepEqual(readThread(h.state.commentsFile).map((r) => r.id), [1, 2]);
 
-    // The agent answers the way the file's own header tells it to: one appended line.
     appendFileSync(h.state.commentsFile, JSON.stringify({ id: 3, re: 1, by: "agent", text: "It ships as one binary." }) + "\n");
 
-    // …and the reviewer edits an unrelated comment before that line has been read back.
     const result = h.write([ask(1, "why a CLI?"), ask(2, "why not a library, really?")], 2);
     assert.deepEqual(result.arrived.map((r) => r.id), [3], "main reports what it found and kept");
 
@@ -100,9 +92,6 @@ test("the file teaches its own format, and only the agent's edits come back to t
   }
 });
 
-// Nothing is lost by unifying the stores: a workspace that was annotated before this existed still has its
-// notes in annotations.json, and the renderer folds them in the first time it reads a thread file that is
-// not there yet.
 test("a pre-unification annotations.json is handed over once, then never again", () => {
   const h = harness();
   try {
@@ -124,15 +113,10 @@ test("a pre-unification annotations.json is handed over once, then never again",
   }
 });
 
-// Knowledge outlives the worktree it was learned in. A workspace is created for a task and deleted when the
-// task is done, so a note written beside that workspace's conversation died with it and the next Explain
-// started from nothing. The notes go to the git dir the repository SHARES with its worktrees; the
-// conversation about one particular diff stays where it was.
 test("what the agent learned goes to the repository, the conversation stays with the workspace", () => {
   const h = harness();
   try {
     h.state.knowledgeFile = knowledgeFilePath(h.root);
-    // The note below is anchored to this file, and a shared note only reaches a workspace that HAS its file.
     mkdirSync(join(h.root, "src"), { recursive: true });
     writeFileSync(join(h.root, "src", "a.ts"), "export const a = 1;\n");
 
@@ -149,7 +133,6 @@ test("what the agent learned goes to the repository, the conversation stays with
     assert.doesNotMatch(conversation, /the trunk/, "the note is not duplicated into the workspace file");
     assert.match(knowledge, /the trunk/, "it is in the repository's own file");
 
-    // One list again on the way back in, with the id space intact across both files.
     const back = h.read();
     assert.deepEqual(back.records.map((r) => r.id).sort(), [1, 2, 3]);
     assert.equal(back.notesPath, h.state.knowledgeFile, "and that shared file is what {{NOTES_PATH}} means");
@@ -158,9 +141,6 @@ test("what the agent learned goes to the repository, the conversation stays with
   }
 });
 
-// Knowledge is shared by every worktree of a repository, but a note is ANCHORED to a file and a line. A note
-// about a file this workspace does not have has nothing to attach to here — the card cannot render, yet the
-// count on the tree counted it and F8 walked to it, sending the caret to a file it could not open.
 test("a shared note arrives only in a workspace that has its file", () => {
   const h = harness();
   try {
@@ -176,7 +156,6 @@ test("a shared note arrives only in a workspace that has its file", () => {
     const back = h.read().records.map((r) => r.id).sort();
     assert.deepEqual(back, [1, 3], "the note whose file is missing here stays out of this workspace's list");
 
-    // It is not deleted — another worktree still has that file, and the knowledge belongs to the repository.
     const knowledge = readFileSync(h.state.knowledgeFile, "utf8");
     assert.match(knowledge, /only\/in\/another\/worktree\.ts/, "it is still on disk for the workspace it is about");
   } finally {
@@ -184,12 +163,6 @@ test("a shared note arrives only in a workspace that has its file", () => {
   }
 });
 
-// The two files are ONE id space — a reply in the conversation can answer a note in the shared file, so an id
-// has to mean one thing across both. But they number themselves independently and an agent is only ever
-// pointed at the file it is writing to, so "highest id in this file + 1" was the only rule it could follow:
-// comments reached 20 while notes reached 18, and the next answer and the next note both claimed 19. Two
-// records, one id, and everything that resolves a parent by id picks whichever it happens to find first.
-// Neither file can answer this on its own; the process that holds both writes the answer into each of them.
 test("both thread files carry the same next free id, so an agent seeing one cannot collide with the other", () => {
   const h = harness();
   try {
@@ -197,7 +170,6 @@ test("both thread files carry the same next free id, so an agent seeing one cann
     mkdirSync(join(h.root, "src"), { recursive: true });
     writeFileSync(join(h.root, "src", "a.ts"), "export const a = 1;\n");
 
-    // The conversation runs ahead of the notes, which is the case that used to collide.
     h.write([
       { id: 1, kind: "c", path: "src/a.ts", line: 1, text: "why here?" },
       { id: 2, by: "agent", kind: "note", path: "src/a.ts", line: 3, text: "the trunk" },
@@ -213,7 +185,6 @@ test("both thread files carry the same next free id, so an agent seeing one cann
     assert.equal(nextIdIn(h.state.knowledgeFile), 8,
       "and the shared notes say the same 8 — its own highest is 2, which is exactly the trap");
 
-    // And it is the number an agent is told to use, not a decoration: taking it produces a free id.
     const used = h.read().records.map((r) => r.id);
     assert.ok(!used.includes(8), "8 is free in the merged list the renderer works from");
   } finally {
@@ -221,15 +192,6 @@ test("both thread files carry the same next free id, so an agent seeing one cann
   }
 });
 
-// ---- the wiring, which is the half nothing was testing ----------------------------------------------
-// Every test above builds the state by hand and then asserts what the handlers do with it. None of them
-// could see that the APP never built that state: `knowledgeFile` was set by no production code at all, so
-// the split these tests cover never ran outside them, and what an agent learned about the codebase died
-// with the worktree it was learned in — the one thing the shared file exists to prevent. It stayed
-// invisible to the compiler too, because every field of CommentsIpcState is optional, so a window state
-// missing one is still structurally a CommentsIpcState.
-
-/** A bare git repo to point a window at. */
 function gitRepo() {
   const root = mkdtempSync(join(tmpdir(), "kakapo-wire-"));
   execFileSync("git", ["init", "-q"], { cwd: root });
@@ -250,7 +212,6 @@ test("switching a window to another repository takes nothing of the old one with
   const second = gitRepo();
   const state = {};
   attachThreadFiles(state, first);
-  // Pretend this window has read the first repo's conversation.
   state.delivered = new Set(['{"id":1,"text":"from the first repo"}']);
   state.commentsSig = "stale";
   state.knowledgeSig = "stale";
@@ -265,10 +226,6 @@ test("switching a window to another repository takes nothing of the old one with
 });
 
 test("the app wires its thread files in one place, so the two call sites cannot drift apart", () => {
-  // The source, not the behaviour: there are two places a window is pointed at a repository — one opening,
-  // one switching — and the bug was that they disagreed about which fields a window needs. Reading the
-  // source is how app-boundaries.test.mjs guards the same class of thing, and it is the only way to see a
-  // field that is missing rather than wrong.
   const main = readFileSync(new URL("../src/app-main.ts", import.meta.url), "utf8");
   const direct = main.match(/state\.(commentsFile|knowledgeFile|delivered)\s*=/g) ?? [];
   assert.deepEqual(direct, [],
@@ -278,11 +235,6 @@ test("the app wires its thread files in one place, so the two call sites cannot 
 });
 
 test("a workspace with no conversation of its own still folds in its legacy stores, and keeps the shared notes", () => {
-  // Turning the shared notes file on made `exists` true in a workspace that had never had a comment —
-  // another worktree had written knowledge — and the renderer reads that flag as "there is a thread, skip
-  // the migration". So the pre-unification comments were never folded in; and had the flag simply been
-  // narrowed instead, the migration would have saved a list without the shared notes in it and written
-  // the shared file back empty. Both facts have to travel.
   const root = gitRepo();
   const state = { win: { isDestroyed: () => false, webContents: { send: () => {} } }, options: { root } };
   attachThreadFiles(state, root);

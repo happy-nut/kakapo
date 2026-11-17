@@ -1,11 +1,4 @@
-// Running a request from a .http file: resolve it, send it, and feed the result back into the file's own
-// scripts and into the variables a later request reads.
-//
-// The sequence matters and is IntelliJ's: pre-request script -> substitute -> send -> remember the response
-// under the request's name -> response handler -> `>>` save. Each step can fail on its own terms, and each
-// failure is rendered where the response would have been rather than thrown away in a console.
 
-/** The source of a `< {% … %}` / `> ./handler.js` script. An external file is read by main (repo-confined). */
 async function httpScriptSource(spec) {
   if (!spec) return { text: '' };
   if (typeof spec.text === 'string') return { text: spec.text };
@@ -14,7 +7,6 @@ async function httpScriptSource(spec) {
   return file.ok ? { text: file.text } : { error: file.error };
 }
 
-/** Reads a repo-relative file for the runner; `undefined` bridge means a browser review, not a missing file. */
 async function readHttpFileText(path) {
   if (!window.kakapoHttp || typeof window.kakapoHttp.readFile !== 'function') {
     return { ok: false, error: t('http.needsApp') };
@@ -27,12 +19,6 @@ async function readHttpFileText(path) {
   }
 }
 
-/**
- * Percent-encodes the characters that cannot appear in a URL literally. IntelliJ does this unless the
- * request says `# @no-auto-encoding`, and without it a `{{query}}` that resolved to "two words" produces a
- * URL the sender rejects. Existing %XX escapes are left alone — encoding them again is the classic
- * double-encoding bug.
- */
 function encodeHttpUrl(url) {
   return String(url).replace(/%(?![0-9a-fA-F]{2})|[^\x21-\x7e]|[ "<>`^{}|\\]/g, function (char) {
     return Array.prototype.map.call(new TextEncoder().encode(char), function (byte) {
@@ -41,7 +27,6 @@ function encodeHttpUrl(url) {
   });
 }
 
-/** `Authorization: Basic user pass` — IntelliJ's space-separated form, which main has to encode. */
 function httpAuthFromHeader(value) {
   const match = /^\s*(Basic|Digest)\s+(\S+)\s+(\S.*)$/i.exec(String(value || ''));
   if (!match) return null;
@@ -54,12 +39,6 @@ function httpHeaderValue(headers, name) {
   return key ? headers[key] : '';
 }
 
-/**
- * Turns a parsed request plus a variable scope into the exact payload main will send.
- *
- * Returns `{ error }` instead of a request when a {{variable}} has no value: the alternative is sending
- * "{{host}}/get" and reading back "unsupported URL scheme", which names the symptom and hides the cause.
- */
 async function resolveHttpRequest(request, scope) {
   const headers = {};
   let auth = null;
@@ -69,7 +48,7 @@ async function resolveHttpRequest(request, scope) {
     const value = applyHttpVars(request.headers[i].value, scope, 0);
     if (name.toLowerCase() === 'authorization') {
       const parsed = httpAuthFromHeader(value);
-      if (parsed) { auth = parsed; continue; } // not a sendable header value: main encodes it instead
+      if (parsed) { auth = parsed; continue; }
     }
     headers[name] = value;
   }
@@ -100,8 +79,6 @@ async function resolveHttpRequest(request, scope) {
 
   const contentType = httpHeaderValue(headers, 'content-type');
   if (/multipart\/form-data/i.test(contentType)) {
-    // The boundary belongs in the header, but a file that leaves it out still says what it is on its first
-    // delimiter line — read it from there rather than refusing a request whose intent is unambiguous.
     const declared = /boundary\s*=\s*"?([^";]+)"?/i.exec(contentType);
     const sniffed = /^\s*--(\S+)\s*$/m.exec(request.body || '');
     const boundary = declared ? declared[1] : sniffed ? sniffed[1] : '';
@@ -118,7 +95,6 @@ async function resolveHttpRequest(request, scope) {
       Object.keys(part.headers).forEach(function (name) { partHeaders[name] = applyHttpVars(part.headers[name], scope, 0); });
       if (part.file) { parts.push({ headers: partHeaders, file: part.file }); continue; }
       if (part.fileAsText) {
-        // No filename on the disposition: IntelliJ sends the file's CONTENTS as this field's text.
         const file = await readHttpFileText(part.fileAsText);
         if (!file.ok) return { error: file.error };
         parts.push({ headers: partHeaders, text: part.substitute ? applyHttpVars(file.text, scope, 0) : file.text });
@@ -133,7 +109,6 @@ async function resolveHttpRequest(request, scope) {
 
   if (request.bodyFile) {
     if (!request.bodyFile.substitute) {
-      // Raw: main reads the bytes, so a binary body never passes through a JS string.
       payload.bodyFile = request.bodyFile.path;
       return { request: payload };
     }
@@ -149,7 +124,6 @@ async function resolveHttpRequest(request, scope) {
   return { request: payload };
 }
 
-/** The WebSocket half of the bridge; absent in a browser review, like sendHttp's. */
 function sendSocket(request) {
   if (window.kakapoHttp && typeof window.kakapoHttp.sendSocket === 'function') {
     return Promise.resolve(window.kakapoHttp.sendSocket(request));
@@ -161,25 +135,19 @@ function sendHttp(request) {
   if (window.kakapoHttp && typeof window.kakapoHttp.send === 'function') {
     return Promise.resolve(window.kakapoHttp.send(request));
   }
-  // A browser/static review has no main process to send through. Say that, rather than failing as if the
-  // request itself were wrong.
   return Promise.resolve({ ok: false, error: t('http.needsApp'), durationMs: 0 });
 }
 
-/** Remembers a response under its request's name, for {{login.response.body.$.token}}. */
 function rememberHttpResponse(request, result) {
   if (request.directives.noLog || !result || !result.ok) return;
   const text = result.body == null ? '' : String(result.body);
   let json = null;
-  try { json = JSON.parse(text); } catch (error) { /* a text response is still referable as .body */ }
+  try { json = JSON.parse(text); } catch (error) { }
   httpResponsesByName.set(request.name, {
     status: result.status, headers: result.headers || {}, body: text, json: json,
   });
 }
 
-// `path` and `target` are passed in because this is no longer only the source view's runner: the diff
-// shows .http files too, and a request there is the same request. Both default to the source view, which
-// is where every existing caller runs from.
 async function runHttpRequest(reqIndex, pathOverride, targetOverride) {
   const path = pathOverride || sourceOpenPath();
   const requests = httpRequestsByPath.get(path);
@@ -205,7 +173,6 @@ async function runHttpRequest(reqIndex, pathOverride, targetOverride) {
     return;
   }
 
-  // A pre-request script's variables belong to this run, not to every run since the file was opened.
   httpRequestVars.delete(key);
   const log = { lines: [], tests: [] };
   httpScriptLogByRequest.set(key, log);
@@ -216,15 +183,12 @@ async function runHttpRequest(reqIndex, pathOverride, targetOverride) {
   if (pre.text) {
     const outcome = await runHttpScript(pre.text, {
       client: httpClientApi(log), request: httpRequestApi(request, scope, key),
-      // Where `import './logger.js'` resolves from: beside the .http file, as it would in the IDE.
       path: path,
     });
     if (!outcome.ok) { fail(t('http.preScriptFailed').replace('{error}', outcome.error)); return; }
-    scope = httpScope(path, reqIndex); // request.variables.set() happened; rebuild so it is visible
+    scope = httpScope(path, reqIndex);
   }
 
-  // A variable holding a JSON array makes this request a loop: one send per element, in order, each with
-  // its own scope. One element is the ordinary case and goes through unchanged.
   const iterations = httpCollectionLength(
     request.url + ' ' + request.headers.map(function (h) { return h.name + ' ' + h.value; }).join(' ')
       + ' ' + (request.body || ''), scope);
@@ -269,7 +233,6 @@ async function runHttpRequest(reqIndex, pathOverride, targetOverride) {
   return result;
 }
 
-/** `>> out.json` / `>>! out.json`. The path is substituted first, so {{$historyFolder}} resolves. */
 async function saveHttpResponseFile(request, result, scope) {
   const path = applyHttpVars(request.output.path, scope, 0);
   if (!window.kakapoHttp || typeof window.kakapoHttp.saveResponse !== 'function') {
@@ -284,17 +247,11 @@ async function saveHttpResponseFile(request, result, scope) {
   }
 }
 
-/** The open .http file, or '' — the one place the runner's keyboard entry points ask where they are. */
 function httpOpenPath() {
   const path = sourceOpenPath();
   return isHttpFile(path) ? path : '';
 }
 
-/**
- * Which request the caret is in. A caret inside a request's span picks that request; a caret below the last
- * one picks the last — the same rule ⌘Enter has always used, now shared with the cURL copy so the two keys
- * cannot disagree about which request the reviewer means.
- */
 function httpRequestIndexAtCaret(path) {
   const requests = httpRequestsByPath.get(path);
   if (!requests || !requests.length) return -1;
@@ -315,10 +272,6 @@ function runHttpAtCaret() {
   if (chosen >= 0) runHttpRequest(chosen);
 }
 
-/**
- * Runs every request in the open .http file, in file order and one at a time — which is the only order that
- * makes a file a sequence: a login request's handler sets the token the next request sends.
- */
 async function runHttpFile() {
   const path = httpOpenPath();
   const requests = httpRequestsByPath.get(path);
@@ -334,11 +287,6 @@ async function runHttpFile() {
     : t('http.ranAll', { count: requests.length }));
 }
 
-/**
- * Copies the request as a cURL command — the shape of it a reviewer pastes into a terminal, an issue or a
- * message. The reverse direction (pasting cURL in to get a request) is deliberately absent: kakapo never
- * writes to the file under review, so there would be nowhere to put it.
- */
 async function copyHttpAsCurl(reqIndex, pathOverride) {
   const path = pathOverride || sourceOpenPath();
   const requests = httpRequestsByPath.get(path);
@@ -370,13 +318,6 @@ async function copyHttpAsCurl(reqIndex, pathOverride) {
   return true;
 }
 
-/**
- * A WEBSOCKET request: open the socket, send what the file lists, show the transcript.
- *
- * Shares the variable scope and the `@timeout` directive with every other request, and nothing else —
- * there is no status line, no headers and no body to save, because what came back is an exchange rather
- * than a response.
- */
 async function runWebSocketRequest(request, path, reqIndex, target, fail) {
   const scope = httpScope(path, reqIndex);
   const url = applyHttpVars(request.url, scope, 0);
@@ -405,13 +346,6 @@ async function runWebSocketRequest(request, path, reqIndex, target, fail) {
   return result;
 }
 
-// ---- `run` and `import`: one file running another ----------------------------------------------------
-// IntelliJ composes a suite out of request files this way, and the parenthesised overrides are how one
-// call differs from the next. The referenced file is parsed and registered in the SAME maps an open file
-// uses, so everything below — variables, pre-request scripts, handlers, `>>` saves — happens exactly as
-// it would if a reader had opened that file and pressed Run on each request themselves.
-
-/** `./other.http` next to `from`, or a repository-relative path. '' means "this file". */
 function resolveHttpRunPath(from, target) {
   const wanted = String(target || '').replace(/\\/g, '/').trim();
   if (!wanted) return from;
@@ -427,12 +361,6 @@ function resolveHttpRunPath(from, target) {
   return out.join('/');
 }
 
-/**
- * Loads a .http file's requests into the runner's maps and returns them.
- *
- * The file already open is read from the index rather than through main: it is the text on screen, which
- * is what the reader is pressing Run against.
- */
 async function loadHttpRequestsOf(path) {
   const known = httpRequestsByPath.get(path);
   if (known) return known;
@@ -450,11 +378,9 @@ async function loadHttpRequestsOf(path) {
   return parsed.requests;
 }
 
-/** Which requests a `run` line names: all of a file's, or the one it names, searched through imports. */
 async function httpRunTargets(spec, fromPath) {
   const direct = resolveHttpRunPath(fromPath, spec.path);
   const candidates = [direct];
-  // `run #Name` with no path: this file first, then whatever it imported, in the order it imported them.
   if (!spec.path) {
     for (const imported of httpImportsByPath.get(fromPath) || []) {
       candidates.push(resolveHttpRunPath(fromPath, imported));
@@ -463,8 +389,6 @@ async function httpRunTargets(spec, fromPath) {
   for (const candidate of candidates) {
     const requests = await loadHttpRequestsOf(candidate);
     if (!requests) continue;
-    // Only real requests are runnable targets. A `run` line is not addressable by name — it has no
-    // request of its own to send, and letting one answer meant a file could find itself.
     const sendable = requests.filter(function (request) { return request.kind !== 'run'; });
     if (!spec.requestName) return { path: candidate, requests: sendable };
     const named = sendable.filter(function (request) { return request.name === spec.requestName; });
@@ -482,12 +406,10 @@ async function runHttpRunDirective(request, path, target, fail) {
       .replace('{name}', spec.requestName || spec.path));
     return;
   }
-  // A file that runs itself, directly or through another file, would never stop.
   if (httpRunStack.indexOf(found.path) >= 0) {
     fail(t('http.runLoop').replace('{file}', found.path));
     return;
   }
-  // `run #name (@host=…)`: variables for this call, layered over the target file's own.
   const overrides = Object.keys(spec.overrides || {});
   const saved = httpVarsByPath.get(found.path) || {};
   if (overrides.length) httpVarsByPath.set(found.path, Object.assign({}, saved, spec.overrides));
@@ -502,8 +424,6 @@ async function runHttpRunDirective(request, path, target, fail) {
   try {
     for (let i = 0; i < found.requests.length; i++) {
       const index = httpRequestsByPath.get(found.path).indexOf(found.requests[i]);
-      // Each one runs through the ordinary path, with no response slot of its own — the slot belongs to
-      // the `run` line, and it reports the whole batch.
       const result = await runHttpRequest(index, found.path, null);
       outcomes.push({ name: found.requests[i].name, ok: Boolean(result && result.ok), status: result && result.status });
     }
@@ -514,13 +434,6 @@ async function runHttpRunDirective(request, path, target, fail) {
   if (target) renderHttpRunSummary(target, found.path, outcomes);
 }
 
-/**
- * A request whose variables hold a collection: sent once per element.
- *
- * Each send gets its own scope with `iteration` set, which is what a {{name}} resolves against and what
- * `request.iteration()` reports to a script. The response panel shows the batch rather than one response,
- * because there is no single response to show.
- */
 async function runHttpCollection(request, path, reqIndex, target, fail, log, iterations) {
   const outcomes = [];
   if (target) {
@@ -540,7 +453,6 @@ async function runHttpCollection(request, path, reqIndex, target, fail, log, ite
       fail(String(error && error.message ? error.message : error));
       return;
     }
-    // The LAST response is the one a later {{name.response…}} refers to, which is what IntelliJ does.
     rememberHttpResponse(request, result);
     const handler = await httpScriptSource(request.handler);
     if (handler.text) {

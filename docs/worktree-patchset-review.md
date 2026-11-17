@@ -28,8 +28,7 @@ kakapo 가 책임지는 것은 이 루프의 **읽는 쪽**뿐이다. 워크트�
 
 ### 1.1 워크트리는 앱에 존재하지 않는다
 
-`git worktree` 를 읽는 코드가 하나도 없다. `src/app-main.ts:614` 의 주석이 `open-worktree` 라는
-채널을 언급하지만 그 채널은 지금 없다 — 허브/레일을 걷어낼 때 같이 사라졌다. 지금 워크트리 다섯 개를
+`git worktree` 를 읽는 코드가 하나도 없다. `open-worktree` 라는 채널도 지금 없다 — 허브/레일을 걷어낼 때 같이 사라졌다. 지금 워크트리 다섯 개를
 읽으려면 터미널에서 `kakapo` 를 다섯 번 치고 서로 관계 없는 창 다섯 개를 얻는다. 환영 화면의 최근
 목록은 **경로 문자열의 평평한 나열**이다 — 브랜치도, 앞선 커밋 수도, "2분 전에 에이전트가 썼다"도
 없다.
@@ -75,7 +74,7 @@ kakapo 가 책임지는 것은 이 루프의 **읽는 쪽**뿐이다. 워크트�
 | 렌더러에 가는 update 페이로드 | 0.11–0.13 MB |
 | 클릭 → DOM 안정까지 (데모 레포) | ~500 ms |
 
-페이로드는 문제가 아니다 (lazyLoad 에서 content/image 가 빠진다 — `src/build.ts:222`).
+페이로드는 문제가 아니다 (lazyLoad 에서 content/image 가 빠진다 — `src/build.ts:169`).
 전환 1회 = 빌드 1회이며 중복 빌드는 없다 (연속 클릭이 watch tick 과 겹칠 때만 두 번 돈다).
 500 ms 중 빌드 밖의 몫에는 전환마다 올라가는 **분석 generation 과 indexing→ready 깜빡임**이 섞여
 있다 — `analysis-index-sync` 가 `outcome:"unchanged"` 로 돌아오는데도 그렇다. (여기까지 실측,
@@ -293,8 +292,8 @@ usage 스캔용으로 들고 있다) 읽기는 남기고, 스캔 결과만 저�
 그리고 2회차의 그 인덱스에 실제로 질문했을 때 (`kakapoAnalysis.query`, `workspaceSymbol`):
 
 ```
-engine:"index"  →  src/viewer/11-render-http.js:22 openSourceFile [function]
-                   test/helpers/dom.mjs:516        openSourceFile [method]
+engine:"index"  →  src/viewer/11-render-http.js:10 openSourceFile [function]
+                   test/helpers/dom.mjs:409        openSourceFile [method]
 ```
 
 `method` 와 `function` 의 구별까지 저장된 레코드에서 되살아난다 — 세어 본 것이 아니라 **답하게 해

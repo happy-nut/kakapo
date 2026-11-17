@@ -1,16 +1,3 @@
-// Drives the REAL app over the Chrome DevTools Protocol for the three surfaces the jsdom suite can only
-// approximate: running a request from a .http file, the Git history's kinds and filters, and the diff's
-// overview stripe.
-//
-// Why these three, and why here rather than in the suite:
-//   .http   jsdom stubs the main-process bridge, so "the request went out and came back" is a stub
-//           answering itself. Here a real server is listening and the app really sends to it.
-//   history the filters are applied by git in the main process; the suite stubs that bridge too.
-//   stripe  it is painted geometry. jsdom has no layout, so a mark that draws nothing passes every DOM
-//           assertion — which is exactly how a bookmark mark shipped invisible once already.
-//
-// `npm run review:smoke`. Refuses while a Kakapo from this checkout is open: a second launch is handed to
-// that instance, and this would drive the wrong window. KAKAPO_SMOKE_SHOTS=<dir> keeps screenshots.
 import { createServer } from "node:http";
 import { execFileSync, spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -29,7 +16,6 @@ function checkoutElectronPids() {
   } catch { return []; }
 }
 
-/** The server the .http file in the fixture actually talks to. */
 function apiServer() {
   const hits = [];
   const server = createServer((request, response) => {
@@ -84,7 +70,6 @@ function fixtureRepo(apiPort) {
     '{ "id": {{firstId}} }',
     "",
   ].join("\n"));
-  // Two files whose change is whitespace only / real, so the stripe has marks to draw.
   put("src/wide.ts", ["export const a = 1;", "const keep = 1;", "export const b = 1;", ""].join("\n"));
   git(["add", "-A"]);
   git(["commit", "-qm", "first: the api and a module"]);
@@ -92,7 +77,6 @@ function fixtureRepo(apiPort) {
   put("src/wide.ts", ["export const a = 99;", "const keep = 1;", "export const b = 99;", ""].join("\n"));
   git(["add", "-A"]);
   git(["commit", "-qm", "second: change both constants", "--author=Grace Hopper <grace@kakapo.test>"]);
-  // An uncommitted change, so the app opens on a review rather than nothing.
   put("src/wide.ts", ["export const a = 99;", "const keep = 1;", "export const b = 42;", ""].join("\n"));
   return repo;
 }
@@ -140,7 +124,7 @@ class Page {
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, `${name}.png`), Buffer.from(result.data, "base64"));
   }
-  close() { try { this.ws.close(); } catch { /* gone */ } }
+  close() { try { this.ws.close(); } catch { } }
 }
 
 const READY = `typeof runHttpRequest === 'function' && typeof renderDiffStripe === 'function' && typeof openHistory === 'function'`;
@@ -149,7 +133,7 @@ async function readyPage(timeoutMs) {
   const until = Date.now() + timeoutMs;
   while (Date.now() < until) {
     let list = [];
-    try { list = await (await fetch(`http://127.0.0.1:${PORT}/json/list`)).json(); } catch { /* not up */ }
+    try { list = await (await fetch(`http://127.0.0.1:${PORT}/json/list`)).json(); } catch { }
     for (const target of list) {
       if (target.type !== "page" || !target.webSocketDebuggerUrl) continue;
       if (String(target.url).startsWith("devtools://")) continue;
@@ -157,7 +141,7 @@ async function readyPage(timeoutMs) {
       try {
         await page.open();
         if (await page.evaluate(READY) === true) return page;
-      } catch { /* not this one */ }
+      } catch { }
       page.close();
     }
     await sleep(500);
@@ -198,7 +182,6 @@ async function run() {
       return 1;
     }
 
-    // ---- .http: a request that really goes out ----------------------------------------------------
     await page.evaluate(`(() => { openSourceFile('api.http'); return true; })()`);
     await sleep(900);
     const envPicked = await page.evaluate(`(() => {
@@ -208,10 +191,8 @@ async function run() {
     check("the .http environment from http-client.env.json is offered", envPicked.options.includes("local"), JSON.stringify(envPicked));
 
     await page.evaluate(`(() => { setSourceCursor('api.http', 1, 0, true, -1); return true; })()`);
-    await page.key("Enter", "Enter", 13, 4); // ⌘Enter — run the request at the caret
+    await page.key("Enter", "Enter", 13, 4);
     await sleep(1800);
-    // Read the PARTS of the panel, not a slice of its text: a status line, a body and a test list are
-    // three different claims, and "the string 1 appears somewhere" is satisfied by "11 ms".
     const first = await page.evaluate(`(() => {
       const panel = document.getElementById('http-resp-0');
       if (!panel) return { missing: true };
@@ -228,7 +209,6 @@ async function run() {
       /1/.test(first.tests) && first.failed === false, `${first.tests} (a failure shown: ${first.failed})`);
     await page.shot("http-response");
 
-    // The second request reads {{firstId}}, which only exists because the first one's handler set it.
     await page.evaluate(`(() => { runHttpRequest(1, 'api.http'); return true; })()`);
     await sleep(1800);
     const chained = await page.evaluate(`(() => {
@@ -238,14 +218,11 @@ async function run() {
         body: panel?.querySelector('.http-resp-body')?.textContent ?? '',
       };
     })()`);
-    // The echo server returns what it was sent, so `7` in the body is the id the FIRST request's handler
-    // stored — the whole point of the chain.
     check("a handler's client.global reaches the next request",
       /^201/.test(chained.status) && /7/.test(chained.body),
       `${chained.status} | ${chained.body.replace(/\s+/g, " ").slice(0, 60)}`);
     check("the server saw both requests", api.hits.length >= 2, api.hits.join(" | "));
 
-    // ---- the diff's overview stripe ---------------------------------------------------------------
     await page.evaluate(`(() => { showDiffView(); showOnlyFile('src/wide.ts'); return true; })()`);
     await sleep(700);
     const stripe = await page.evaluate(`(() => {
@@ -266,8 +243,7 @@ async function run() {
       JSON.stringify(stripe.marks.slice(0, 3)));
     await page.shot("diff-stripe");
 
-    // ---- the Git history: kinds and git-side filters -----------------------------------------------
-    await page.key("9", "Digit9", 57, 4); // ⌘9
+    await page.key("9", "Digit9", 57, 4);
     await sleep(1200);
     const log = await page.evaluate(`(() => ({
       open: !document.getElementById('history-view').classList.contains('hidden'),
@@ -304,7 +280,7 @@ async function run() {
     child.kill("SIGTERM");
     await sleep(600);
     child.kill("SIGKILL");
-    for (const pid of checkoutElectronPids()) { try { process.kill(Number(pid), "SIGKILL"); } catch { /* gone */ } }
+    for (const pid of checkoutElectronPids()) { try { process.kill(Number(pid), "SIGKILL"); } catch { } }
     await sleep(400);
     api.server.close();
     rmSync(repo, { recursive: true, force: true });

@@ -1,7 +1,3 @@
-// The merged hand-off panel's button is Copy AND ARCHIVE: a review handed to an agent is spent, so what
-// went into the clipboard leaves the active review with it — kept, not deleted. The things that make that
-// safe: whole threads go (no replies left pointing at a parent that is gone), a failed clipboard write
-// archives nothing, Cmd+Z brings the batch back, and the sidebar can put any of it back later.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { makeReviewHtml, cleanupFixtures } from "./helpers/fixture.mjs";
@@ -18,8 +14,6 @@ before(async () => {
 
 after(cleanupFixtures);
 
-// jsdom has no clipboard; the viewer's own bridge is the first thing copyTextToClipboard tries, so a stub
-// there is the honest stand-in for a working copy. Returns the clipboard so a test can read what was sent.
 function installClipboard(v) {
   const clipboard = { text: null };
   v.window.kakapoClipboard = { write: (text) => { clipboard.text = String(text); } };
@@ -74,8 +68,6 @@ test("an agent's answer goes with the question it answered", async () => {
   const v = await withComment("why this change?");
   try {
     installClipboard(v);
-    // The agent answers in that thread and the reviewer writes back, so the follow-up is what gets handed
-    // over while the question and the answer are its history.
     const root = v.window.reviewComments[0];
     const reply = (seq, by, replyTo, text) => ({
       seq, kind: "c", by, replyTo, path: root.path, line: root.line, code: "", anchorCode: "",
@@ -101,13 +93,6 @@ test("an agent's answer goes with the question it answered", async () => {
   }
 });
 
-// A hand-off MOVES the comment, so undoing one has two halves — back into the review, and out of the
-// archive — and this only ever asked about the first. The second half was missing: the original went on
-// living in `archivedComments` (what the undo stack holds is a copy, taken before the stamp), so one comment
-// sat in both lists at once, and handing the review over again archived the copy beside the original. Two
-// entries, same seq, same words, in the one list whose whole job is telling handed-over comments apart —
-// and it survived reloads, because the file is the source of truth and the file now said it twice.
-// Reported from the outside as two identical cards in the handed-over view.
 test("Cmd+Z brings the handed-over review back, and takes it out of the archive", async () => {
   const v = await withComment("why this change?");
   try {
@@ -125,8 +110,6 @@ test("Cmd+Z brings the handed-over review back, and takes it out of the archive"
     assert.equal(v.window.archivedComments.length, 0,
       "a comment that is back in the review is not also still handed over");
 
-    // The consequence, which is what was actually seen: hand the same review over a second time and the
-    // archive holds it once. Asserted on the rendered list too — that list is where it was reported from.
     await v.openMergedView();
     copyButton(v).click();
     await v.settle(60);
@@ -141,7 +124,6 @@ test("a failed clipboard write archives nothing", async () => {
   const v = await withComment("why this change?");
   try {
     await v.openMergedView();
-    // Every clipboard path the viewer has, refused: a copy that did not happen must not count as a hand-off.
     v.window.kakapoClipboard = { write: () => { throw new Error("no clipboard"); } };
     v.window.navigator.clipboard = undefined;
     v.document.execCommand = () => false;
@@ -174,8 +156,6 @@ test("a plain Cmd+A/Cmd+C copy is not a hand-off", async () => {
   }
 });
 
-// Archived is retrievable, which is the whole difference from deleted: the sidebar lists what was handed
-// over and puts a thread back into the review.
 test("the sidebar lists what was handed over and can put it back", async () => {
   const v = await withComment("why this change?");
   try {
@@ -200,11 +180,6 @@ test("the sidebar lists what was handed over and can put it back", async () => {
   }
 });
 
-// The panel builds its cards from a snapshot taken when it opened, and for a long time nothing re-took
-// that snapshot. It matters because of who writes while it is up: an agent answering through the thread
-// file (USER_FLOWS Flow 7) writes exactly then. A comment that arrived after the panel opened was not in
-// it, and the button copied and ARCHIVED the stale snapshot — so the hand-off went out short, and what it
-// left behind was a comment the reviewer had every reason to think they had just sent.
 test("a comment that arrives while the panel is open is in the hand-off", async () => {
   const v = await withComment("why this change?");
   try {
@@ -212,7 +187,6 @@ test("a comment that arrives while the panel is open is in the hand-off", async 
     await v.openMergedView();
     assert.equal(v.$all("#mc-merged-panel .mc-merged-card").length, 1, "the panel starts with the one comment");
 
-    // Whatever writes a comment ends by refreshing — that is the one path everything shares.
     v.window.addComment("?", FILE, 1, "export const a = 2;", "and this one landed while you were reading",
       1, 1, "new");
     v.window.saveComments();
@@ -231,8 +205,6 @@ test("a comment that arrives while the panel is open is in the hand-off", async 
   }
 });
 
-// A rebuild nobody asked for must not move the reviewer. Arrow-key selection is how this panel is read,
-// so a comment landing elsewhere should not drop them back at the top of a forty-card hand-off.
 test("an arriving comment does not move the reviewer's place", async () => {
   const v = await withComment("first");
   try {
@@ -264,20 +236,12 @@ test("an arriving comment does not move the reviewer's place", async () => {
   }
 });
 
-// Cmd+C in this panel copies AND files, at whatever size the copy was. It used to copy and leave the
-// review alone, which meant a comment handed to an agent came back in the next hand-off and the reviewer
-// had to remember which ones they had already sent. The panel's whole job is moving review OUT of kakapo.
-//
-// Two scopes, because they end differently: one card leaves the rest on screen, the whole panel empties it.
-// v.key dispatches on `document`, and this panel's handler reads event.target to find which card the key
-// was pressed on — so a document-level dispatch is a key pressed on no card at all.
 function pressOn(v, element, key, mods = {}) {
   element.dispatchEvent(new v.window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...mods }));
 }
 
 async function twoComments() {
   const v = await withComment("first question");
-  // Written the way everything that writes a comment writes one — the same path the test above uses.
   v.window.addComment("?", FILE, 1, "export const a = 2;", "second question", 1, 1, "new");
   v.window.saveComments();
   v.window.refreshComments();
@@ -333,10 +297,6 @@ test("Cmd+A then Cmd+C hands over the whole panel and empties it", async () => {
   }
 });
 
-// Handing the review over is also where the reviewer's READ MARK is set — HEAD as of this moment, so the
-// compare menu can later offer "what arrived since you last read". This is the only writer: a timer, a
-// scroll position, or simply having the window open would all mark unread work as read, and the next
-// compare would then hide the very commits it exists to show.
 test("handing the review over records where the reviewer stopped reading", async () => {
   const v = await withComment("why this change?");
   try {
@@ -356,15 +316,9 @@ test("handing the review over records where the reviewer stopped reading", async
 });
 
 test("a hand-off whose mark cannot be written is still a hand-off", async () => {
-  // The clipboard write is what makes a hand-off real, and it has already succeeded by the time the mark is
-  // written. A rejected mark — no git repository, a branch with no commits — must not turn a completed
-  // hand-off into an error, or the reviewer loses a review they have already pasted somewhere.
   const v = await withComment("why this change?");
   try {
     const clipboard = installClipboard(v);
-    // Thrown rather than rejected: a rejection is swallowed by the .catch, but a synchronous throw — which
-    // is what a torn-down bridge gives — would escape into the middle of the archive and leave the review
-    // half filed. The try/catch around the call is what this asserts.
     v.window.kakapoGit = { markRead: () => { throw new Error("no repository"); } };
 
     await v.openMergedView();
@@ -374,10 +328,6 @@ test("a hand-off whose mark cannot be written is still a hand-off", async () => 
     assert.match(String(clipboard.text), /why this change\?/, "the review reached the clipboard");
     assert.equal(v.window.reviewComments.length, 0, "and left the active review as usual");
     assert.equal(v.window.archivedComments.length, 1, "filed away, not lost");
-    // Asserted on the LAST thing the hand-off does, not the first. jsdom reports a throw inside a click
-    // listener instead of propagating it, so a throw that escaped here would leave every assertion above
-    // this one true — `archiveComments` has already run by then — and the test green over a hand-off that
-    // stopped halfway. The confirmation is what a reviewer actually waits for.
     assert.match(v.$("#mc-toasts").textContent, /archived|보관/i, "and said so, so the hand-off finished");
   } finally {
     v.close();

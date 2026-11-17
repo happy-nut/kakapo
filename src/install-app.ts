@@ -3,28 +3,10 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// `kakapo install-app` — put a Kakapo icon in /Applications for the npm install.
-//
-// The npm package installs a CLI and nothing else, so kakapo exists only in a terminal: no Spotlight, no
-// Launchpad, no icon to click. The .dmg on the releases page does ship a real bundle, but someone who
-// installed with npm should not have to go and fetch a second copy of the same app just to get an icon.
-//
-// This is a COMMAND, not a postinstall step. An npm package that writes into /Applications behind your back
-// is bad manners, usually needs a password, and leaves something behind that `npm uninstall` will not take
-// with it. Asking for it is one line; `kakapo uninstall-app` removes it again.
-//
-// What it writes is a launcher: a tiny bundle whose executable execs this same CLI. It is not a copy of the
-// app — that is the point. There is exactly one kakapo on the machine, the one npm manages, so an update
-// through npm updates what this icon opens, with no second copy to go stale. The cost is that the Dock icon
-// belongs to the Electron process the launcher starts rather than to the launcher itself.
-
 const scriptPath = fileURLToPath(import.meta.url);
-const packageRoot = dirname(dirname(scriptPath)); // dist/ -> package root
+const packageRoot = dirname(dirname(scriptPath));
 
 export function applicationsBundlePath(home: string = homedir()): string {
-  // ~/Applications when it exists: no password, and it shows in Spotlight and Launchpad exactly like
-  // /Applications does. Fall back to the system folder otherwise, which may not be writable — the caller
-  // reports that as the actionable error it is rather than failing with a bare EACCES.
   const personal = join(home, "Applications");
   return existsSync(personal) ? join(personal, "Kakapo.app") : "/Applications/Kakapo.app";
 }

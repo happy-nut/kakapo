@@ -24,12 +24,9 @@ export type DiffContextResult = {
 
 const MAX_CONTEXT_LINES = 1_000;
 
-// Return only the requested folded range. The renderer never receives whole base revisions, and the
-// path must belong to the current review diff before any filesystem/git read is attempted.
 export function readReviewDiffContext(input: {
   root: string;
   base?: string;
-  // A→B compare: read the new-side context from this revision (commit B) instead of the working tree.
   target?: string;
   staged: boolean;
   bodyDiffs: string[];
@@ -50,9 +47,6 @@ export function readReviewDiffContext(input: {
   const newRange = boundedRange(input.request.newStart, input.request.newEnd);
   if (!oldRange && !newRange) return empty("Invalid context range");
 
-  // Review paths are relative to the folder the user opened. Git blobs still use repository-relative
-  // paths, so prefix only the base/index lookup while reading the working tree directly from the selected
-  // workspace. This keeps folded context correct for nested monorepo packages.
   const workspaceRoot = canonicalWorkspaceRoot(input.root);
   const root = repoRoot(workspaceRoot);
   const prefix = workspaceGitPrefix(workspaceRoot);

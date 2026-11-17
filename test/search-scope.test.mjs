@@ -1,10 +1,3 @@
-// Find in Files' scope — IntelliJ's scope dropdown: In Project, Project Production Files, Project Test
-// Files, Module.
-//
-// Two halves, and both are asserted, because they can disagree in a way that looks like "no results":
-// the prefixes that go WITH the query (ripgrep is asked for 500 matches, so a scope applied afterwards
-// would cut the wrong 500 first) and the exact rule applied to what comes back, which knows about path
-// conventions no glob can express.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
@@ -15,7 +8,6 @@ import { normalizeSearchPaths, projectSearchMatchAllowed, searchProject } from "
 const scopeDirs = [];
 after(() => scopeDirs.forEach((dir) => rmSync(dir, { recursive: true, force: true })));
 
-/** A throwaway directory tree to point the real ripgrep at. */
 async function scopeRepo(files) {
   const dir = mkdtempSync(join(tmpdir(), "kakapo-scope-"));
   scopeDirs.push(dir);
@@ -27,8 +19,6 @@ async function scopeRepo(files) {
 }
 import { makeReviewHtml, cleanupFixtures } from "./helpers/fixture.mjs";
 import { loadViewer } from "./helpers/dom.mjs";
-
-// ---- the searcher's half -------------------------------------------------------------------------
 
 test("a scope prefix narrows the matches, and a path that climbs out is not a prefix", () => {
   const match = (path) => ({ path, line: 1, column: 1, text: "x", matchText: "x" });
@@ -44,8 +34,6 @@ test("a scope prefix narrows the matches, and a path that climbs out is not a pr
     "repo-relative, de-duplicated, and nothing that climbs out of the repository");
 });
 
-// ---- the page's half -----------------------------------------------------------------------------
-
 const UI = "packages/ui/src/Button.ts";
 const UI_TEST = "packages/ui/test/Button.test.ts";
 const DATA = "packages/data/src/store.ts";
@@ -58,7 +46,6 @@ before(async () => {
     { path: "packages/data/package.json", after: JSON.stringify({ name: "@acme/data" }) },
     { path: UI, before: "const target = 1;\n", after: "const target = 2;\n" },
     { path: UI_TEST, before: "// old\n", after: "// target under test\n" },
-    // Unchanged on purpose: the "Changed files" scope has to have something to leave out.
     { path: DATA, before: "const target = 3;\n", after: "const target = 3;\n" },
   ]));
 });
@@ -155,22 +142,7 @@ test("a single-module repository is not offered a module scope", async () => {
   v.close();
 });
 
-// ---- the half nothing was asserting ----------------------------------------------------------------
-// Everything above this line tests `projectSearchMatchAllowed`, the rule applied to what ripgrep sends
-// back — which was always right. What was wrong was the question ripgrep was asked, and no test ran
-// ripgrep. Both bugs below were measured against the bundled binary before they were written down.
-
-// A scope used to be another `--glob`, and ripgrep's positive globs are an OR: `--glob '*.ts' --glob
-// 'sub/**'` asked for every .ts in the repository OR every file under sub/. The ANSWER was still right —
-// projectSearchMatchAllowed re-applies both rules above — so there is no assertion to make about it here;
-// what was lost was the walk. Scoping to one module of a monorepo read every file in the monorepo and
-// threw most of it away. The scope is now where ripgrep starts, which is also the only way to name a
-// directory literally, which is the bug below.
-
 test("a scope directory whose name is also a glob is still searched", async () => {
-  // `app/[slug]` is a directory in every Next.js app there is. As a glob `[slug]` is a character class:
-  // `--glob 'app/[slug]/**'` looked for app/s/, app/l/, app/u/, app/g/ and matched nothing, so scoping
-  // Find in Files to that module returned zero results and said so as if it were the answer.
   const dir = await scopeRepo({
     "app/[slug]/page.ts": "NEEDLE\n",
     "app/plain.ts": "NEEDLE\n",
@@ -187,8 +159,6 @@ test("a scope directory whose name is also a glob is still searched", async () =
 });
 
 test("a scope whose directories have all gone searches nothing, not everything", async () => {
-  // ripgrep exits 2 on a path that is not there, which this searcher reads as "the search failed". A
-  // module deleted since the layout was read must not silently widen back to the whole repository.
   const dir = await scopeRepo({ "src/a.ts": "NEEDLE\n" });
   const result = await searchProject(dir, "NEEDLE", 50, { includePaths: ["packages/gone"] });
   assert.equal(result.available, true, result.error ?? "");

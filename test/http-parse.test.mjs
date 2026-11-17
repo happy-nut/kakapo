@@ -1,11 +1,3 @@
-// The .http file format, as IntelliJ's HTTP Client defines it. A file written for the IDE has to mean the
-// same thing here — a request kakapo shows a Run button for is the request the IDE would send — so this
-// guards the syntax surface rather than any one feature: names, directives, split URLs, external bodies,
-// multipart, GraphQL, scripts, output redirects, and the variable scopes a {{name}} resolves against.
-//
-// Driven through a loaded viewer because the parser is a viewer global (the slices are one script, not
-// modules). Values read back off v.window are compared as primitives or via JSON — assert.deepEqual on a
-// cross-realm object fails on its prototype, not on its contents.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { makeReviewHtml, cleanupFixtures } from "./helpers/fixture.mjs";

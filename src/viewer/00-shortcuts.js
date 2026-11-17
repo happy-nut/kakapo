@@ -1,15 +1,3 @@
-// ===== Reading a keypress against the shortcut table ===============================================
-// SHORTCUT_DEFS is injected ahead of every slice by scripts/copy-viewer-assets.mjs, straight from
-// src/shortcuts.ts — the same array the Settings sheet renders. Everything here turns a KeyboardEvent into
-// the spelling that table uses, so a chord is compared as a string in one place instead of being rebuilt
-// as a hand-written `if` wherever it is needed.
-//
-// Two spellings come out of one event, and both are tried, which is what the hand-written branches already
-// did ("matched on `code` first — ⌥U is a dead key on macOS, so event.key is 'Dead'"):
-//   from `code`  the physical key. Survives a non-US layout, an IME, and the dead keys ⌥ composes.
-//   from `key`   what the layout actually produced. Catches the layouts where the US `code` is elsewhere.
-// Shift is spelled out in the first and folded into the second: `?` IS Shift+/, and asking for Shift on
-// top of it would be asking for the same modifier twice.
 
 var SHORTCUT_CODE_NAMES = {
   Enter: 'Enter', NumpadEnter: 'Enter', Escape: 'Esc', Space: 'Space', Tab: 'Tab',
@@ -24,7 +12,6 @@ var SHORTCUT_KEY_NAMES = {
   ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→',
 };
 
-// The table's spelling of one key, from event.code. '' when the physical key has no name we use.
 function shortcutNameFromCode(code) {
   if (!code) return '';
   if (/^Key[A-Z]$/.test(code)) return code.slice(3);
@@ -40,29 +27,11 @@ function shortcutNameFromKey(key) {
   if (key.length === 1) return key.toUpperCase();
   return '';
 }
-// ⌘ stands for Command OR Control throughout, the same equivalence every handler in the app already used.
 function shortcutModifiers(event, withShift) {
   return ((event.metaKey || event.ctrlKey) ? '⌘' : '') + (withShift && event.shiftKey ? '⇧' : '') + (event.altKey ? '⌥' : '');
 }
-// A DOUBLE TAP, spelled as a chord so the one table can hold it.
-//
-// IntelliJ's Search Everywhere is ⇧⇧, and a bare Shift press produces no chord at all above (its `code`
-// and `key` both resolve to ''). The alternative was a second key handler somewhere else with the timing
-// written into it — which is exactly the drift the single chord table exists to prevent. So the tap is
-// recognised HERE and handed to the same matcher as every other chord.
-//
-// 300ms is IntelliJ's own window, read off the handler that implements the gesture there:
-// ModifierKeyDoubleClickHandler.MyDispatcher.handleModifier resets the pending tap when the next Shift
-// event arrives more than 300ms after the last one. It was 400 here, which let a slow, unrelated pair of
-// Shifts open the dialog. What is NOT copied is the fire moment: IntelliJ runs the action on the second
-// RELEASE, this table dispatches on keydown — and the alternative is a keyup handler with the timing
-// written into it a second time, which is the drift the one table exists to prevent. The gap between a
-// tap's press and its release is ~50ms, so the two moments are the same beat.
 var SHORTCUT_DOUBLE_TAP_MS = 300;
 var lastShiftTapAt = 0;
-// The detector has to be idempotent per event, because shortcutChords() is called more than once for the
-// same keypress (the dispatcher asks which shortcuts an event could be, and several callers ask again).
-// Without this, ONE Shift press was counted as two and opened the launcher on every single tap.
 var tapEvent = null;
 var tapChord = '';
 function shortcutDoubleTapChord(event) {
@@ -72,18 +41,14 @@ function shortcutDoubleTapChord(event) {
   return tapChord;
 }
 function shortcutComputeDoubleTap(event) {
-  if (event.key !== 'Shift') { lastShiftTapAt = 0; return ''; } // any other key ends a pending tap
-  // Holding Shift repeats the keydown; a held key is not two presses. Shift with another modifier down is
-  // part of some other chord, not a tap of its own.
+  if (event.key !== 'Shift') { lastShiftTapAt = 0; return ''; }
   if (event.repeat || event.metaKey || event.ctrlKey || event.altKey) { lastShiftTapAt = 0; return ''; }
   var now = Date.now();
   var isDouble = now - lastShiftTapAt <= SHORTCUT_DOUBLE_TAP_MS;
-  // Reset on a match so a third tap starts a new pair instead of firing again.
   lastShiftTapAt = isDouble ? 0 : now;
   return isDouble ? '⇧⇧' : '';
 }
 
-/** The one or two chord spellings this event could be, most reliable first. */
 function shortcutChords(event) {
   var out = [];
   var tap = shortcutDoubleTapChord(event);
@@ -91,13 +56,6 @@ function shortcutChords(event) {
   var byCode = shortcutNameFromCode(event.code);
   if (byCode) out.push(shortcutModifiers(event, true) + byCode);
   var byKey = shortcutNameFromKey(event.key);
-  // A one-character key that is not alphanumeric already carries Shift inside it ("?" is Shift+/), so the
-  // chord it spells must not say ⇧ as well.
-  //
-  // Only when the key and the physical code actually DIFFER, though. With ⌘⇧[ this browser reports
-  // `key` as "[" as well as `code` BracketLeft, so folding there erased a Shift that was really held:
-  // ⌘⇧[ was ALSO read as ⌘[, and because Previous Tab declines in the diff, the key fell through to
-  // Cursor Back — a chord quietly doing a different action's job, with nothing on screen to say so.
   if (byKey) {
     var shiftIsInTheKey = byKey !== byCode && byKey.length === 1 && !/^[A-Z0-9]$/.test(byKey);
     var folded = shortcutModifiers(event, !shiftIsInTheKey) + byKey;
@@ -106,9 +64,6 @@ function shortcutChords(event) {
   return out;
 }
 
-// ---- The table, and what the person has rebound ---------------------------------------------------
-// Overrides are a plain {id: ["⌘⇧K"]} map saved like every other cross-reopen preference. The lookup is
-// rebuilt whenever they change rather than consulted per keystroke; a keypress stays one map read.
 var SHORTCUT_OVERRIDES_KEY = 'kakapo-shortcut-overrides';
 var shortcutOverrides = null;
 var shortcutLookup = null;
@@ -124,51 +79,34 @@ function shortcutDef(id) {
   for (var i = 0; i < SHORTCUT_DEFS.length; i += 1) if (SHORTCUT_DEFS[i].id === id) return SHORTCUT_DEFS[i];
   return null;
 }
-/** The combinations that currently invoke `id` — the person's, or the table's. */
 function shortcutKeys(id) {
   var over = shortcutOverridesAll()[id];
   if (Array.isArray(over) && over.length) return over;
   var def = shortcutDef(id);
   return def ? def.keys : [];
 }
-/**
- * The chord a row is CURRENTLY bound to, for a sentence that has to name a key.
- *
- * A message that spells a chord inline is a copy of the table, and a rebind makes it a lie: "press F7
- * again to go to the next file" kept saying F7 after F7 had been rebound to something else. Six strings
- * did this. They interpolate `{key}` through here instead, so the sentence follows the binding.
- */
 function shortcutLabel(id, index) {
   var keys = shortcutKeys(id);
   return keys[index || 0] || '';
 }
-// Letters are spelled uppercase in a chord; the sheet may show a bare key lowercase ("e" to edit a
-// comment), so both sides of a comparison go through this.
 function shortcutCanonical(chord) {
   return String(chord || '').replace(/[^⌘⇧⌥]+$/, function (tail) { return tail.length === 1 ? tail.toUpperCase() : tail; });
 }
-// A punctuation key has two names and an event hands over whichever one it happens to know: `code` gives
-// the physical key (Shift plus "/"), `key` gives what it produced ("?"). The same chord therefore arrives
-// spelled "⇧/" or "?" depending on the event, so each table entry is registered under both — the layout
-// assumption only ever decides which of two spellings of the SAME key is used, never which key it is.
 var SHORTCUT_SHIFTED_PAIRS = '1!2@3#4$5%6^7&8*9(0)-_=+[{]}\\|;:\'",<.>/?`~';
 function shortcutShiftPartner(ch, wantShifted) {
   var at = SHORTCUT_SHIFTED_PAIRS.indexOf(ch);
   if (at < 0 || at % 2 !== (wantShifted ? 0 : 1)) return '';
   return SHORTCUT_SHIFTED_PAIRS.charAt(wantShifted ? at + 1 : at - 1);
 }
-/** The one or two spellings a table entry should answer to. */
 function shortcutAliases(chord) {
   var out = [chord];
   var mods = chord.slice(0, chord.length - 1);
   var last = chord.charAt(chord.length - 1);
   if (!/^[⌘⇧⌥]*$/.test(mods) || last.length !== 1) return out;
   if (mods.indexOf('⇧') >= 0) {
-    // "⌘⇧/" also arrives as "⌘?" — an event that only knows `key` has the shift inside the character.
     var shifted = shortcutShiftPartner(last, true);
     if (shifted) out.push(mods.replace('⇧', '') + shifted);
   } else {
-    // "?" also arrives as "⇧/" — an event that only knows `code` reports the physical key.
     var plain = shortcutShiftPartner(last, false);
     if (plain) out.push(mods + '⇧' + plain);
   }
@@ -183,10 +121,6 @@ function shortcutLookupMap() {
     for (var k = 0; k < keys.length; k += 1) {
       var aliases = shortcutAliases(shortcutCanonical(keys[k]));
       for (var a = 0; a < aliases.length; a += 1) {
-        // A chord can legitimately belong to more than one action when they live on different surfaces —
-        // ⌥Enter is row actions in the tree, "run this request" in a .http file, and the comment menu in
-        // the merged dock. So the map holds every candidate and the caller tries them in turn; the one
-        // that applies takes it, the others decline. Keeping only the first silently killed two of the three.
         if (!shortcutLookup.has(aliases[a])) shortcutLookup.set(aliases[a], []);
         shortcutLookup.get(aliases[a]).push({ id: id, index: k });
       }
@@ -196,12 +130,9 @@ function shortcutLookupMap() {
 }
 function shortcutsChanged() {
   shortcutLookup = null;
-  // Find Action shows each row's chord, from a list it caches — a rebind has to drop that too, or the
-  // list goes on advertising the combination the reader just changed.
   forgetFindActionItems();
 }
 
-/** Every shortcut this event could be, as [{id, index}]. `index` is which of that action's keys fired. */
 function shortcutHits(event) {
   var map = shortcutLookupMap();
   var chords = shortcutChords(event);
@@ -213,12 +144,10 @@ function shortcutHits(event) {
   }
   return out;
 }
-/** The first shortcut this event is, or null. */
 function shortcutHit(event) {
   var hits = shortcutHits(event);
   return hits.length ? hits[0] : null;
 }
-/** True when this event is that shortcut. Returns the matched index via shortcutMatchIndex. */
 var shortcutMatchIndex = -1;
 function isShortcut(event, id) {
   var hits = shortcutHits(event);
@@ -226,21 +155,12 @@ function isShortcut(event, id) {
   for (var i = 0; i < hits.length; i += 1) if (hits[i].id === id) { shortcutMatchIndex = hits[i].index; return true; }
   return false;
 }
-/**
- * Do two rows' surfaces overlap — i.e. could both chords be live at the same moment?
- *
- * `any` is the window, so it overlaps every surface EXCEPT a modal one: while the Search Everywhere
- * dialog is up it answers every key itself and the menu accelerators are stood down, so a window chord
- * cannot fire underneath it. MODAL_SURFACES (src/shortcuts.ts) is the list, and this is the one reader
- * of the rule — test/shortcut-registry.test.mjs imports the same list rather than restating it.
- */
 function shortcutSurfacesOverlap(a, b) {
   if (a === b) return true;
   if (a !== 'any' && b !== 'any') return false;
   var surface = a === 'any' ? b : a;
   return MODAL_SURFACES.indexOf(surface) < 0;
 }
-/** The action already bound to `chord` on a surface `id` would collide with, or '' if it is free. */
 function shortcutConflict(id, chord) {
   var def = shortcutDef(id);
   if (!def) return '';

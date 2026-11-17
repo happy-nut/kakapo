@@ -1,23 +1,8 @@
-// UI message catalog for the live English / Korean switch.
-//
-// The viewer ships both languages and switches client-side with NO reload: every translatable
-// server-rendered element in render.ts carries data-i18n (textContent), data-i18n-ph (placeholder),
-// data-i18n-title (title) or data-i18n-aria (aria-label); applyI18n() in viewer.client.js rewrites
-// them, and t(key) feeds the dynamically-built UI. English is the first-paint default.
-//
-// Keys are stable + dot-namespaced. Excluded by design (NOT translated): diff/code content, file
-// paths, syntax-language names, the "kakapo" brand, version strings, and literal <kbd> key names
-// (F7, Cmd/Ctrl+B, …). Korean is written for Korean developers — natural, with common technical
-// terms left readable (커밋, 탭, 인덱스 …) rather than force-translated.
 export const MESSAGES: Record<string, Record<string, string>> = {
   en: {
-    // Tabs (sidebar)
     "tab.changes": "Changes",
     "tab.files": "All files",
     "sidebar.switch": "Sidebar tree",
-    // The two reading surfaces and their toolbars. A <section> only becomes a landmark once it has a
-    // name, so without these the page offered a screen reader exactly one region to jump to — the
-    // sidebar — and the thing being reviewed was not on the list.
     "region.diff": "Diff",
     "region.source": "Source file",
     "region.diffToolbar": "Diff actions",
@@ -25,16 +10,10 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "tab.changes.title": "Changes",
     "tab.files.title": "All files",
     "tree.markViewed": "Reviewed this file (Space)",
-    // The status word a changed-file row announces, and the only part of its accessible name that was never
-    // translated. IntelliJ's own words: PlatformEditorBundle `file.status.name.added|deleted|modified` and
-    // GitBundle `git.status.renamed`. render-tree.ts ships the same four as the pre-script fallback.
     "tree.status.modified": "Modified",
     "tree.status.added": "Added",
     "tree.status.deleted": "Deleted",
     "tree.status.renamed": "Renamed",
-    // Landmark and control names that lived as hardcoded aria-labels in render.ts. An aria-label OUTRANKS a
-    // title in the accessible-name computation, so the three that had both were announcing English while the
-    // tooltip beside them had already switched language.
     "a11y.reviewNav": "Review navigation",
     "a11y.archivedReviews": "Archived reviews",
     "a11y.quickOpenSections": "Sections",
@@ -45,7 +24,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "brand.revealFile": "Reveal open file in the sidebar",
     "rail.history": "History",
 
-    // Mermaid diagrams a Markdown body can embed (20-mermaid.js).
     "explain.diagramLoading": "Loading diagram…",
     "diagram.zoom": "Click to enlarge",
     "explain.diagramInvalid": "This diagram could not be rendered.",
@@ -107,21 +85,14 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "menu.revealFinder": "Show in File Manager",
     "menu.openTerminal": "Open Terminal here",
     "menu.fileHistory": "Show history for this file",
-    // Removes every comment anchored in one file, in one action. Counted, because "clear comments" with no
-    // number is a question the menu should have already answered.
     "menu.clearComments": "Clear {n} {{n:comment|comments}} in this file",
-    // Shown while the panel waits for tmux to redraw a session that outlived the app. A spinner alone says
-    // "something is happening"; this says WHAT, which is the difference between waiting and wondering.
     "notify.agentReplied": "The agent answered a review comment",
     "notify.agentReplies": "The agent answered your review comments",
     "menu.showLineHistory": "Show date and author",
     "menu.hideLineHistory": "Hide date and author",
-    // Title on the brand mark while the release image streams down (applyUpdateProgress). The ring on the
-    // mark is the report; this is for anyone who wants the number.
     "update.downloading": "Downloading update… {n}%",
     "dock.maximize": "Maximize panel",
 
-    // Review status (toolbar) — units; the numeric count stays dynamic and is prepended at runtime.
     "status.watching": "watching",
     "status.live.updated": "Live: updated",
     "status.live.waiting": "Live: waiting for diff server",
@@ -132,10 +103,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "analysis.readyToast": "Semantic analysis is ready — navigation is complete now.",
     "analysis.fallback": "Heuristic analysis",
     "analysis.failed": "Analysis failed",
-    // How long the current phase has been running, shown once it is long enough to wonder about.
     "analysis.elapsed": "{n}s",
-    // The analyzer's index number, in the chip's hover detail. Was glued on as the literal "generation N"
-    // and stayed English in a Korean tooltip.
     "analysis.generation": "generation {n}",
     "monaco.peek": "Semantic Peek",
     "monaco.peekHint": "↑/↓ Select · Enter Open · Esc Close",
@@ -143,8 +111,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "monaco.noSymbol": "No symbol under the caret.",
     "monaco.definitionNotFound": "Definition not found for “{symbol}”.",
     "monaco.analysisPending": "Still reading the project — try “{symbol}” again in a moment.",
-    // Asked, and declined: the server does not offer this capability at all. Distinct from "not yet"
-    // (monaco.analysisPending) and from "asked and found none".
     "monaco.notOffered": "This language’s server does not answer that question — there is no more to find for “{symbol}”.",
     "monaco.noServer": "No language server covers this file’s language — semantic navigation is not available here.",
     "monaco.baseSide": "“{symbol}” is on a line that exists only in the base, which no language server can read — it was looked up by name instead, and nothing matched.",
@@ -153,8 +119,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "comment.empty": "Nothing written yet — the line reference above is not the comment.",
     "findaction.declined": "“{action}” is not available on this screen.",
     "monaco.alreadyThere": "This IS the declaration of “{symbol}” — there is nowhere else to go.",
-    // Not a failure to find something: a refusal to answer from the wrong text. Names the revision, because
-    // "navigation is unavailable" with no reason reads as a bug rather than as a boundary.
     "quickopen.revisionOff": "off for this revision",
     "monaco.analysisRevisionMatched": "Matched “{symbol}” by name in {revision} — a revision has no language server, so this is not type-aware.",
     "monaco.analysisRevision": "Could not read {revision}, so “{symbol}” was not looked for — this is not a report that it is missing.",
@@ -169,15 +133,8 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "fold.block": "{count} folded {{count:line|lines}}",
     "fold.expand": "Expand folded code",
 
-    // Diff view
     "diff.noDiff": "No diff to review.",
-    // A collapsed file in this diff has no header to collapse TO (one file shows at a time), so this
-    // stands in its place — otherwise the pane is simply blank with no way back but a key you would
-    // have to already know.
     "diff.fileCollapsed": "{file} is folded away — click here, or press {key}, to open it",
-    // A dead end should say where the way out is. Not which keys open it: a chord written here is a copy
-    // of the shortcut table that nothing keeps in agreement (see AGENTS.md). The control it points at is
-    // on screen, named, and one click away.
     "diff.noDiff.hint": "If this is not what you meant to review, change it with the compare control in the toolbar.",
     "changes.empty": "No changed files",
     "diff.lastHunk": "Last change in this file — press {key} again to go to the next file.",
@@ -185,21 +142,14 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "diff.crossedToBase": "Deleted here — base side",
     "diff.crossedToWorking": "Working tree side",
     "diff.navEnd": "No more changes this way.",
-    // Said after the caret lands, naming what the walk crossed. A reviewer ticks files off as they
-    // read, so this walk routinely passes several — in silence it read as the key skipping.
     "diff.skippedViewed": "Skipped {n} files you have already reviewed.",
     "diff.skippedViewedOne": "Skipped a file you have already reviewed.",
-    // Shift+Tab crosses panes; this is what it says when it cannot. Deliberately about the PANE and
-    // not about the line: the usual cause is an added or deleted line, whose counterpart row is a
-    // placeholder, but a hunk header or a folded import block has no counterpart either, and
-    // "this line is new" would have been a specific factual claim about all three.
     "diff.noBaseLine": "The base version has no line opposite this one.",
     "diff.noWorkingLine": "The working tree has no line opposite this one.",
     "diag.error": "Error",
     "diag.warning": "Warning",
     "diag.weak": "Weak warning",
     "diag.none": "No language-server problems in this file.",
-    // Stepping in the diff stays in the diff: the problems it can show are the ones on changed lines.
     "diag.noneChanged": "No problem on the lines this diff shows — {key} lists all {n} in this file.",
     "diag.unavailable": "No language server covers this file — it is not being checked.",
     "diag.pending": "Still checking this file…",
@@ -215,8 +165,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "comment.addressed.hint": "The line this comment was anchored to changed in the latest revision — the agent likely addressed it. Reopen if it isn't resolved.",
     "comment.reopen": "Reopen",
     "comment.expandPath": "Show the full path",
-    // The agent named a file this workspace does not have — said out loud, because a link that does nothing
-    // reads as a broken app (openPathReference).
     "comment.pathMissing": "No such file in this workspace",
     "comment.restored": "Comment restored",
     "comment.removedUndo": "Comment removed — ⌘Z restores it.",
@@ -234,7 +182,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "comment.undoInField": "⌘Z is the text field's own undo here — move focus out of it to restore the comment.",
     "comment.restoredMany": "Comments restored",
     "comment.clearedMany": "Cleared {n} {{n:comment|comments}}",
-    // Every pane is running something, so there is nowhere to cd without interrupting an agent.
     "diff.previous": "Previous change",
     "diff.next": "Next change",
     "diff.hideSidebar": "Hide changed files",
@@ -245,8 +192,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "diff.base": "Base",
     "diff.workingTree": "Working tree",
     "diff.target": "Target",
-    // The toolbar pill: what this diff is comparing. `compare.*` matches CompareState["mode"] one for one —
-    // the renderer builds the key as `compare.${mode}`, so a new mode needs a row here in every locale.
     "compare.title": "What this diff is comparing",
     "compare.local": "Local changes",
     "compare.staged": "Staged",
@@ -257,9 +202,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "compare.index": "Index",
     "compare.incoming.why": "Nothing local to review — showing what the remote is ahead by.",
     "compare.openHistory": "History",
-    // The breadcrumb, while the review shows commits: the newest one is named, the rest are counted.
     "compare.andMore": "+{n} more",
-    // Compare dropdown on the toolbar pill.
     "compare.menu.aria": "Compare options",
     "compare.menu.since": "Since you last read",
     "compare.menu.sinceNote": "{n} new {{n:commit|commits}}",
@@ -299,7 +242,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "diff.contextLoading": "Loading context…",
     "diff.contextUnavailable": "Context could not be loaded.",
 
-    // Source toolbar
     "source.title": "Source",
     "source.selectFile": "No file is open — pick one from the Files tab, or go back to the changes.",
     "source.hiddenTabs": "{count} hidden {{count:tab|tabs}}",
@@ -317,8 +259,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "btn.renderToggle": "Rendered / raw Markdown or CSV",
     "peek.aria": "Semantic peek",
     "peek.list": "Semantic locations",
-    // The noun in the peek's title. It was built by a conditional in 16-semantic-peek.js that produced
-    // "definitions" / "implementations" / "usages" in English whatever the locale was.
     "peek.definitions": "{n} {{n:definition|definitions}}",
     "peek.implementations": "{n} {{n:implementation|implementations}}",
     "peek.usages": "{n} {{n:usage|usages}}",
@@ -328,7 +268,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "source.lineWrap.title": "Toggle line wrap",
     "source.buildingTree": "Building file tree…",
 
-    // Quick open
     "quickopen.aria": "Quick open",
     "quickopen.searchFiles": "Search files",
     "quickopen.everywhere": "All",
@@ -380,26 +319,18 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "findusages.noncode": "Non-code usages",
     "findusages.inFile": "{name} · {n} in this file, {writes} written",
     "findusages.noneInFile": "No other usage of {name} in this file.",
-    // The diff only: the symbol is in the file but not in the pane the caret is in — typically a name
-    // this change added, read from the base version.
     "findusages.noneInPane": "No occurrence of {name} in this pane \u2014 {key} crosses to the other one.",
-    // ⌥↓ / ⌥↑. The first press after opening a file asks for the structure and has nothing to walk
-    // yet; in the diff the walk is over the symbols the diff printed, which can be none of them.
     "structure.pending": "Still reading this file’s structure…",
     "structure.noFile": "No file is open — pick one in the sidebar first.",
     "structure.atLast": "This is the last symbol in the file.",
     "structure.atFirst": "This is the first symbol in the file.",
     "structure.atLastShown": "This is the last symbol the diff shows.",
     "structure.atFirstShown": "This is the first symbol the diff shows.",
-    // Three refusals that used to be silence. A fold that would hide one of the reader’s own
-    // comments, ⌘⇧’ pressed while the dock is open but not focused, and "?" with no line under a caret.
     "fold.hasComment": "Not folded — this block holds one of your comments.",
     "dock.notFocused": "Click the comments panel first — this maximizes the panel that has the keyboard.",
     "comment.noTarget": "Put the caret on a line first — a comment is attached to one.",
     "structure.noneShown": "No symbol declaration on the lines this diff shows.",
     "findusages.occurrence": "{name} · {i} of {n}",
-    // IntelliJ's own usage-type names, from UsageViewBundle.properties in intellij-community. Translated
-    // here rather than renamed: a reader who knows the IDE should recognise the group they are looking at.
     "usagetype.declaration": "Declaration",
     "usagetype.import": "Usage in import",
     "usagetype.extends": "Usage in extends/implements clause",
@@ -416,8 +347,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "usagetype.unclassified": "Unclassified",
     "usagetype.string.constant": "Usage in string constants",
     "usagetype.comment": "Usage in comments",
-    // The group headers, with IntelliJ's own wording: node.group.code.usages, list.item.production,
-    // list.item.test, list.item.library, node.group.module ("Module:{0}") and directory.0.
     "usagegroup.code": "Code usages",
     "usagescope.production": "Production",
     "usagescope.test": "Test",
@@ -426,9 +355,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "usagegroup.module": "Module: {name}",
     "usagegroup.moduleGroup": "Module group: {name}",
     "usagegroup.directory": "Directory: {path}",
-    // The two toolbars, and the Group By items as IntelliJ labels them.
     "usagegroup.title": "Group by",
-    // The count IntelliJ puts after a node's name — `usage.name` in UsageViewBundle is the plural.
     "usagegroup.count": "({n} {{n:usage|usages}})",
     "usagegroup.expandAll": "Expand all",
     "usagegroup.collapseAll": "Collapse all",
@@ -442,8 +369,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "usagefilter.read": "Read",
     "usagefilter.write": "Write",
     "usagefilter.imports": "Imports",
-    // IntelliJ's Find in Files scopes. "In project" is its In Project; the two file scopes are its
-    // Project Production Files and Project Test Files.
     "quickopen.scope": "Scope",
     "scope.all": "In project",
     "scope.production": "Production files",
@@ -492,8 +417,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "bookmark.added": "Bookmarked {where}",
     "bookmark.removed": "Bookmark removed from {where}",
     "bookmark.mnemonicSet": "Bookmark {digit} is now {where}",
-    // A line holds one number, so setting a second one takes the first away. Said, rather than left
-    // to be discovered when the old number reports nothing bookmarked.
     "bookmark.mnemonicReplaced": "Bookmark {digit} is now {where} — {old} was on this line and is gone (one number per line).",
     "bookmark.mnemonicCleared": "Bookmark {digit} cleared",
     "bookmark.mnemonicEmpty": "Nothing is bookmarked as {digit}.",
@@ -505,18 +428,13 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "quickopen.noMatches": "No matches found.",
     "quickopen.results": "{n} {{n:result|results}}",
 
-    // Usages
     "usages.aria": "Usages",
     "usages.title": "Usages",
 
-    // Agent quota footer
-
-    // Settings — nav
     "settings.aria": "Settings",
     "settings.title": "Settings",
     "settings.cat.general": "General",
 
-    // Settings — General
     "settings.language": "Language",
     "settings.theme": "Theme",
     "settings.uiScale": "Font size",
@@ -528,8 +446,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "settings.diffHighlight.none": "Nothing but the gutter",
     "theme.dark": "Dark",
     "theme.light": "Light",
-    // Theme grid: a theme is one named palette that is already light or dark (see renderThemeGrid).
-    // "System" is the only automatic entry — it follows the OS with whichever family is currently chosen.
     "theme.name.default-dark": "Kakapo Dark",
     "theme.name.default-light": "Kakapo Light",
     "theme.name.darcula-dark": "Darcula",
@@ -558,7 +474,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "settings.kbd.cat.review": "Review",
     "settings.kbd.cat.history": "History",
 
-    // Settings — keyboard-shortcut labels (descriptions only; <kbd> key names stay literal)
     "kbd.gotoLine": "Go to line",
     "kbd.rowActions": "Sidebar file actions (path / file manager / terminal)",
     "kbd.openFolder": "Open folder",
@@ -699,13 +614,10 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "kbd.historyNavigate": "Select a commit, open it in the review",
     "kbd.historyRange": "Extend the compare range to a second commit",
     "kbd.copyRevision": "Copy the selected commit's hash",
-    // Worked all along and the sheet never said so, until the sheet and the keymap became one table.
     "kbd.revealInTree": "Reveal the open file in the sidebar",
     "kbd.findUsages": "Find usages, grouped by kind",
     "kbd.highlightUsages": "Highlight this symbol in the file",
     "kbd.nextPrevOccurrence": "Next / previous occurrence of this symbol",
-    // IntelliJ's usage view has two toolbars over the same list: Group By (its grouping rules, by
-    // rank) and a filtering row. These nine are those two toolbars.
     "kbd.usageGroupScope": "Group usages by production / test",
     "kbd.usageGroupType": "Group usages by usage type",
     "kbd.usageGroupModule": "Group usages by module",
@@ -730,7 +642,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "kbd.copyLocation": "Copy the caret's file:line",
     "kbd.undoCommentRemoval": "Undo the last comment removal",
 
-    // Settings — rebinding a shortcut
     "settings.kbd.capture": "press a key",
     "settings.kbd.captureHint": "Press the new combination, or Esc to cancel",
     "settings.kbd.needModifier": "Hold ⌘, ⌥ or ⇧ as well — or use a function key",
@@ -742,8 +653,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "settings.kbd.fixed.menu": "The menu bar owns this one",
     "settings.kbd.fixed.structural": "A standard key of this surface — it stays put",
 
-    // Settings — Merge prompts
-
     "trivial.spacing": "spacing",
     "trivial.format": "formatting",
     "trivial.moved": "moved",
@@ -751,16 +660,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "collision.conflict.title": "The base changed these same lines since this branch left it \u2014 this will not merge cleanly",
     "collision.diverged": "diverged",
     "collision.diverged.title": "The base changed this file elsewhere since this branch left it \u2014 it still merges",
-    // The two notes that carry the story of a change: where it goes wrong, and where that is beaten. Louder
-    // cards, because a reviewer who reads only two notes should read these two.
-    // The card's place in the reading order. Without it the order was real but invisible — the cards sit where
-    // the code does, so nothing said which one to open first.
 
-    // The briefing panel (25-briefing.js). The three eyebrows are ours, not the agent's: the shape is fixed,
-    // so the note only has to carry the sentence that goes under each one.
-
-    // Shortcut coach (28-shortcut-coach.js) — the top-right nudge that appears when a control with a
-    // keyboard shortcut keeps getting clicked, or when a once-used shortcut has gone unused too long.
     "coach.observed": "Here's a useful shortcut for you",
     "coach.rusty": "A shortcut you know has been asleep for {w} {{w:week|weeks}}",
     "coach.nudgeCount": "reminder {n}/3",
@@ -768,10 +668,8 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "coach.mute": "Don't show this tip again",
     "coach.known": "You already know this one ✓",
 
-    // --- Appearance / theme (redesigned settings) ---
     "settings.appearance": "Appearance",
     "settings.cat.shortcuts": "Shortcuts",
-    // --- Native application menu ---
     "menu.file": "File",
     "menu.openFolder": "Open Folder…",
     "menu.openNewWindow": "Open in New Window…",
@@ -793,7 +691,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "menu.window": "Window",
     "menu.closeTab": "Close Tab",
     "menu.closeWindow": "Close Window",
-    // --- Native dialogs (quit warning, folder picker, not-a-repo) ---
     "dialog.openRepo.title": "Open a Git repository",
     "dialog.unopenable.title": "Can't open that folder",
     "dialog.unopenable.message": "{path} could not be opened as a folder.",
@@ -807,7 +704,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "welcome.unopenable": "That folder could not be opened.",
     "welcome.projectMissing": "That project folder is no longer available.",
 
-    // Composer (one per-line review comment — ask, request a change, or both)
     "composer.comment": "Comment on this line — ask or request a change",
     "composer.save": "Comment",
     "composer.cancel": "Cancel",
@@ -816,7 +712,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "comment.kind": "Comment",
     "badge.comments": "{n} {{n:comment|comments}}",
 
-    // Merged comments modal
     "merged.title": "Review comments",
     "merged.copyAndArchive": "Copy and archive",
     "archive.title": "Handed over",
@@ -830,18 +725,11 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "merged.copyFailed": "Copy failed",
     "merged.close": "Close",
 
-    // Merge-prompt default agent contracts (these follow the locale — a Korean user gets Korean defaults)
-    // Plan contract — prepended to review comments and the prompt memo so every task starts with a small, verifiable plan written to a file.
     "comment.answer": "Answer",
-    // The kind pill and the role mark on an agent-written card (agentCardHtml, 23-agent-cards.js).
-    // Dropped when the app was stripped down while the two call sites stayed, so every agent comment
-    // rendered the literal strings "annotate.kind" and "annotate.role.key" — t() falls back to the key.
     "annotate.kind": "Why",
     "annotate.role.key": "Key",
-
   },
   ko: {
-    // Tabs (sidebar)
     "tab.changes": "변경사항",
     "tab.files": "전체 파일",
     "sidebar.switch": "사이드바 트리",
@@ -925,8 +813,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "menu.revealFinder": "파일 관리자에서 열기",
     "menu.openTerminal": "해당 위치에서 터미널 열기",
     "menu.fileHistory": "이 파일의 이력 보기",
-    // 한 파일에 달린 코멘트를 한 번에 지운다. 개수를 붙이는 이유는, 숫자 없는 "코멘트 지우기"는
-    // 메뉴가 이미 답해줬어야 할 질문을 남기기 때문이다.
     "menu.clearComments": "이 파일의 코멘트 {n}개 지우기",
     "notify.agentReplied": "에이전트가 리뷰 코멘트에 답변했습니다",
     "notify.agentReplies": "에이전트가 리뷰 코멘트들에 답변했습니다",
@@ -935,13 +821,9 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "tab.changes.title": "변경사항",
     "tab.files.title": "전체 파일",
 
-    // 레일: 톱니바퀴 배지 툴팁 / 정보
-    // 릴리스 이미지를 내려받는 동안 브랜드 마크에 붙는 title (applyUpdateProgress). 링이 곧 보고이고,
-    // 이건 숫자를 보고 싶은 사람을 위한 것이다.
     "update.downloading": "업데이트 내려받는 중… {n}%",
     "dock.maximize": "패널 최대화",
 
-    // Review status (toolbar)
     "status.watching": "감시 중",
     "status.live.updated": "실시간: 업데이트됨",
     "status.live.waiting": "실시간: diff 서버 대기 중",
@@ -982,7 +864,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "fold.block": "코드 {count}줄 접힘",
     "fold.expand": "접힌 코드 펼치기",
 
-    // Diff view
     "diff.noDiff": "검토할 변경사항이 없습니다.",
     "diff.fileCollapsed": "{file} 접힘 — 클릭하거나 {key} 를 누르면 펼쳐집니다",
     "diff.noDiff.hint": "보려던 것이 이게 아니라면, 툴바의 비교 컨트롤에서 바꿀 수 있습니다.",
@@ -1015,8 +896,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "comment.addressed.hint": "이 코멘트가 가리키던 줄이 최신 변경에서 바뀌었습니다 — 에이전트가 반영했을 가능성이 큽니다. 아직 안 됐으면 재열기하세요.",
     "comment.reopen": "재열기",
     "comment.expandPath": "전체 경로 보기",
-    // 에이전트가 이 워크스페이스에 없는 파일을 지목했다 — 아무 반응 없는 링크는 앱이 고장 난 것처럼
-    // 보이므로 이유를 말해준다 (openPathReference).
     "comment.pathMissing": "이 워크스페이스에 없는 파일입니다",
     "comment.restored": "코멘트를 복원했습니다",
     "comment.removedUndo": "코멘트를 지웠습니다 — ⌘Z로 되돌립니다.",
@@ -1034,7 +913,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "comment.undoInField": "여기서 ⌘Z는 입력란 자체의 되돌리기입니다 — 코멘트를 되돌리려면 입력란 밖으로 나가세요.",
     "comment.restoredMany": "코멘트들을 복원했습니다",
     "comment.clearedMany": "코멘트 {n}개를 지웠습니다",
-    // 모든 pane에서 뭔가 돌고 있어서, 에이전트를 방해하지 않고 cd 할 자리가 없다.
     "diff.previous": "이전 변경",
     "diff.next": "다음 변경",
     "diff.hideSidebar": "변경 파일 패널 숨기기",
@@ -1049,7 +927,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "compare.local": "로컬 변경",
     "compare.staged": "스테이지",
     "compare.ahead": "안 올린 커밋",
-    // "받음"이 아니다 — 이 커밋들은 아직 이 체크아웃에 없다. 바로 위 "안 올린 커밋"과 짝이 되는 반대 방향.
     "compare.incoming": "안 받은 커밋",
     "compare.manual": "비교",
     "compare.worktree": "작업 트리",
@@ -1096,7 +973,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "diff.contextLoading": "주변 코드를 불러오는 중…",
     "diff.contextUnavailable": "접힌 코드를 불러오지 못했습니다.",
 
-    // Source toolbar
     "source.title": "소스",
     "source.selectFile": "열린 파일이 없습니다 — 파일 탭에서 하나를 고르거나, 변경사항으로 돌아가세요.",
     "source.hiddenTabs": "숨겨진 탭 {count}개",
@@ -1123,7 +999,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "source.lineWrap.title": "긴 줄 줄 바꿈 전환",
     "source.buildingTree": "파일 트리 만드는 중…",
 
-    // Quick open
     "quickopen.aria": "빠른 열기",
     "quickopen.searchFiles": "파일 검색",
     "quickopen.everywhere": "전체",
@@ -1187,8 +1062,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "comment.noTarget": "줄에 커서를 먼저 두세요 — 코멘트는 줄에 붙습니다.",
     "structure.noneShown": "이 diff가 보여 주는 줄에는 심볼 선언이 없습니다.",
     "findusages.occurrence": "{name} · {n}곳 중 {i}번째",
-    // IntelliJ의 사용 유형 이름 그대로 — 영어는 intellij-community의 UsageViewBundle.properties, 한국어는
-    // 출하된 IDE의 localization-ko 플러그인이 같은 파일에 담아 보내는 공식 번역이다 (옮긴 것이 아니다).
     "usagetype.declaration": "선언",
     "usagetype.import": "import 내 사용 위치",
     "usagetype.extends": "extends/implements 절 내 사용 위치",
@@ -1286,18 +1159,13 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "quickopen.noMatches": "일치하는 결과가 없습니다.",
     "quickopen.results": "결과 {n}개",
 
-    // Usages
     "usages.aria": "사용 위치",
     "usages.title": "사용 위치",
 
-    // Agent quota footer
-
-    // Settings — nav
     "settings.aria": "설정",
     "settings.title": "설정",
     "settings.cat.general": "일반",
 
-    // Settings — General
     "settings.language": "언어",
     "settings.theme": "테마",
     "settings.uiScale": "글자 크기",
@@ -1309,7 +1177,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "settings.diffHighlight.none": "거터만",
     "theme.dark": "다크",
     "theme.light": "라이트",
-    // 테마 그리드 — 테마 이름은 고유명사라 번역하지 않고, 밝기 수식어만 한국어로 둡니다.
     "theme.name.default-dark": "Kakapo 다크",
     "theme.name.default-light": "Kakapo 라이트",
     "theme.name.darcula-dark": "Darcula",
@@ -1338,7 +1205,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "settings.kbd.cat.review": "리뷰",
     "settings.kbd.cat.history": "히스토리",
 
-    // Settings — keyboard-shortcut labels
     "kbd.gotoLine": "줄로 이동",
     "kbd.rowActions": "사이드바 파일 작업 (경로 / 파일 관리자 / 터미널)",
     "kbd.openFolder": "폴더 열기",
@@ -1518,8 +1384,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "settings.kbd.fixed.menu": "메뉴 막대가 가진 키입니다",
     "settings.kbd.fixed.structural": "이 화면의 표준 키라 바꾸지 않습니다",
 
-    // Settings — Merge prompts
-
     "trivial.spacing": "공백",
     "trivial.format": "포맷",
     "trivial.moved": "이동",
@@ -1528,9 +1392,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "collision.diverged": "갈라짐",
     "collision.diverged.title": "이 브랜치가 갈라진 뒤 기준 브랜치가 이 파일의 다른 곳을 바꿨습니다 \u2014 병합은 됩니다",
 
-    // 브리핑 말풍선 (25-briefing.js)
-
-    // 단축키 코치 (28-shortcut-coach.js)
     "coach.observed": "유용한 단축키를 알려드릴게요",
     "coach.rusty": "알고 있는 단축키가 {w}주째 잠들어 있어요",
     "coach.nudgeCount": "다시 안내 {n}/3",
@@ -1538,10 +1399,8 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "coach.mute": "이 팁 그만 보기",
     "coach.known": "이미 알고 계시네요 ✓",
 
-    // --- Appearance / theme (redesigned settings) ---
     "settings.appearance": "화면",
     "settings.cat.shortcuts": "단축키",
-    // --- Native application menu ---
     "menu.file": "파일",
     "menu.openFolder": "폴더 열기…",
     "menu.openNewWindow": "새 창에서 열기…",
@@ -1563,7 +1422,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "menu.window": "창",
     "menu.closeTab": "탭 닫기",
     "menu.closeWindow": "창 닫기",
-    // --- Native dialogs (quit warning, folder picker, not-a-repo) ---
     "dialog.openRepo.title": "Git 저장소 열기",
     "dialog.unopenable.title": "폴더를 열 수 없습니다",
     "dialog.unopenable.message": "{path} 을(는) 폴더로 열 수 없습니다.",
@@ -1577,7 +1435,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "welcome.unopenable": "해당 폴더를 열 수 없습니다.",
     "welcome.projectMissing": "해당 프로젝트 폴더를 더 이상 사용할 수 없습니다.",
 
-    // Composer
     "composer.comment": "이 줄에 코멘트 남기기 — 질문도 수정 요청도 여기서",
     "composer.save": "코멘트",
     "composer.cancel": "취소",
@@ -1586,7 +1443,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "comment.kind": "코멘트",
     "badge.comments": "코멘트 {n}개",
 
-    // Merged comments modal
     "merged.title": "리뷰 코멘트",
     "merged.copyAndArchive": "복사하고 보관",
     "archive.title": "넘긴 리뷰",
@@ -1600,20 +1456,9 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "merged.copyFailed": "복사 실패",
     "merged.close": "닫기",
 
-    // Merge-prompt default agent contracts (Korean default for Korean users)
-    // 플랜 계약문 — 모든 작업이 파일로 작성된 작고 검증 가능한 플랜에서 시작하도록 리뷰 코멘트와 프롬프트 메모 앞에 붙는다.
-    // 터미널로 보내는 합본 프롬프트(sendWholeDocToTerminal, 08-dock.js) 맨 앞에 한 번 붙는다 — kakapo가 아래
-    // 항목들에 대한 답변 체크리스트를 이미 써둔 경우에만 붙으며, 바로 다음 줄에 절대 경로가 이어진다.
-    // kakapo가 문서를 디스크에 저장할 수 있었을 때 터미널로 가는 내용 전부 — 이 한 줄과 절대 경로.
-    // 문서(답변 파일 안내 포함)는 그 파일 안에서 기다린다. sendWholeDocToTerminal 참고.
-    // 후속 코멘트가 이어받는 이전 대화를 대신한다 (mergedItemLines) — 본문이 아니라 id만. 문서 맨 앞에
-    // 적힌 스레드 파일에 전부 들어 있기 때문이다.
     "comment.answer": "답변",
     "annotate.kind": "왜",
     "annotate.role.key": "핵심",
-
-    // Explain 기본 프롬프트 — 에이전트가 diff 위에 붙일 노트 카드를 작성한다. {{NOTES_PATH}}는
-    // 보내는 시점에 이 워크스페이스의 주석 파일 경로로 클라이언트에서 치환된다.
   },
 };
 
@@ -1623,27 +1468,10 @@ export function normalizeLocale(value: unknown): Locale {
   return value === "ko" ? "ko" : "en";
 }
 
-// Main-process translator: resolves a key for `locale`, falling back to English then the key itself. {tokens}
-// are substituted from `vars` when provided — used by the native menu, native dialogs, the workspace rail and
-// the welcome screen, whose strings are built in the main process rather than carried by the viewer's data-i18n.
-/**
- * Finish a catalog sentence: substitute `{name}` and resolve `{{n:one|many}}`, both from the same values.
- *
- * The main process renders the application menu, the native dialogs and the welcome screen itself, and its
- * translator used to do only the first half. So the moment a counting string in this file grew the plural
- * token the catalog has used since it was added — `menu.context.lines` did — the menu printed the token
- * raw: "Keep 1 unchanged {{n:line|lines}} around a change". The viewer's guard greps src/viewer only, so
- * nothing here would have caught it.
- *
- * `{{n:…}}` is English-only in effect: Korean inflects no nouns, so its values carry no such token and
- * this is a no-op on them. The viewer's t() (01-core.js) is this function's twin — it cannot import, the
- * catalog reaches the page as JSON — and i18n-parity drives both over the same table to keep them equal.
- */
 export function fillMessage(text: string, vars?: Record<string, string | number>): string {
   if (!vars) return text;
   const chosen = text.replace(/\{\{(\w+):([^|{}]*)\|([^|{}]*)\}\}/g,
     (_whole, name: string, one: string, many: string) => (Number(vars[name]) === 1 ? one : many));
-  // A `{name}` with no value is left standing: a visible "{symbol}" is a bug report, "undefined" is not.
   return chosen.replace(/\{(\w+)\}/g, (whole, name: string) =>
     (Object.prototype.hasOwnProperty.call(vars, name) ? String(vars[name]) : whole));
 }

@@ -1,22 +1,8 @@
-// YAML in the source view's own tokenizer.
-//
-// The diff view runs highlight.js, which has always known YAML; the source view runs the hand-written
-// tokenizer in 11-render-http.js, which is built for keyword languages — and YAML has no keywords, it has
-// keys. So a .yml file opened in the source view came out plain apart from its `#` comments, in every
-// theme. That is the bug these guard.
-//
-// The expected ROLES come from the shipped dracula-theme VS Code package, scope by scope: a key is
-// entity.name.tag.yaml (the type colour), the `:` and the `-` are punctuation (the keyword colour), a
-// scalar is `string` whether or not it is quoted, numbers and booleans are `constant`, an anchor is
-// entity.name.type and an alias is variable.other.alias. The assertions below are about which class a
-// token gets, not about a hex value — the class is what carries the theme.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { makeReviewHtml, cleanupFixtures } from "./helpers/fixture.mjs";
 import { loadViewer } from "./helpers/dom.mjs";
 
-// One hook, not two: a second top-level `before` that reads what the first one assigned is a race this
-// runner does not promise to win.
 let viewer;
 before(async () => {
   const { html } = await makeReviewHtml([
@@ -26,7 +12,6 @@ before(async () => {
 });
 after(() => { viewer?.close(); return cleanupFixtures(); });
 
-/** The tokens of one YAML line, as [class, text] — the plain stretches included, as ["", text]. */
 function tokens(line) {
   const host = viewer.document.createElement("div");
   host.innerHTML = viewer.window.highlightLine(line, "yaml");
@@ -46,8 +31,6 @@ test("a key is the key colour and its colon is punctuation", () => {
 });
 
 test("a plain scalar is a string, exactly as a quoted one is", () => {
-  // Dracula paints both from the `string` scope, and a reviewer scanning a workflow file reads the values
-  // as one column — colouring the quoted half and not the other breaks that column in two.
   assert.deepEqual(classes("runs-on: ubuntu-latest"), ["tok-type", "tok-keyword", "tok-string"]);
   assert.deepEqual(classes('runs-on: "ubuntu-latest"'), ["tok-type", "tok-keyword", "tok-string"]);
 });
@@ -59,7 +42,6 @@ test("numbers, booleans and null are constants, in any of YAML's spellings", () 
   assert.deepEqual(classes("shell: off"), ["tok-type", "tok-keyword", "tok-literal"]);
   assert.deepEqual(classes("value: null"), ["tok-type", "tok-keyword", "tok-literal"]);
   assert.deepEqual(classes("value: ~"), ["tok-type", "tok-keyword", "tok-literal"]);
-  // …and a word that merely contains one of them is a scalar.
   assert.deepEqual(classes("name: nofail"), ["tok-type", "tok-keyword", "tok-string"]);
 });
 
@@ -77,7 +59,6 @@ test("a comment is a comment, and a `#` inside a value is not one", () => {
     ["tok-number", "30"],
     ["tok-comment", "# minutes"],
   ]);
-  // The case a line-local indexOf('#') gets wrong. A fragment in a URL is not a comment.
   assert.deepEqual(tokens('url: "https://example.test/#anchor"'), [
     ["tok-type", "url"],
     ["tok-keyword", ":"],
@@ -118,8 +99,6 @@ test("a flow sequence keeps its punctuation plain and colours what is in it", ()
   assert.deepEqual(tokens("branches: [main, develop]"), [
     ["tok-type", "branches"],
     ["tok-keyword", ":"],
-    // The spaces travel with the punctuation, not inside a coloured span — a trailing space painted as a
-    // scalar shows up as a yellow block the moment the line is selected.
     ["", " ["],
     ["tok-string", "main"],
     ["", ", "],

@@ -1,6 +1,3 @@
-// What the diff counts as a difference, how much of a changed line is coloured, and the overview stripe —
-// the three things IntelliJ's diff puts behind its gear, ported into kakapo's own places (the Diff menu,
-// Settings, and a ruler beside the scrollbar).
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -12,8 +9,6 @@ import { writeReviewWorkspace, reviewBodiesFile } from "../dist/review-workspace
 import { makeReviewHtml, cleanupFixtures } from "./helpers/fixture.mjs";
 import { loadViewer } from "./helpers/dom.mjs";
 
-// ---- how much whitespace difference is a difference -------------------------------------------------
-
 let root;
 before(() => {
   root = mkdtempSync(join(tmpdir(), "kakapo-ws-"));
@@ -23,11 +18,11 @@ before(() => {
   git(["config", "user.name", "Ada"]);
   git(["config", "commit.gpgsign", "false"]);
   writeFileSync(join(root, "ws.ts"), [
-    "const indented = 1;",      // gains leading whitespace
-    "const amount = 1;",        // one space becomes two
-    "const trailing = 1;",      // gains trailing whitespace
-    "const tight=1;",           // gains whitespace where there was none
-    "const real = 1;",          // a real change, which must survive every mode
+    "const indented = 1;",
+    "const amount = 1;",
+    "const trailing = 1;",
+    "const tight=1;",
+    "const real = 1;",
   ].join("\n") + "\n");
   git(["add", "-A"]);
   git(["commit", "-qm", "baseline"]);
@@ -87,9 +82,6 @@ test("context is what it says: the unchanged lines kept around a change", () => 
   assert.equal(unchanged(wide), 3, "every unchanged line in the file comes along");
 });
 
-// The mode reaching readUnifiedDiff is not the same claim as the mode reaching the APP: the review build
-// assembles its input field by field, so an option added to the diff reader and to the menu can still be a
-// silent no-op in between. This is the gate on the path the app actually takes.
 test("the whitespace mode survives the review build, not only the diff reader", () => {
   const out = mkdtempSync(join(tmpdir(), "kakapo-ws-build-"));
   try {
@@ -109,15 +101,11 @@ test("the whitespace mode survives the review build, not only the diff reader", 
   }
 });
 
-// ---- the viewer: highlighting mode and the overview stripe -------------------------------------------
-
 let html;
 before(async () => {
   ({ html } = await makeReviewHtml([
     {
       path: "src/wide.ts",
-      // Two separate changes with unchanged code between them, so the stripe has more than one mark and
-      // their order is observable.
       before: ["const a = 1;", "const keep1 = 1;", "const keep2 = 2;", "const b = 1;", "const keep3 = 3;"].join("\n") + "\n",
       after: ["const a = 99;", "const keep1 = 1;", "const keep2 = 2;", "const b = 99;", "const keep3 = 3;"].join("\n") + "\n",
     },
@@ -178,7 +166,6 @@ test("a comment thread is a mark of its own", async () => {
   const v = await loadViewer(html);
   v.window.showDiffView();
   v.window.showOnlyFile("src/wide.ts");
-  // Build a comment row the way the diff does, then re-read the stripe.
   const wrapper = v.window.diffWrapperByPath("src/wide.ts");
   const side = v.window.diffSideTable(wrapper, "new");
   const body = side.querySelector("tbody") ?? side;

@@ -1,15 +1,3 @@
-// Which folder a second `kakapo` launch should open, extracted from the Electron `second-instance` handler
-// so it can be tested without a window.
-//
-// Three kinds of second launch arrive here and they want different things:
-//
-//   `kakapo` in a folder          — additionalData carries that folder and says it was named explicitly.
-//   `kakapo` from an older build  — no additionalData; the folder is only in `--cwd` on the command line.
-//   Clicking the app icon again   — nothing names a folder, and the working directory is "/".
-//
-// The last one must not be treated as "review /". That is the whole reason the gate exists, and for a long
-// time it was spelled `isGitRepository`, which answered that question by accident and got the common case
-// wrong: a plain source tree is reviewable, so typing `kakapo` in one while a window was open did nothing.
 export interface HandoffRequest {
   additionalData?: unknown;
   /**
@@ -47,9 +35,6 @@ export function handoffRoot(request: HandoffRequest, checks: HandoffChecks): str
   }
   const root = named?.root ?? request.workingDirectory;
   if (!root || !checks.reviewable(root)) return undefined;
-  // Nothing named this folder on purpose — it is the launcher's working directory, or a CLI launched with
-  // no path of its own. Launchpad, Spotlight and the Applications icon all hand over "/", so a folder that
-  // reached this line unnamed is only worth opening when it looks like a repository.
   if (!named?.explicit && !checks.gitRepository(root)) return undefined;
   return root;
 }

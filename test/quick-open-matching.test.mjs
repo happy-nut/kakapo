@@ -1,7 +1,3 @@
-// The matcher reaching the actual lists. test/minuscule-matcher.test.mjs proves the algorithm against the
-// shipped IntelliJ one; this proves it is what the dialog asks, which is a different thing and the half
-// that can rot on its own — the haystacks had to stop being lower-cased for any of it to work, and a
-// stray `.toLowerCase()` put back anywhere would leave the matcher correct and the feature dead.
 import test, { after, before } from "node:test";
 import assert from "node:assert/strict";
 import { loadViewer } from "./helpers/dom.mjs";
@@ -17,11 +13,6 @@ const marks = (v) => v.$all("#quick-open-results .quick-open-item .quick-open-na
 let html;
 before(async () => {
   ({ html } = await makeReviewHtml([
-    // A decoy to absorb the recent slot, which the review gives to its alphabetically FIRST path (not,
-    // as it looks, to the first entry here — measured). It matters because `recentRank` is the BASE of a
-    // row's rank and the match degree only adjusts it, so the recent file leads the list whatever is
-    // typed. That is true before this port too — the old ladder's best was 3000 against a 9999 recency
-    // spread — so it is left alone here rather than quietly changed along with the matcher.
     { path: "src/aaa-opened-first.ts", before: "export const z = 1;\n", after: "export const z = 2;\n" },
     { path: "src/viewer/quick-open.js", before: "export const a = 1;\n", after: "export const a = 2;\n" },
     { path: "src/SearchEverywhereContributor.ts", before: "export const b = 1;\n", after: "export const b = 2;\n" },
@@ -48,19 +39,11 @@ test("camel humps reach a name the old substring rule could not", async () => {
 
 test("a query reaches a name in the middle of a path", async () => {
   const v = await loadViewer(html);
-  // `open` is nowhere near the start of `src/viewer/quick-open.js`, which is why queryMatcher() asks the
-  // '*' form — a bare MinusculeMatcher pattern is anchored at the start and would match nothing here.
   await openFiles(v, "qop");
   assert.ok(names(v).includes("quick-open.js"), `camel/separator humps across a path: ${JSON.stringify(names(v))}`);
   v.close();
 });
 
-// The ranking the two hand-made ladders could not do: both of these contain `quick`, so `includes` called
-// them equal and the tie fell to the path's alphabetical order.
-//
-// `bQuickOpenThing.ts` is named to make that tie-break point the WRONG way: `src/bQuickOpenThing.ts`
-// sorts before `src/viewer/quick-open.js`, so if the degrees ever came out equal this test fails instead
-// of passing for the reason it is not testing.
 test("a word-start match outranks the middle of a word", async () => {
   const v = await loadViewer(html);
   await openFiles(v, "quick");

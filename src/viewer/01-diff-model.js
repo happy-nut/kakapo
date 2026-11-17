@@ -1,12 +1,7 @@
-// Builds the semantic row/hunk model consumed by navigation, layered gutters, and the
-// asymmetric alignment engine. This is the only slice that classifies diff2html rows.
 if (!REVIEW_LAZY) prepareDiff2HtmlHunks();
 const hunks = REVIEW_LAZY ? [] : Array.from(document.querySelectorAll('.hunk'));
 const hunkPeers = REVIEW_LAZY ? [] : Array.from(document.querySelectorAll('.hunk-peer'));
 var activeReviewHunkIndex = -1;
-// Lazy mode: each file body lives in an inert <script type="text/html"> island (see splitDiffForLazy).
-// Build a hunk index from the lightweight shells (data-first-hunk/data-hunk-count/data-path) so F7 and
-// change-nav work without materializing everything. hunkRowAt() materializes the target file on demand.
 const hunkMeta = [];
 if (REVIEW_LAZY) {
   Array.prototype.forEach.call(document.querySelectorAll('#diff2html-container .d2h-file-wrapper'), function (w) {
@@ -17,10 +12,6 @@ if (REVIEW_LAZY) {
   });
 }
 var diffBootDone = false;
-// Rebuild the hunk index from the CURRENT diff DOM. `hunks`/`hunkPeers`/`hunkMeta` are captured once at
-// init; after an in-place watch swap (applyDiffUpdate) the DOM holds new wrappers/rows, so without this
-// hunkTotal()/hunkPathAt() keep reporting the OLD build — F7 and showDiffView then target vanished indices
-// and the diff pane goes blank. Mutates the const arrays in place so existing references stay valid.
 function refreshHunkIndex() {
   activeReviewHunkIndex = -1;
   if (REVIEW_LAZY) {
@@ -32,7 +23,7 @@ function refreshHunkIndex() {
       for (var k = 0; k < cnt; k++) hunkMeta[base + k] = { path: p };
     });
   } else {
-    prepareDiff2HtmlHunks(); // (re)tag .hunk/.hunk-peer rows + file ids on the new DOM
+    prepareDiff2HtmlHunks();
     hunks.length = 0;
     Array.prototype.push.apply(hunks, document.querySelectorAll('.hunk'));
     hunkPeers.length = 0;
@@ -48,10 +39,6 @@ function hunkRowAt(i) {
   ensureFileReady(diffWrapperByPath(meta.path));
   return document.getElementById('hunk-' + i);
 }
-// diff2html aligns the old/new tables row-for-row. Carry each @@ hunk id through those paired rows and
-// classify every changed pair once so CSS can paint semantic code bands while the curved overlay owns the
-// neutral centre line-number gutters. Replacements stay blue on both sides, deletions are neutral gray,
-// and insertions keep their empty old-side peer neutral while the actual new-side source is green.
 function annotateDiffHunkRows(wrapper) {
   resetDiffImportFolds(wrapper);
   var sides = wrapper ? wrapper.querySelectorAll('.d2h-file-side-diff') : [];
@@ -81,10 +68,6 @@ function annotateDiffHunkRows(wrapper) {
     row.removeAttribute('data-review-hunk-index');
   });
 
-  // The working tree is the canonical vertical timeline. Pure insertions therefore do not need a tall
-  // stack of empty rows in the base editor: collapse those positional peers, retain their DOM indices for
-  // caret/comment mapping, and record the right-side run so scrollAsymmetricDiff() can hold the base editor
-  // still while the working tree advances through it (the same visual model as IntelliJ's side-by-side diff).
   var insertionGaps = [];
   var deletionGaps = [];
   var openInsertionGap = null;
@@ -154,10 +137,6 @@ function annotateDiffHunkRows(wrapper) {
     } else {
       closeInsertionGap();
     }
-    // Removed base-only lines belong in the old editor and connector, not as gray blank rows between two
-    // consecutive working-tree lines. Keep the positional peer for caret/comment mapping, but remove it
-    // from layout just like an insertion's empty base peer. Shared-row anchors below compensate the base
-    // layer with a signed transform after this compact deletion.
     if (isPureDeletion) {
       newRow.classList.add('mc-asymmetric-delete-gap');
       deletionGaps.push({ index: i, oldRow: oldRow, newRow: newRow });
@@ -188,11 +167,6 @@ function annotateDiffHunkRows(wrapper) {
       if (tail) tail.classList.add('mc-asymmetric-insert-tail');
     }
   });
-  // Replace diff2html's visible per-row number cells with one gutter layer per pane before the alignment
-  // state captures its transform target. The stack contains BOTH code and gutter, so vertical correction
-  // can never make the line numbers trail the source by a frame.
-  // Only create the shared stack here. Import/context decoration below can still hide rows, so measuring
-  // now would build the gutter twice. The single refresh at the end sees the final row layout.
   installLayeredDiffGutters(wrapper, true);
   var oldContent = sides[0].querySelector('.mc-diff-layer-stack') || sides[0].querySelector('.d2h-code-wrapper') || sides[0].querySelector('.d2h-diff-table');
   var newContent = sides[sides.length - 1].querySelector('.mc-diff-layer-stack') || sides[sides.length - 1].querySelector('.d2h-code-wrapper') || sides[sides.length - 1].querySelector('.d2h-diff-table');
@@ -201,8 +175,6 @@ function annotateDiffHunkRows(wrapper) {
     content.classList.toggle('mc-asymmetric-scroll-content', insertionGaps.length > 0 || deletionGaps.length > 0);
     content.style.transform = '';
   });
-  // Real shared rows are stronger alignment evidence than an accumulated line-height estimate. Keeping
-  // these anchors lets scrollAsymmetricDiff correct sub-pixel/border drift at the reader's current position.
   var alignmentAnchors = [];
   for (var anchorIndex = 0; anchorIndex < Math.min(oldRows.length, newRows.length); anchorIndex++) {
     var anchorOld = oldRows[anchorIndex], anchorNew = newRows[anchorIndex];
@@ -212,10 +184,6 @@ function annotateDiffHunkRows(wrapper) {
     if (!oldNumber || !newNumber || !String(oldNumber.textContent || '').trim() || !String(newNumber.textContent || '').trim()) continue;
     alignmentAnchors.push({ oldRow: anchorOld, newRow: anchorNew, kind: 'shared-row' });
   }
-  // A large replacement can contain a stable symbol boundary that diff2html still marks as changed (for
-  // example the unchanged `def _exit_intents(` below a rewritten method). Pair unique, substantial source
-  // lines across the two compact editors so that boundary becomes an exact scroll anchor as well. This is
-  // intentionally conservative: duplicate/short lines and reordered crossings are discarded.
   semanticDiffAlignmentAnchors(oldRows, newRows).forEach(function (anchor) {
     var duplicate = alignmentAnchors.some(function (existing) {
       return existing.oldRow === anchor.oldRow && existing.newRow === anchor.newRow;
@@ -239,8 +207,6 @@ function annotateDiffHunkRows(wrapper) {
   } : null;
   decorateDiffContextFolds(wrapper, oldRows, newRows);
   decorateDiffImportFold(wrapper, oldRows, newRows);
-  // A .http file in the diff gets its run buttons here, so lazy materialization and context expansion
-  // reach it on the same path everything else does.
   decorateDiffHttpRuns(wrapper);
   refreshLayeredDiffGutters(wrapper);
   scheduleAsymmetricDiffScroll();

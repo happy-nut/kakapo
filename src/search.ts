@@ -22,34 +22,12 @@ export type ProjectSearchResult = {
 };
 
 export type ProjectSearchOptions = {
-  /**
-   * IntelliJ's file mask: comma-separated globs over the file name, `!` to exclude (`*.ts, !*.d.ts`).
-   * `extensions` is the name it had when it only took `ts`; both are read so a standalone review built by
-   * an older build keeps filtering.
-   */
   masks?: string[];
   extensions?: string[];
   excludeCommentsAndTests?: boolean;
-  /**
-   * IntelliJ's three Find in Files toggles — `Cc`, `W`, `.*`. Each is one ripgrep flag, and the default
-   * (all three off) is what this searcher always did: smart-case, literal, anywhere in the line.
-   *
-   * `regex: true` hands the query to ripgrep as a pattern. A pattern that does not compile makes ripgrep
-   * exit 2 with its own message on stderr, which already becomes `error` below — the one place in this
-   * file where "the search failed" and "nothing matched" were already told apart.
-   */
   matchCase?: boolean;
   wholeWords?: boolean;
   regex?: boolean;
-  /**
-   * IntelliJ's Find in Files scope, as the directory prefixes it comes down to: "Project Production
-   * Files" is the project minus its test roots, a module scope is one directory, and the renderer knows
-   * which those are (it holds the project layout) so it sends them rather than a scope name.
-   *
-   * A NARROWING, not the whole filter. ripgrep is asked for at most `limit` matches, so a scope applied
-   * only to the answer would cut the wrong 500 rows first; the renderer applies the exact rule to what
-   * comes back (14-project-layout.js knows about path conventions this cannot express as a glob).
-   */
   includePaths?: string[];
   excludePaths?: string[];
 };
@@ -69,8 +47,6 @@ function jsColumnAtUtf8Byte(text: string, byteOffset: number): number {
   return bytes.subarray(0, Math.max(0, Math.min(byteOffset, bytes.length))).toString("utf8").length;
 }
 
-// ripgrep's --json stream emits one `match` message per matching line, with one or more byte-offset
-// submatches. Convert each submatch into the occurrence-level shape the renderer consumes.
 export function parseRipgrepJsonLine(line: string): ProjectSearchMatch[] {
   let event: {
     type?: string;
@@ -104,9 +80,6 @@ export function parseRipgrepJsonLine(line: string): ProjectSearchMatch[] {
   });
 }
 
-// The VS Code ripgrep package ships a verified, platform-specific binary with kakapo, so search never
-// depends on the user's PATH. KAKAPO_RG_PATH remains an explicit development escape hatch; PATH and
-// common install locations are only resilience fallbacks for a damaged/incomplete package install.
 export function findRipgrepBinary(env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): string | undefined {
   const fileName = platform === "win32" ? "rg.exe" : "rg";
   const candidates: string[] = [];
@@ -118,18 +91,6 @@ export function findRipgrepBinary(env: NodeJS.ProcessEnv = process.env, platform
   return Array.from(new Set(candidates)).find((candidate) => existsSync(candidate) && executable(candidate));
 }
 
-/**
- * IntelliJ's file mask (FindBundle's `find.popup.filemask`), as the globs it comes down to.
- *
- * It used to take bare EXTENSIONS: every entry was stripped to its last component and matched with
- * `endsWith`, so `*.ts` worked, `*Service*.java` matched nothing and `!*.min.js` was dropped on the floor
- * without a word. IntelliJ's mask is a comma-separated list of globs where a leading `!` excludes, and
- * ripgrep's own `--glob` speaks exactly that — so the mask passes through rather than being reduced.
- *
- * Kept deliberately narrow: a mask names FILES, so a `/` would be a path filter, which is what the scope
- * is for (and what includePaths/excludePaths carry). Anything with a slash, a `..`, or beyond the length
- * budget is dropped, as before.
- */
 export function normalizeProjectSearchMasks(values: unknown): string[] {
   if (!Array.isArray(values)) return [];
   const seen = new Set<string>();
@@ -138,7 +99,6 @@ export function normalizeProjectSearchMasks(values: unknown): string[] {
     .map((value) => {
       const negated = value.startsWith("!");
       const body = negated ? value.slice(1).trim() : value;
-      // A bare extension is still a mask — `.ts`, `ts` and `*.ts` all mean the same thing to a reviewer.
       const glob = /^\.?[a-z0-9][a-z0-9._+-]*$/.test(body) && !body.includes("*")
         ? `*.${body.replace(/^\./, "")}`
         : body;
@@ -154,19 +114,6 @@ export function normalizeProjectSearchMasks(values: unknown): string[] {
     .slice(0, 20);
 }
 
-/**
- * Does one mask match this file NAME? `*` and `?` only — ripgrep does the real work when there is a ripgrep.
- *
- * Greedy with a single backtrack point, not a compiled regular expression. `*` became `[^/]*`, and a mask
- * is allowed 48 characters, so `*a*a*a…` is 24 of them: against a name that fails at the end the engine
- * tries every way to split it, which measured 1.07s on a 33-character name and ten times that for every
- * two characters more. That ran once PER FILE of the index, on each keystroke in the mask field — a review
- * could be frozen by its own filter. This is linear in the name per star instead, and compiles nothing.
- *
- * Only `*` and `?` are wildcards; `[`, `]`, `{`, `}` and `,` are literals here, exactly as the escaped
- * regular expression treated them. (ripgrep reads those as glob syntax, so a mask using them already
- * matched differently in the two paths — unchanged, and worth knowing before widening either.)
- */
 function maskMatchesName(mask: string, name: string): boolean {
   let m = 0;
   let n = 0;
@@ -174,10 +121,6 @@ function maskMatchesName(mask: string, name: string): boolean {
   let afterStar = 0;
   while (n < name.length) {
     const ch = m < mask.length ? mask[m] : "";
-    // `*` is tested FIRST. The literal comparison below also succeeds when the mask char and the name char
-    // are both `*`, which consumed the wildcard as a literal and never opened the star — mask `*` then
-    // failed to match a name containing one. A dispatch whose branches overlap has to put the specific
-    // case before the general one; a differential run against the regular expression caught it.
     if (ch === "*") {
       m += 1;
       star = m;
@@ -186,7 +129,6 @@ function maskMatchesName(mask: string, name: string): boolean {
       m += 1;
       n += 1;
     } else if (star >= 0) {
-      // The last `*` took one character too few; give it one more and resume from there.
       m = star;
       afterStar += 1;
       n = afterStar;
@@ -198,12 +140,6 @@ function maskMatchesName(mask: string, name: string): boolean {
   return m === mask.length;
 }
 
-/**
- * Does this path pass the mask list?
- *
- * The same rule ripgrep applies, mirrored for the standalone HTML review that has no ripgrep to ask: a
- * path must match at least one including mask (or there must be none), and no excluding one.
- */
 export function projectSearchMaskAllows(path: string, masks: string[]): boolean {
   if (!masks.length) return true;
   const name = path.replace(/\\/g, "/").toLowerCase().split("/").pop() || "";
@@ -247,7 +183,6 @@ export function projectSearchMatchAllowed(match: ProjectSearchMatch, options: Pr
   return !isTestPath(match.path) && !isLikelyCommentMatch(match);
 }
 
-/** Repo-relative directory prefixes, de-duplicated. Anything absolute or climbing out is dropped. */
 export function normalizeSearchPaths(values: unknown): string[] {
   if (!Array.isArray(values)) return [];
   const seen = new Set<string>();
@@ -298,19 +233,6 @@ export function searchProject(root: string, query: string, limit = 500, options:
     return Promise.resolve({ available: false, engine: "fallback", matches: [], truncated: false, error: "ripgrep is not installed" });
   }
 
-  // The scope's directories, as the places ripgrep is pointed AT rather than as more globs.
-  //
-  // ripgrep's positive globs are an OR: `--glob '*.ts' --glob 'sub/**'` returns every .ts anywhere AND
-  // every file under sub/, so a scope used to switch the file-type filter off. A directory is not a
-  // filter on the walk, it is where the walk starts, and starting it in the scope's directories ANDs
-  // with `--glob '*.ts'` the way the two controls read on screen.
-  //
-  // Dropped if it is not there: ripgrep exits 2 on a path that does not exist, and this searcher reads a
-  // non-zero exit as "the search failed". A scope whose every directory has gone (a module deleted since
-  // the layout was read) searches nothing rather than quietly searching the whole repository.
-  // `./dir` rather than `dir` only because `.` is what the one argument used to be — ripgrep echoes the
-  // argument it was given into every match path, and parseRipgrepJsonLine strips a leading `./` from all
-  // of them, so what the rest of the app sees is the same repo-relative path either way.
   const wanted = normalizedOptions.includePaths ?? [];
   const searchRoots = wanted.filter((prefix) => existsSync(join(root, prefix))).map((prefix) => `./${prefix}`);
   if (wanted.length && !searchRoots.length) {
@@ -323,15 +245,10 @@ export function searchProject(root: string, query: string, limit = 500, options:
     let stderr = "";
     let truncated = false;
     let settled = false;
-    // --smart-case is the default this app has always had: a lower-case query ignores case, a query with
-    // a capital in it does not. `Cc` replaces the guess with the answer.
     const args = ["--json", "--no-config", normalizedOptions.matchCase ? "--case-sensitive" : "--smart-case"];
     if (!normalizedOptions.regex) args.push("--fixed-strings");
     if (normalizedOptions.wholeWords) args.push("--word-regexp");
-    // ripgrep reads `!glob` as an exclusion itself, which is the same spelling IntelliJ's mask uses.
     for (const mask of masks) args.push("--glob", mask);
-    // An exclusion has to stay a glob — there is no "search everywhere but here" path argument — so the
-    // directory name is escaped into one that means only itself.
     for (const prefix of normalizedOptions.excludePaths ?? []) args.push("--glob", `!${searchGlobLiteral(prefix)}/**`);
     if (normalizedOptions.excludeCommentsAndTests) {
       for (const glob of ["!**/test/**", "!**/tests/**", "!**/__tests__/**", "!**/test_*", "!**/*_test.*", "!**/*.test.*", "!**/*.spec.*"]) {

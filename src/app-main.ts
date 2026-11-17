@@ -37,25 +37,18 @@ import { electronAcceleratorFor, setShortcutOverrides } from "./shortcuts.js";
 type AppOptions = {
   root: string;
   base?: string;
-  baseLabel?: string; // what the toolbar pill calls `base` — set when the reader picked a branch by name
-  // `kakapo <file>`: the file to land on, relative to root. First paint only — once the reader opens
-  // something else the saved UI state takes over, and a rebuild must not yank them back here.
+  baseLabel?: string;
   openPath?: string;
-  // Did the launch NAME a place to open (a path on the command line), or did it just inherit a cwd? Only the
-  // second can meaningfully fall through to the welcome screen — see bootWindow.
   explicitRoot: boolean;
-  target?: string; // A→B compare: right/new side revision (undefined = working tree)
+  target?: string;
   staged: boolean;
   includeUntracked: boolean;
   context: number;
   watch: boolean;
   ignoreWhitespace: boolean;
-  // How much whitespace difference counts as a difference (none/trim/all) — the three modes IntelliJ's
-  // diff offers, changed from the Diff menu and applied by re-running git diff.
   whitespace: WhitespaceMode;
 };
 
-/** The context sizes the Diff menu offers. The last one is "the whole file" in git's own terms. */
 const DIFF_CONTEXT_CHOICES = [3, 12, 50, 100_000] as const;
 
 type ReviewSurface = {
@@ -69,73 +62,38 @@ type ReviewSurface = {
   loadFile(path: string): Promise<void>;
 };
 
-// Per-window state. Everything that used to be a module-level global (the review signature, watch timer,
-// lazily-served diff bodies/source, and last-diff hash) now lives here, keyed
-// by BrowserWindow.id, so two windows reviewing different repos don't trample each other's state.
 type WinState = Omit<CommentsIpcState, "win" | "options"> & {
   win: ReviewSurface;
-  options: AppOptions; // this window's repo + diff flags (root + ignoreWhitespace are per-window)
+  options: AppOptions;
   signature: string;
   refreshing: boolean;
   refreshTimer?: NodeJS.Timeout;
   analysisWarmTimer?: NodeJS.Timeout;
-  // The poll timer that picks up whatever an agent appended to the review conversation, independent of
-  // --watch. The files themselves, their signatures and what this window has been handed come from
-  // CommentsIpcState above (see comments-file.ts).
-  //
-  // Spelled as that type rather than as a copy of its fields. The copy is how the shared knowledge
-  // file came to be dead code: `knowledgeFile` was simply absent here, and because every field over there
-  // is optional a WinState without it is still structurally a CommentsIpcState, so nothing ever said so.
-  // The handlers only ever read what this type carries.
   commentsTimer?: NodeJS.Timeout;
-  // WHERE this build's per-file diffs are, not the diffs. They are the biggest thing a build makes — 106 MB
-  // for a 1,352-file compare — and holding them per workspace is what put main's heap in gigabyte territory.
-  // readReviewBody reads one slice when a body is actually asked for (review-workspace.ts).
   bodies: { file: string; offsets: number[] };
-  // Rendered per-file diff bodies, scoped to the current build. BOUNDED: body HTML is about 17x the diff
-  // text it comes from, and this used to keep one for every file ever opened, per workspace, until the next
-  // rebuild. On a 1,352-file review that is ~1.8 GB in main — measured 2.1 GB of main heap for one such
-  // workspace, and V8 aborting the whole app at 2.7 GB once a second one was opened. Re-rendering an evicted
-  // body is one renderLazyDiffBody call on the file the reader just asked for.
   bodyCache: ByteBudgetCache<string>;
-  sourceFiles: Map<string, SourceFile>; // source content stays in main; renderer requests one open file at a time
-  analysis: ProjectAnalysis; // LSP-first project analysis + main-process regex fallback
+  sourceFiles: Map<string, SourceFile>;
+  analysis: ProjectAnalysis;
   analysisSuspended: boolean;
-  // The idle timer dropped this window's caches (main) and its diff DOM (renderer). Cleared once the
-  // rebuild on the way back has repainted the view.
   viewReleased: boolean;
   idleTimer?: NodeJS.Timeout;
   bootStarted: boolean;
-  perf: ReviewPerformanceTrace; // local startup/analysis evidence under this workspace's app-data mirror
-  lastDiffSig: string; // watch fast-path: hash of the last git diff, to skip rebuilds when unchanged
-  // When this workspace was last in front. `isVisibleWorkspace` only asks whether a window is
-  // MINIMIZED, and on macOS almost nobody minimizes — they put another window over the top. So four
-  // workspaces left open all count as visible for ever, never idle-suspend, and each keeps a fleet.
-  // This is the honest notion of cold, and the global budget below spends it.
+  perf: ReviewPerformanceTrace;
+  lastDiffSig: string;
   lastFocusedAt: number;
-  compareTip: boolean; // compare against compareRef's TIP rather than its merge-base with HEAD (⌥T)
-  reviewBase?: string; // exact base used by the latest build (may be an automatic upstream merge-base)
-  reviewTarget?: string; // exact right/new side revision for an A→B compare (undefined = working tree)
-  // Commits of the range opened from the Cmd+9 history (oldest→newest). While set, the compare bar's two
-  // dropdowns pick base/target from THIS list, so B..D within an opened A..F is selectable. Cleared on exit.
+  compareTip: boolean;
+  reviewBase?: string;
+  reviewTarget?: string;
   compareScope?: { sha: string; shortSha: string; subject: string; date: string }[];
-  compareRef?: string; // compare dropdown: the branch "All changes" measures against (persisted per repo)
-  reviewUpstream?: string; // tracking ref behind an automatic base; included in the watch signature
-  // Diff-first startup: the first paint indexed ONLY the changed files; the full project index is still owed
-  // and built on demand (ensureFullIndex) the first time the renderer pulls it. Cleared once the full index
-  // lands — here, or via any watch rebuild (which always builds full).
+  compareRef?: string;
+  reviewUpstream?: string;
   fullIndexPending?: boolean;
-  ensureFullIndex?: () => Promise<void>; // materialize the deferred full project index into sourceFiles, once
-  fullIndexInFlight?: Promise<void>; // dedups concurrent project-index pulls onto one worker build
-  // Monotonic per-window build counter. Every build off the worker stamps its request; when the result
-  // returns, a stale stamp (a newer build was requested, or the window closed) means the result is dropped.
+  ensureFullIndex?: () => Promise<void>;
+  fullIndexInFlight?: Promise<void>;
   buildSeq: number;
   disposeWindowSurfaceRecovery: () => void;
 };
 
-// `npm run dev` sets KAKAPO_DEV=1 so a locally-built app announces itself — a window-title suffix
-// plus a boot log with its on-disk path — making it obvious whether `kakapo` launched THIS checkout or
-// the globally-installed package (their version numbers can be identical; the path is the tell).
 const DEV_BUILD = process.env.KAKAPO_DEV === "1";
 const APP_NAME = "Kakapo";
 const APP_TITLE = DEV_BUILD ? `${APP_NAME} (dev)` : APP_NAME;
@@ -149,20 +107,9 @@ const APP_VERSION = app.isPackaged ? app.getVersion() : (() => {
 const REVIEW_FILE = "app-review.html";
 const WATCH_INTERVAL_MS = 1000;
 const ANALYSIS_PREWARM_DELAY_MS = 350;
-// What one workspace may hold in rendered diff bodies. Enough for the run of files a reading pass actually
-// walks; past that the oldest goes and is re-rendered if the reader comes back to it.
 const BODY_CACHE_BYTES = 64_000_000;
-// How long a workspace must stay hidden before its language servers are shut down. Resuming pays the full
-// cold start again (the bundled Kotlin server alone allocates well over a gigabyte on every restart), so a
-// short timer turns ordinary back-and-forth switching into pure churn: it costs more than the RSS it frees.
-// Long enough that only a genuinely parked workspace is reclaimed. See issue #24.
 const ANALYSIS_IDLE_SUSPEND_MS = 30 * 60_000;
 
-// Painted immediately while the first review build + HTML render run, so startup shows the Kakapo mark
-// of a blank window. Inlined as a data: URL so it needs no file on disk and appears before any review
-// work. Theme-aware so a light-theme user doesn't get a dark flash before the renderer applies the theme.
-// `compact` halves the mark for every window after the first. Opening the app is a moment worth branding;
-// opening the fifth workspace of the session is not, and a 72px bird flashing on each one reads as noise.
 function loadingHtml(light: boolean, compact = false): string {
   const bg = light ? "#ffffff" : "#2b2b2b";
   const fg = light ? "#6e7781" : "#9aa4af";
@@ -182,31 +129,21 @@ function loadingHtml(light: boolean, compact = false): string {
   @media(prefers-reduced-motion:reduce){.kakapo-mark{animation:kakapo-breathe 1.6s ease-in-out infinite}@keyframes kakapo-breathe{50%{opacity:.65}}}
 </style></head><body><span class="kakapo-loader" role="status" aria-label="${escapeAttr(tr()("app.loading"))}">${mark}<span class="sr-only">${escapeHtml(tr()("app.loading"))}</span></span></body></html>`;
 }
-// The persisted theme (set by the renderer via kakapoSettings): 'light' or 'dark', nothing else. It used to
-// also accept 'system', which answered two questions at once — which palette, and who decides — so every
-// reader had to resolve it before it meant anything. A stored 'system' resolves once, in the renderer, to
-// whatever the OS was saying then. Mirrored into nativeTheme.themeSource (see syncNativeThemeSource) so the native
-// window chrome (traffic lights, menus) and prefers-color-scheme both track the choice.
 type ThemePreference = "light" | "dark";
 function themePreference(): ThemePreference {
   try {
     const value = preferences.readGlobal()["kakapo-theme"];
-    // Default dark (as before System existed), so users who never set a theme keep the UI they had.
-    // A pre-existing "system" is not a theme any more; dark is the default it always fell back to.
     return value === "light" ? "light" : "dark";
   } catch {
     return "dark";
   }
 }
-// The light/dark used by the loading screen, window backgrounds, hub, and welcome page.
 function isLightTheme(): boolean {
   return themePreference() === "light";
 }
 function syncNativeThemeSource(): void {
-  try { nativeTheme.themeSource = themePreference(); } catch { /* best-effort */ }
+  try { nativeTheme.themeSource = themePreference(); } catch { }
 }
-// The active UI locale + a translator bound to it, for the native menu, native dialogs, the workspace rail, and
-// the welcome screen — every user-visible string the main process renders itself rather than the viewer's data-i18n.
 function currentLocale(): Locale {
   try { return normalizeLocale(preferences.readGlobal()["kakapo-locale"]); } catch { return "en"; }
 }
@@ -216,7 +153,6 @@ function tr(): (key: string, vars?: Record<string, string | number>) => string {
 
 app.setName(APP_NAME);
 if (DEV_BUILD) app.setPath("userData", join(app.getPath("userData"), "dev"));
-// Opt-in local CDP endpoint for automated verification (never on in normal runs).
 if (process.env.KAKAPO_REMOTE_DEBUG) {
   app.commandLine.appendSwitch("remote-debugging-port", process.env.KAKAPO_REMOTE_DEBUG);
   // A harness-driven window is usually behind the operator's own windows, and macOS marks an occluded
@@ -231,9 +167,6 @@ protocol.registerSchemesAsPrivileged([{
   scheme: "kakapo-asset",
   privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true },
 }]);
-// Never patch or rename Electron.app from inside the running Electron process. The CLI launcher performs
-// that repair synchronously before spawning Electron (and postinstall handles the normal install path).
-// Mutating the live bundle during macOS didFinishLaunching can terminate Chromium with SIGTRAP.
 
 const iconPath = join(dirname(fileURLToPath(import.meta.url)), "..", "assets", "icon.png");
 // macOS has no window icons, and it reads the app icon off the bundle — the packaged one from Info.plist, the
@@ -253,16 +186,8 @@ const options = parseArgs(runtimeArgs);
 // in additionalData avoids relying on platform-specific command-line/cwd behavior during handoff.
 const hasSingleInstanceLock = app.requestSingleInstanceLock({ workspaceRoot: options.root, explicitRoot: options.explicitRoot });
 const states = new Map<number, WinState>();
-// Every review build runs in this one worker thread, so a rebuild never blocks the main loop's IPC/terminal
-// handling — the main thread only pays the compact snapshot clone. Warmed up at startup (whenReady).
 const reviewBuilder = new ReviewBuilder();
 let quitConfirmed = false;
-// What counts as a folder kakapo can review. It used to be "a git repository", and that answer is now wrong
-// in both directions: a plain source tree opens fine (its review is the tree with an empty diff), while a
-// path that vanished or was never a directory cannot open whether git knows it or not. Every entrance — the
-// CLI handoff, File > Open Folder, the welcome screen's picker, Recent Projects, and what gets REMEMBERED as
-// a recent project — asks this one function, because five copies of the question is how `kakapo` in a
-// non-git folder came to open a window from the terminal and nothing at all from the second instance.
 function isReviewableFolder(path: string): boolean {
   try {
     return statSync(path).isDirectory();
@@ -277,8 +202,6 @@ if (!existsSync(options.root)) {
   throw new Error(`Repository path does not exist: ${options.root}`);
 }
 
-// Resolve the WinState for an IPC call by mapping its sender back to a window — this is how get-file /
-// source/analysis requests are routed to the right window's state instead of a shared global.
 function stateFromEvent(event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent): WinState | undefined {
   return states.get(event.sender.id);
 }
@@ -294,39 +217,16 @@ function focusedState(): WinState | undefined {
   const live = Array.from(states.values()).filter((state) => !state.win.isDestroyed());
   return live.length === 1 ? live[0] : undefined;
 }
-// Menu accelerators are application-global, so they act on whichever window is focused.
 function sendToFocused(channel: string, payload?: unknown): void {
   const state = focusedState();
   if (state && !state.win.isDestroyed()) state.win.webContents.send(channel, payload);
 }
 
-// The composition root supplies window-scoped state; the adapter owns review/query IPC details.
 registerReviewIpc(ipcMain, stateFromEvent, app.getPath("userData"));
 registerProjectPathIpc(ipcMain, shell, stateFromEvent);
 registerCommentsIpc(ipcMain, stateFromEvent);
-// One UI scale for the whole app. Each surface is its own WebContents (the rail, every review view, the modal
-// overlay), so a CSS-only setting would have to be replicated into three documents — and would still miss the
-// px-based layout the diff caret and gutters measure. Chromium's zoom factor scales all of it uniformly.
-// Per-repo, not global: which branch is worth comparing against is a property of the repository you opened,
-// and carrying one repo's answer into the next would silently review the wrong thing.
 const COMPARE_REF_KEY = "kakapo-compare-ref";
-// Which QUESTION the compare control is asking, stored because it cannot be derived.
-//
-// The mode the menu ticks is otherwise read back out of base/baseLabel (app-review-ipc), and that works
-// while there are two: "all" leaves a merge-base SHA under a branch-name label, "uncommitted" leaves
-// `HEAD`. Tip mode leaves the ref under its own name, which is a merge-base SHA under a branch name again
-// whenever the ref happens to be an ancestor — the same pair of values for a different question. Asking
-// the state to tell the two apart by string shape would be a guess, and a wrong tick on this control sends
-// a reader off to read the wrong diff. Persisted next to the ref for the same reason the ref is: without
-// it a restart answers a question nobody asked.
 const COMPARE_TIP_KEY = "kakapo-compare-tip";
-/**
- * The one writer of compareTip, so the flag cannot be set in one place and forgotten in another.
- *
- * It is a claim about what options.base currently IS, which means every handler that rewrites
- * options.base has to say something here. Three of the four did not, and the compare menu went on
- * ticking `tip` for diffs that were nothing of the kind.
- */
 function setCompareTip(state: WinState, tip: boolean): void {
   state.compareTip = tip;
   preferences.setRendererSetting(state.options.root, COMPARE_TIP_KEY, tip);
@@ -336,13 +236,6 @@ function restoreCompareRef(state: WinState): void {
   const workspace = preferences.readWorkspace(state.options.root);
   const saved = workspace[COMPARE_REF_KEY];
   state.compareRef = typeof saved === "string" && saved ? saved : undefined;
-  // The ref comes back; the MODE does not. Both callers run restoreCompareRef after the review has been
-  // built — the cold boot at the end of the first build, the folder switch before a build that takes its
-  // base from compareSelectionFor — so neither build ever used the ref's tip as its base. Restoring the
-  // flag therefore only made the menu claim a mode the window was not in, from the first frame, with no
-  // interaction at all. Saying "all changes" and showing all changes is the honest pair; ⌥T is one key
-  // away. Making the launch genuinely resume tip mode is a different change: the base would have to be
-  // resolved before the first build, and it would have to yield to --base and --staged.
   state.compareTip = false;
 }
 const UI_SCALE_KEY = "kakapo-ui-scale";
@@ -350,9 +243,6 @@ function uiScale(): number {
   const raw = Number(preferences.readGlobal()[UI_SCALE_KEY]);
   return Number.isFinite(raw) && raw >= 0.8 && raw <= 1.6 ? raw : 1;
 }
-// ⌘+ / ⌘− / ⌘0. Chromium swallows these before a renderer keydown sees them, so they are menu accelerators
-// like the terminal's — and main owns the zoom anyway. Stepping through the SAME list the dropdown offers
-// keeps the two agreeing: the next keystroke and the next dropdown row are the same size.
 function stepUiScale(delta: number): void {
   const current = uiScale();
   const at = UI_SCALES.indexOf(current);
@@ -366,22 +256,10 @@ function setUiScale(next: number): void {
   settings[UI_SCALE_KEY] = next;
   preferences.writeGlobal(settings);
   applyUiScale();
-  // The Settings dropdown reads its value from the renderer's own copy, so tell every view what happened —
-  // otherwise the keyboard and the panel would disagree about the current size.
-  // Every view is TOLD (their Settings dropdown has to agree with the keyboard), but only the visible ones
-  // are re-zoomed above — a hidden workspace hears the number and pays for it when it is next shown.
   for (const state of states.values()) {
     if (!state.win.isDestroyed()) state.win.webContents.send("kakapo:ui-scale", next);
   }
 }
-// Zooming a view is not free: Chromium re-lays out the whole document, and a review document is a diff of
-// every changed file plus however many terminals. Doing that to EVERY open workspace on one ⌘+ meant paying
-// for six of them at once — six full relayouts, six sets of ResizeObservers, six terminals refitting and
-// telling tmux to repaint — while the reviewer sat looking at one of them. That is the thirty-second freeze.
-//
-// So only the views the reviewer can actually see are zoomed now, and a hidden workspace takes its new size
-// when it is next activated (activateWorkspace). The scale is read from preferences there, so a workspace
-// that was hidden through three zoom steps arrives at the right size in one relayout instead of three.
 function applyUiScale(target?: WebContents): void {
   const factor = uiScale();
   const set = (wc: WebContents | undefined): void => { if (wc && !wc.isDestroyed()) wc.setZoomFactor(factor); };
@@ -389,8 +267,6 @@ function applyUiScale(target?: WebContents): void {
   for (const state of states.values()) set(state.win.webContents);
 }
 
-// Theme + locale are global settings: re-theme the native chrome (menu labels follow the locale) and tell
-// every open review to repaint itself in the new one.
 function refreshChrome(): void {
   syncNativeThemeSource();
   const light = isLightTheme();
@@ -403,18 +279,9 @@ function refreshChrome(): void {
 registerSettingsIpc(ipcMain, preferences, stateFromEvent, (key, value) => {
   if (key === "kakapo-theme" || key === "kakapo-locale") refreshChrome();
   if (key === UI_SCALE_KEY) applyUiScale();
-  // A display switch flipped from the keyboard: the menu holds its tick, so it has to be rebuilt or the
-  // menu starts disagreeing with the page about what is on.
   if (READING_TOGGLE_KEYS.has(key)) buildApplicationMenu();
-  // A rebind changes what the menu should DRAW beside eight of its items. The menu is built here from the
-  // table and had no way to know, so it went on advertising the old chord for the life of the window.
   if (key === SHORTCUT_OVERRIDES_KEY) { setShortcutOverrides(value); buildApplicationMenu(); }
 });
-// Patch-set compare bar: switch the diff base to a chosen patch set (or "auto" to restore the automatic
-// upstream merge-base). Mirrors the "Ignore whitespace" menu toggle — mutate this window's options,
-// rebuild, and push the diff in place (like refreshIfChanged) so comments/scroll survive. The right side
-// stays the working tree ("latest"); only the base moves, and base already threads through diff/context/
-// blame/source, so no other plumbing changes.
 ipcMain.handle("kakapo:set-review-base", async (event, payload: { ref?: unknown }) => {
   const state = stateFromEvent(event);
   if (!state || state.win.isDestroyed()) return { ok: false };
@@ -422,19 +289,12 @@ ipcMain.handle("kakapo:set-review-base", async (event, payload: { ref?: unknown 
   if (!raw) return { ok: false };
   try {
     if (raw === "auto") {
-      state.options.base = undefined; // restore the automatic base + upstream watching
+      state.options.base = undefined;
     } else {
-      // The ref originates from the enumerated patch-set list, but validate before it reaches git diff.
       state.options.base = validateReviewBase(state.options.root, raw);
     }
-    state.options.baseLabel = undefined; // a patch-set pick names a commit; the pill shows the SHA it is
-    state.options.staged = false; // --staged takes precedence over --base in readUnifiedDiff; clear it
-    // compareTip is a claim ABOUT options.base — "this base is a ref's tip, not a merge-base with it" —
-    // and this handler has just rewritten options.base. Leaving it set made the compare menu tick `tip`
-    // for a diff that is no longer one: ⌥A, ⌥T, then the patch-set bar's "All" option put the window on
-    // the automatic base with the menu still saying tip, while the bar beside it said "all changes · main".
-    // Found by the model in .claude/skills/formal-compare-mode, which also refuted the wider fix — see
-    // set-review-target below, which must NOT do this.
+    state.options.baseLabel = undefined;
+    state.options.staged = false;
     setCompareTip(state, false);
     await rebuildAndPushUpdate(state, true);
     return { ok: true, activeBase: state.options.base ?? "auto" };
@@ -443,9 +303,6 @@ ipcMain.handle("kakapo:set-review-base", async (event, payload: { ref?: unknown 
   }
 });
 
-// Right/new side of the compare bar: pick a patch set as target B (A→B compare) or the sentinel
-// "worktree" to return to base-vs-working-tree. Same rebuild+in-place-update shape as set-review-base;
-// the source model then serves commit B's content so comments reconcile against B.
 ipcMain.handle("kakapo:set-review-target", async (event, payload: { ref?: unknown }) => {
   const state = stateFromEvent(event);
   if (!state || state.win.isDestroyed()) return { ok: false };
@@ -453,10 +310,10 @@ ipcMain.handle("kakapo:set-review-target", async (event, payload: { ref?: unknow
   if (!raw) return { ok: false };
   try {
     if (raw === "worktree") {
-      state.options.target = undefined; // compare against the working tree (today's default)
+      state.options.target = undefined;
     } else {
       state.options.target = validateReviewBase(state.options.root, raw);
-      state.options.staged = false; // an A→B compare has no index side
+      state.options.staged = false;
     }
     await rebuildAndPushUpdate(state, true);
     return { ok: true, activeTarget: state.options.target ?? "worktree" };
@@ -465,9 +322,6 @@ ipcMain.handle("kakapo:set-review-target", async (event, payload: { ref?: unknow
   }
 });
 
-// Validate/clamp the pickable commit list the renderer sends when opening a range from Cmd+9. The SHAs are
-// only ever used as dropdown data-refs (re-validated by set-review-compare before any git call); the rest is
-// display metadata, so this just rejects junk and bounds sizes.
 function sanitizeCompareScope(raw: unknown[]): { sha: string; shortSha: string; subject: string; date: string }[] {
   const out: { sha: string; shortSha: string; subject: string; date: string }[] = [];
   for (const item of raw.slice(0, 500)) {
@@ -485,10 +339,6 @@ function sanitizeCompareScope(raw: unknown[]): { sha: string; shortSha: string; 
   return out;
 }
 
-// Set both sides at once (base A + target B) in a single rebuild — used by the Cmd+9 history view to open a
-// shift-selected commit range in the main review, where the full comment system applies. "auto"/"worktree"
-// sentinels reset a side to its default. `scope` (sent when opening a range) is the pickable commit list, so
-// the compare bar's dropdowns can then select any B..D within the opened A..F.
 ipcMain.handle("kakapo:set-review-compare", async (event, payload: { base?: unknown; target?: unknown; scope?: unknown }) => {
   const state = stateFromEvent(event);
   if (!state || state.win.isDestroyed()) return { ok: false };
@@ -503,9 +353,9 @@ ipcMain.handle("kakapo:set-review-compare", async (event, payload: { base?: unkn
     state.options.base = rawBase === "auto" ? undefined : validateReviewBase(state.options.root, rawBase);
     state.options.baseLabel = undefined;
     state.options.target = rawTarget === "worktree" ? undefined : validateReviewBase(state.options.root, rawTarget);
-    if (rawBase === "auto" || rawTarget === "worktree") state.compareScope = undefined; // exiting compare clears the scope
+    if (rawBase === "auto" || rawTarget === "worktree") state.compareScope = undefined;
     state.options.staged = false;
-    setCompareTip(state, false); // this writes options.base too — see set-review-base
+    setCompareTip(state, false);
 
     await rebuildAndPushUpdate(state, true);
     return { ok: true, activeBase: state.options.base ?? "auto", activeTarget: state.options.target ?? "worktree" };
@@ -514,21 +364,6 @@ ipcMain.handle("kakapo:set-review-compare", async (event, payload: { base?: unkn
   }
 });
 
-// Compare dropdown (the pill in the diff toolbar): the two rows the reader actually switches between, and
-// the branch the first of them is measured against. It is a narrower control than the patch-set bar on
-// purpose — "everything on this branch" and "what I have not committed yet" are the two questions asked all
-// day, and reaching them through a base/target pair spelled the answer as coordinates instead of as a choice.
-//
-// "All changes" uses the MERGE-BASE with the chosen branch, not the branch tip: `git diff main` against a
-// main that has moved on shows their commits as your deletions, and the review would blame you for work you
-// never touched. The merge-base is the point the two actually agree on.
-// A pull request, opened from its link.
-//
-// It lands as an A→B compare: base is what the pull request is measured against on the server, target is
-// its head. Both are resolved to refs THIS repository already has — nothing is fetched (README: "object
-// database only"), so a head that was never pulled is reported by name rather than quietly fetched into
-// someone's repository behind their back. The only outward call is the `gh pr view` in github-pr.ts, made
-// because the link carries a number and a number is not a branch name anywhere on disk.
 ipcMain.handle("kakapo:open-pull-request", async (event, payload: { text?: unknown } | undefined) => {
   const state = stateFromEvent(event);
   if (!state || state.win.isDestroyed()) return { ok: false, error: "no-window" };
@@ -542,7 +377,6 @@ ipcMain.handle("kakapo:open-pull-request", async (event, payload: { text?: unkno
 
     const base = localRevisionFor(root, found.details.base, "remote");
     const head = localRevisionFor(root, found.details.head, "local");
-    // Reported one at a time and by name: "something is missing" sends a reader to look at both.
     if (!head) return { ok: false, error: "pr-head-missing", ref: found.details.head };
     if (!base) return { ok: false, error: "pr-base-missing", ref: found.details.base };
 
@@ -560,16 +394,11 @@ ipcMain.handle("kakapo:open-pull-request", async (event, payload: { text?: unkno
   }
 });
 
-// Record where the reviewer stopped reading. Called by the hand-off (the merged dock's copy-and-archive,
-// 08-dock.js) and by nothing else: handing a review to an agent is the one moment in this workflow that
-// genuinely means "I am done with everything up to here". A timer, a scroll position or simply having the
-// window open would all mark unread work as read, which is the one failure this must not have — the next
-// compare would then hide the very commits it exists to show.
 ipcMain.handle("kakapo:mark-read", async (event) => {
   const state = stateFromEvent(event);
   if (!state || state.win.isDestroyed()) return { ok: false };
   const head = git(state.options.root, ["rev-parse", "HEAD"]);
-  if (!head) return { ok: false }; // not a repository, or a branch with no commits yet
+  if (!head) return { ok: false };
   preferences.setReadMark(state.options.root, head);
   return { ok: true, sha: head };
 });
@@ -583,15 +412,6 @@ ipcMain.handle("kakapo:set-compare-mode", async (event, payload: { mode?: unknow
     : "all";
   const rawRef = typeof payload?.ref === "string" ? payload.ref.trim() : "";
   try {
-    // Resolved BEFORE anything is touched. Everything below mutates the window's options on the way to a
-    // rebuild, so a refusal taken down there would already have cleared a ⌘9 range, an A→B target and the
-    // staged flag — leaving the window showing a diff its own options no longer describe, until the next
-    // watch tick quietly rebuilt it into something the reader never asked for.
-    //
-    // Resolved rather than trusted: the menu's copy of the mark was read when the menu was opened, and an
-    // agent that rebased in between leaves it naming a commit that is no longer on the branch. Refusing is
-    // the honest answer — a base that is not an ancestor of HEAD produces a diff that reads as the
-    // reviewer's own deletions.
     const sinceBase = mode === "since"
       ? resolveReadMark(state.options.root, preferences.readReadMark(state.options.root))?.sha
       : undefined;
@@ -601,7 +421,7 @@ ipcMain.handle("kakapo:set-compare-mode", async (event, payload: { mode?: unknow
       state.compareRef = picked;
       preferences.setRendererSetting(state.options.root, COMPARE_REF_KEY, state.compareRef);
     }
-    state.compareScope = undefined; // leaving any Cmd+9 range the pill cannot describe
+    state.compareScope = undefined;
     state.options.target = undefined;
     state.options.staged = false;
     setCompareTip(state, mode === "tip");
@@ -609,40 +429,14 @@ ipcMain.handle("kakapo:set-compare-mode", async (event, payload: { mode?: unknow
       state.options.base = "HEAD";
       state.options.baseLabel = undefined;
     } else if (mode === "since") {
-      // The commits that arrived while the reviewer was away. No branch and no ref: the base is the mark
-      // the last hand-off left, so this is the one mode that does not need the reader to know which commit
-      // or branch to name — which is the point, since what they want is "the part I have not seen".
       state.options.base = sinceBase;
-      // No label, for the same reason a patch-set pick clears it: this base is a commit, not a branch, and
-      // the pill should print the sha the diff actually measures against.
       state.options.baseLabel = undefined;
     } else if (mode === "tip") {
-      // The ref's own tip, with no merge-base reduction — the one mode where a commit the ref has and HEAD
-      // does not is part of the answer rather than noise to be reduced away. "How does my working tree
-      // differ from origin/main" cannot be asked in the other two: against a merge-base their commits
-      // vanish into the shared ancestor, so the diff comes back empty and the honest answer is unavailable
-      // in those terms. Reported from use, by someone trying to read their local against a remote branch
-      // they had not pulled.
-      //
-      // Deliberately NOT what ⌥A does. "All changes" uses the merge-base because `git diff main` against a
-      // `main` that has moved on shows other people's commits as your deletions, which is the wrong answer
-      // to "what have I done on this branch" — the READMEs say so, and it stays true. Two questions, two
-      // modes; the reduction is right for one of them and fatal to the other.
       const ref = state.compareRef || compareDefaultRef(state.options.root);
       state.options.base = ref || undefined;
       state.options.baseLabel = ref || undefined;
     } else {
       const ref = state.compareRef || compareDefaultRef(state.options.root);
-      // No upstream and no conventional default branch — or a ref that cannot serve as a base at all
-      // (usableCompareBase: one that contains HEAD has nothing ahead of it) — leaves the base unset and
-      // lets the automatic resolution have it back, which is the only honest answer to "all changes" in
-      // that repository. The patch-set bar applies the same rule to label its own option, and applying
-      // it in only one of the two is what made the label and the click name different branches.
-      //
-      // The merge-base, not the ref's tip, and that is documented rather than incidental (README: "`git
-      // diff main` against a `main` that has moved on shows other people's commits as your deletions").
-      // "How do I differ from that ref" is a real question and the answer to it is a different mode
-      // below — it is not this one with the reduction taken out.
       state.options.base = (ref && usableCompareBase(state.options.root, ref)) || undefined;
       state.options.baseLabel = state.options.base ? ref : undefined;
     }
@@ -653,11 +447,6 @@ ipcMain.handle("kakapo:set-compare-mode", async (event, payload: { mode?: unknow
   }
 });
 
-// Welcome screen's "Open Folder" button: pick a directory and load it into the window that asked. Any
-// folder will do — the gate used to be "is it a git repository", which turned away the plain source trees
-// the command line opens perfectly well. What is left is the folder having gone away between the picker
-// and here, reported as the "unopenable" code the welcome renderer keys its inline hint off. This flow
-// reports errors in-page, so — unlike the File menu — no native box.
 ipcMain.handle("kakapo:open-folder", async (event) => {
   const state = stateFromEvent(event);
   if (!state || state.win.isDestroyed()) return { ok: false };
@@ -668,15 +457,10 @@ ipcMain.handle("kakapo:open-folder", async (event) => {
   return { ok: true };
 });
 
-// Welcome screen's Recent Projects list: open the clicked path into the calling window. If it's gone or no
-// longer a git repo, drop it from the list and tell the renderer (error: "missing") to remove that row.
 ipcMain.handle("kakapo:open-recent", async (event, payload: { path?: string }) => {
   const state = stateFromEvent(event);
   const path = typeof payload?.path === "string" ? payload.path : "";
   if (!state || state.win.isDestroyed() || !path) return { ok: false };
-  // Only a path that is actually ON the recent list, same as open-worktree checks its own list: the renderer
-  // supplies this, and "open whatever absolute path arrives over IPC" would let a compromised renderer point
-  // the window at an unrelated private repository and then read it out through get-index/get-source.
   if (!preferences.readRecentProjects().some((project) => project.path === resolve(path))) {
     return { ok: false, error: "unknown" };
   }
@@ -688,32 +472,19 @@ ipcMain.handle("kakapo:open-recent", async (event, payload: { path?: string }) =
   return { ok: true };
 });
 
-// Self-update: install the latest published package globally, then relaunch so the updated code loads.
-// Runs in the main process because the sandboxed renderer can't spawn npm. Returns {ok:true} (and
-// relaunches shortly after) or {ok:false,error} so the renderer can fall back to the manual command.
-// The packaged bundle and the global CLI are two different installs with two different update channels, and
-// answering with the wrong one is why "Update" could report success and change nothing: `npm i -g` replaces
-// the command, never /Applications/Kakapo.app. Ask the release for the DMG when we ARE the bundle.
-// While ~200MB moves, the Settings panel's update row counts it up. Percent only, and one message per whole
-// percent rather than per chunk: a 200MB download is thousands of chunks and the row cannot show more than
-// 100 states. `done` releases the row whether the update succeeded or failed.
 function sendUpdateProgress(payload: { percent: number; done?: boolean }): void {
   for (const state of states.values()) {
     if (!state.win.isDestroyed()) state.win.webContents.send("kakapo:update-progress", payload);
   }
 }
 
-// Stream the release DMG to disk, reporting bytes as they land. Electron's net.request rather than fetch or
-// curl: it follows GitHub's redirect to the CDN by default, it goes through the app's own proxy/TLS settings,
-// and it hands us the chunks — which is what makes a percentage possible at all. The whole point is that the
-// main process keeps painting while ~200MB moves, so nothing here may be synchronous.
 function downloadUpdateDmg(assetUrl: string): Promise<{ ok: boolean; path?: string; error?: string }> {
   return new Promise((resolve) => {
     const work = mkdtempSync(join(tmpdir(), "kakapo-dmg-"));
     const target = join(work, "kakapo.dmg");
     const file = createWriteStream(target);
     const request = net.request({ url: assetUrl, redirect: "follow" });
-    const fail = (error: string) => { try { file.destroy(); } catch { /* already gone */ } sendUpdateProgress({ percent: 0, done: true }); resolve({ ok: false, error }); };
+    const fail = (error: string) => { try { file.destroy(); } catch { } sendUpdateProgress({ percent: 0, done: true }); resolve({ ok: false, error }); };
     request.on("response", (response) => {
       if (response.statusCode >= 400) { fail(`download returned ${response.statusCode}`); return; }
       const total = Number(response.headers["content-length"]) || 0;
@@ -750,10 +521,6 @@ async function updatePackagedApp(): Promise<{ ok: boolean; error?: string }> {
     if (!asset) return { ok: false, error: `${tag} has no build for this machine` };
     const downloaded = await downloadUpdateDmg(asset.url);
     if (!downloaded.ok || !downloaded.path) return { ok: false, error: downloaded.error ?? "download failed" };
-    // Through finishQuit, never `quitConfirmed = true; app.quit()`: setting the flag by hand is exactly what
-    // makes before-quit stand aside, so the ptys were never killed or drained and their exits landed in the
-    // middle of the Node teardown — an abort, and a macOS crash dialog, on every update. finishQuit sets the
-    // same flag itself, so the agents-running prompt still stays out of the way of an update the user asked for.
     return installPackagedUpdate({ dmgPath: downloaded.path, installed, quit: finishQuit });
   } catch (error) {
     return { ok: false, error: errorMessage(error) };
@@ -762,18 +529,12 @@ async function updatePackagedApp(): Promise<{ ok: boolean; error?: string }> {
 
 ipcMain.handle("kakapo:self-update", (event) => {
   if (app.isPackaged && process.platform === "darwin") return updatePackagedApp();
-  // kakapo ships from GitHub Releases only — there is no npm publish (see release.yml), so the global-CLI
-  // path below cannot resolve the package. A run from source updates the way source does.
   if (!app.isPackaged) return Promise.resolve({ ok: false, error: "running from source — update with git pull" });
   return updateGlobalCli(event);
 });
 
 const updateGlobalCli = (event: Electron.IpcMainInvokeEvent) => new Promise<{ ok: boolean; error?: string }>((resolve) => {
-  // Relaunch the freshly-installed `kakapo` in the calling window's repo so the user lands back where they were.
   const cwd = stateFromEvent(event)?.options.root ?? options.root;
-  // Async, NOT spawnSync: spawnSync froze the ENTIRE main process for the whole npm install (up to
-  // minutes), so the app looked hung and "nothing happened" — even the renderer's "Updating…" couldn't
-  // paint and the user saw no restart. Stream it so the UI stays responsive; resolve on close.
   let out = "";
   const attempts = selfUpdateInstallAttempts(process.env, process.platform);
   const runAttempt = (index: number) => {
@@ -806,9 +567,6 @@ const updateGlobalCli = (event: Electron.IpcMainInvokeEvent) => new Promise<{ ok
       if (done) return;
       done = true;
       resolve({ ok: true });
-      // The global install replaced our on-disk dist, so THIS process is stale. Use Electron's native relaunch
-      // path instead of shelling out to `kakapo`: GUI apps often have a thin PATH, and a detached shell can fail
-      // without a reliable event before our exit timer fires.
       setTimeout(() => {
         try {
           relaunchUpdatedApp(app, process.argv, cwd);
@@ -860,39 +618,24 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
       return new Response("Not found", { status: 404 });
     }
   });
-  // Foreground development runs surface this boot log; detached launches drop it. Either way the path
-  // disambiguates a local checkout from the installed package.
   console.error(`[kakapo] ${DEV_BUILD ? "DEV build" : "build"} — ${app.getAppPath()} (electron ${process.versions.electron})`);
 
-  // Spawn the build worker now so the first window's boot build doesn't pay worker startup on the hot path.
   reviewBuilder.warmUp();
 
-  // Drop recent-project entries whose folder is gone, so deleted worktrees stop cluttering the settings + rail.
   preferences.pruneRecentProjects();
 
-  // Mirror the saved theme into nativeTheme so the OS chrome (traffic lights, menus) and every renderer's
-  // prefers-color-scheme track it from the first paint.
   syncNativeThemeSource();
 
-  // A rebind from a previous session is already on disk; without this the first menu of every launch is
-  // drawn from the base table and advertises the chord the person moved away from.
   setShortcutOverrides(preferences.readGlobal()[SHORTCUT_OVERRIDES_KEY]);
   buildApplicationMenu();
 
-  // The window reviews the CLI-resolved root with the CLI-resolved flags. The repository stays read-only:
-  // generated review state is written into its mirrored directory below Electron userData. A packaged app
-  // double-clicked from Finder has no useful cwd; bootWindow answers that with the welcome screen.
-  // Start the first review NOW, not after the window exists — see pendingFirstBuild. A packaged .app with no
-  // repo in cwd shows the welcome screen instead, and has nothing to build.
   if (options.explicitRoot || isGitRepository(options.root)) {
     pendingFirstBuild = reviewBuilder.build(reviewPath(options.root), options, APP_TITLE, true);
-    // The window that claims it reports the failure; this only stops an unhandled rejection in the gap before
-    // anyone is awaiting it.
     pendingFirstBuild.catch(() => {});
   }
 
   const first = createWindow(options.root, options.explicitRoot);
-  first.options.openPath = options.openPath; // `kakapo <file>` — makeOptions clears it for every other window
+  first.options.openPath = options.openPath;
   setInterval(watchLspWeight, LSP_WATCHDOG_MS);
 }).catch((error: unknown) => {
   console.error(errorMessage(error));
@@ -900,8 +643,6 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
 });
 else app.quit();
 
-// Nothing outlives a review window now, so quitting is immediate. Kept as one function because the packaged
-// self-update path also needs "quit for real" without going back through the before-quit guard.
 function finishQuit(): void {
   quitConfirmed = true;
   app.quit();
@@ -911,8 +652,6 @@ app.on("window-all-closed", () => {
   app.quit();
 });
 
-// The Diff menu shows per-window state (whitespace handling, context size), so it is re-pointed at
-// whichever window comes to the front.
 app.on("browser-window-focus", (_event, win) => {
   const state = states.get(win.id);
   if (!state) return;
@@ -932,7 +671,6 @@ function syncDiffMenu(options: AppOptions): void {
   }
 }
 
-/** Applies a Diff-menu change to the focused window: re-run git diff, rebuild, repaint. */
 async function rebuildFocusedReview(change: (options: AppOptions) => void): Promise<void> {
   const state = focusedState();
   if (!state) return;
@@ -944,19 +682,12 @@ async function rebuildFocusedReview(change: (options: AppOptions) => void): Prom
   state.win.webContents.reloadIgnoringCache();
 }
 
-// Build the application menu once. Items act on the focused window (BrowserWindow.getFocusedWindow()),
-// so a single global menu drives whichever window is in front.
-// The eight display switches' persisted keys, which main needs for two reasons: to draw the ticks, and to
-// know when a page has flipped one so the ticks can be redrawn. The renderer owns the list (RENDER_TOGGLES
-// in 01-core.js); this is the same set spelled once here rather than beside each menu item.
-// The renderer's own key for the rebind map (00-shortcuts.js). Named here so the two cannot drift.
 const SHORTCUT_OVERRIDES_KEY = "kakapo-shortcut-overrides";
 const READING_TOGGLE_KEYS = new Set([
   "kakapo-show-whitespace", "kakapo-indent-guides", "kakapo-sticky-lines", "kakapo-focus-mode",
   "kakapo-code-vision", "kakapo-inlay-hints", "kakapo-essential-highlighting", "kakapo-align-changes",
 ]);
 
-/** What the focused window's renderer currently has this display switch set to. */
 function readingToggleOn(key: string): boolean {
   const state = focusedState();
   try {
@@ -964,11 +695,9 @@ function readingToggleOn(key: string): boolean {
       ? preferences.rendererSettings(state.options.root)
       : preferences.readGlobal();
     const value = settings[key];
-    // The renderer writes '1'/'0' (persistSave takes strings), and an unset key means the default — which
-    // only the renderer knows, so these two start off ticked here to match RENDER_TOGGLES.
     if (value === "1") return true;
     if (value === "0") return false;
-  } catch { /* unreadable settings: fall through to the defaults */ }
+  } catch { }
   return key === "kakapo-sticky-lines" || key === "kakapo-align-changes"
     || key === "kakapo-code-vision" || key === "kakapo-inlay-hints";
 }
@@ -976,16 +705,6 @@ function readingToggleOn(key: string): boolean {
 function buildApplicationMenu(): void {
   const t = tr();
   const menuTemplate: Electron.MenuItemConstructorOptions[] = [];
-  // ---- The reading switches, where IntelliJ keeps them ------------------------------------------------
-  //
-  // Every one of these also has a chord, and the chord is handled in the PAGE. So each item here carries
-  // `registerAccelerator: false`: Electron then draws the chord beside the label — which is the only reason
-  // a menu is worth having for a key you already know — without claiming the keystroke. Claiming it would
-  // make the menu eat the key before any renderer keydown ran, which is the bug ⌘⌥H and ⌘0 were.
-  //
-  // The click sends the shortcut's OWN id to the renderer, which runs it through the same
-  // SHORTCUT_ACTIONS entry the keyboard uses. One implementation, two ways in — a menu item that did its
-  // own version of the work is how a menu and a key start disagreeing.
   const readingItem = (id: string, index = 0): Electron.MenuItemConstructorOptions => ({
     label: t(`kbd.${id}`),
     accelerator: electronAcceleratorFor(id, index),
@@ -999,7 +718,6 @@ function buildApplicationMenu(): void {
   });
 
   if (process.platform === "darwin") menuTemplate.push({ role: "appMenu" });
-  // File menu: open a repo in the current window, or spawn a new window for it.
   menuTemplate.push({
     label: t("menu.file"),
     submenu: [
@@ -1007,8 +725,6 @@ function buildApplicationMenu(): void {
       { label: t("menu.openNewWindow"), accelerator: "CommandOrControl+Shift+O", click: () => void openFolderInNewWindow() },
     ],
   });
-  // Keep the standard Edit/Window roles so Cmd+C/V/X/A (copy comments into prompts) and Cmd+Q work.
-  // macOS shows the menu bar in the top bar, so there is no in-window bar to hide.
   menuTemplate.push({ role: "editMenu" });
   // Ctrl+Cmd+Shift+/ ("?") opens the merged review-comments view (questions, then change requests).
   // ? is Shift+/ so Shift is part of the combo; Ctrl+Cmd avoids macOS's Cmd+? Help grab.
@@ -1018,10 +734,6 @@ function buildApplicationMenu(): void {
       { label: t("menu.allReviewComments"), accelerator: "Control+Command+Shift+/", click: () => sendToFocused("kakapo:merged-view") },
     ],
   });
-  // What the diff itself counts as a difference, and how much unchanged code it keeps around one — the two
-  // questions IntelliJ's diff gear answers. Both re-run `git diff` in main and repaint, so they live in the
-  // menu rather than behind a renderer round-trip, and both are per-window (browser-window-focus re-points
-  // the radios at whichever window is in front).
   menuTemplate.push({
     label: t("menu.diff"),
     submenu: [
@@ -1040,9 +752,6 @@ function buildApplicationMenu(): void {
         checked: options.context === lines,
         click: () => void rebuildFocusedReview((current) => { current.context = lines; }),
       })),
-      // The ⌘⇧W the shortcut sheet advertises: one key through the three whitespace modes. Hidden, because
-      // the three radios above are the visible control and a fourth row for the same setting would be a
-      // second answer to one question.
       {
         label: t("menu.whitespace.cycle"),
         visible: false,
@@ -1053,8 +762,6 @@ function buildApplicationMenu(): void {
         }),
       },
       { type: "separator" },
-      // The rest of what IntelliJ's diff gear and its diff toolbar offer: whether the two panes are
-      // aligned, stepping file by file through the stack, and the two things it does with a patch.
       readingToggle("alignChanges", "kakapo-align-changes"),
       { type: "separator" },
       readingItem("diffFileStep", 0),
@@ -1086,8 +793,6 @@ function buildApplicationMenu(): void {
       readingToggle("inlayHints", "kakapo-inlay-hints"),
       readingToggle("essentialHighlighting", "kakapo-essential-highlighting"),
       { type: "separator" },
-      // IntelliJ's Code → Folding, which is where the three whole-file fold actions live there too. ⌘.
-      // heads the list because it is the one that acts on where the caret is.
       {
         label: t("menu.folding"),
         submenu: [
@@ -1099,8 +804,6 @@ function buildApplicationMenu(): void {
       },
     ],
   });
-  // Cmd/Ctrl+W closes the active Files-mode tab (routed to the renderer) instead of the window, matching
-  // editor/browser tab behavior. Closing the window stays available via the menu item and Cmd/Ctrl+Q.
   menuTemplate.push({
     label: t("menu.window"),
     submenu: [
@@ -1114,32 +817,11 @@ function buildApplicationMenu(): void {
   Menu.setApplicationMenu(Menu.buildFromTemplate(menuTemplate));
 }
 
-// pyright's cost is "how much of the repo it has been asked about", and nothing but a restart returns it —
-// measured: 12 files touched → 313 MB, 500 → 1331 MB; heap caps and didClose do nothing (see the memory
-// profile note). The 30-minute idle suspend reclaims a MINIMIZED window, but one in active use never sits
-// still that long: two zoobox pyrights at ~1 GB each outlived an afternoon of reading. So fleets are also
-// recycled by WEIGHT. Over budget and hidden → disposed on the spot, resumed by the same path the idle
-// suspend uses. Over budget and visible → a fresh fleet immediately: the next hover pays a warmup instead of
-// the machine paying a gigabyte. JVM families are exempt — the Kotlin server is 1.3 GB when HEALTHY, and
-// trading its restart for memory is a known bad deal (75s startup grace in lsp.ts).
 const LSP_FLEET_BUDGET_MB = 900;
-// ...and a ceiling on ALL of them together. The per-window budget bounds one runaway fleet and nothing
-// bounds their sum: every workspace gets its own allowance, so N windows may hold N × 900 MB and the
-// machine-wide figure is whatever the reader happens to have open. Measured on this machine, one warm
-// TypeScript workspace costs ~1.0 GB of physical footprint all in (GPU 358, fleet 453, renderer 88, main
-// 114); a Python one reaches 1-2 GB of pyright alone and a Kotlin one 1.75 GB of JVM. Four of those is
-// the ten gigabytes this was reported at.
-//
-// Spent on the COLDEST workspaces first and never on the one in front: the worst this can do is make the
-// reader wait for a warmup when they return to a window they left, which is what the 30-minute idle
-// suspend already does — this just triggers on pressure instead of on time.
 const LSP_TOTAL_BUDGET_MB = 2400;
 const LSP_WATCHDOG_MS = 5 * 60_000;
 const LSP_WEIGHT_EXEMPT_FAMILIES = new Set(["kotlin"]);
 
-// Give a window's language servers back. Visible windows get a fresh fleet immediately so the next hover
-// pays a warmup rather than the machine paying a gigabyte; a hidden one is simply suspended, and the
-// restore path rebuilds it exactly as the idle suspend's does.
 function recycleFleet(state: WinState, why: string): void {
   console.log(`kakapo: language servers for ${state.options.root} ${why} — recycling the fleet`);
   state.analysis.dispose();
@@ -1160,17 +842,11 @@ function watchLspWeight(): void {
     fleets.push({
       state,
       pids: servers.map(({ pid }) => pid),
-      // A JVM server is 1.3 GB when it is perfectly healthy, and trading its restart for memory is a known
-      // bad deal (75s startup grace in lsp.ts) — so it stays out of the PER-WINDOW check. It is still part
-      // of what the machine is carrying, so it counts towards the total below, where only a workspace the
-      // reader has left can be spent.
       weighed: servers.filter(({ family }) => !LSP_WEIGHT_EXEMPT_FAMILIES.has(family)).map(({ pid }) => pid),
     });
   }
   if (!fleets.length) return;
   const everyPid = [...new Set(fleets.flatMap((fleet) => fleet.pids))];
-  // One `ps` for every fleet rather than one per window: this runs every five minutes forever, and the
-  // decision below needs them measured together anyway.
   execFile("ps", ["-o", "pid=,rss=", "-p", everyPid.join(",")], { encoding: "utf8" }, (error, stdout) => {
     if (error && !stdout) return; // ps exits non-zero when some pids are already gone; partial output still counts
     const mbByPid = new Map<number, number>();
@@ -1181,16 +857,12 @@ function watchLspWeight(): void {
     const sum = (pids: number[]) => pids.reduce((total, pid) => total + (mbByPid.get(pid) ?? 0), 0);
     const live = fleets.filter((fleet) => !fleet.state.win.isDestroyed() && !fleet.state.analysisSuspended);
 
-    // One runaway fleet, as before.
     const remaining: typeof live = [];
     for (const fleet of live) {
       if (sum(fleet.weighed) >= LSP_FLEET_BUDGET_MB) recycleFleet(fleet.state, `hit ${Math.round(sum(fleet.weighed))}MB`);
       else remaining.push(fleet);
     }
 
-    // ...then the sum of what is left. Coldest first, and never the one most recently in front — read from
-    // lastFocusedAt rather than asking the window, because ReviewSurface is the narrow contract the tests
-    // fake and widening it would make every fake implement a method only this line wants.
     let total = remaining.reduce((mb, fleet) => mb + sum(fleet.pids), 0);
     if (total < LSP_TOTAL_BUDGET_MB) return;
     const inFront = remaining.reduce<typeof remaining[number] | undefined>(
@@ -1207,10 +879,6 @@ function watchLspWeight(): void {
   });
 }
 
-// A window's project analysis relays LSP status to that window's renderer (the analysis-status indicator) and
-// its perf trace. createWindow, the switch-resume rebuild, and openReview all need the identical relay, so
-// build it in one place. getState is a thunk because createWindow constructs the analysis before its WinState
-// exists — the onStatus closure must read the state lazily; the other callers already hold one.
 function makeAnalysis(root: string, getState: () => WinState | undefined): ProjectAnalysis {
   const analysis = new ProjectAnalysis(root, {
     symbolCache: openSymbolCache(symbolCacheFile(root)),
@@ -1224,7 +892,6 @@ function makeAnalysis(root: string, getState: () => WinState | undefined): Proje
         phase: status.phase,
         server: status.server ?? "",
         source: status.serverSource ?? "",
-        // How much of the symbol scan this launch did not have to do; see analysis-cache.ts.
         cacheHits: cache?.hits ?? 0,
         cacheMisses: cache?.misses ?? 0,
       });
@@ -1233,17 +900,11 @@ function makeAnalysis(root: string, getState: () => WinState | undefined): Proje
   return analysis;
 }
 
-// Where this workspace's kept symbol scan lives. Keyed by the REPOSITORY (the git dir every worktree of it
-// shares) rather than by the folder, because reusing the main checkout's scan in a freshly created worktree
-// is most of the point: measured across three repositories, a sibling worktree differs in 0.3–3% of files.
-// A folder that is not a repository keys off itself.
 function symbolCacheFile(root: string): string {
   const shared = commonGitDir(root).replace(/[\\/]\.git$/, "");
   return workspaceSymbolCacheFile(app.getPath("userData"), shared || root);
 }
 
-// Create the window for `root`, register its WinState, wire teardown, and boot it (animated mark ->
-// first build, or the welcome screen for a packaged launch with no repo).
 function createWindow(root: string, explicitRoot = true): WinState {
   const themeLight = isLightTheme();
   const win = new BrowserWindow({
@@ -1260,7 +921,6 @@ function createWindow(root: string, explicitRoot = true): WinState {
   installWindowSurfaceRecovery(win);
   // Zoom is per-WebContents and resets on navigation, so re-apply the UI scale on every load.
   win.webContents.on("did-finish-load", () => applyUiScale(win.webContents));
-  // A minimized window shows nothing; its pollers and language servers can stand down until it is back.
   win.on("minimize", () => reconcileIdleSuspend(states.get(win.webContents.id)));
   win.on("restore", () => reconcileIdleSuspend(states.get(win.webContents.id)));
 
@@ -1297,7 +957,7 @@ function createWindow(root: string, explicitRoot = true): WinState {
     buildSeq: 0,
     perf,
     lastDiffSig: "",
-    lastFocusedAt: Date.now(), // a window opens in front; the focus handler keeps it current
+    lastFocusedAt: Date.now(),
     compareTip: false,
     reviewBase: undefined,
     reviewUpstream: undefined,
@@ -1307,9 +967,6 @@ function createWindow(root: string, explicitRoot = true): WinState {
   const id = win.webContents.id;
   states.set(id, state);
 
-  // A link in reviewed content opens in the user's browser, never as a second app window. The URL comes
-  // from the repository, so only http(s) survives externalUrl — a `file://`, `javascript:` or custom-scheme
-  // link must never reach the OS, which would hand it to whatever app claims that scheme.
   win.webContents.setWindowOpenHandler(({ url }) => {
     const external = externalUrl(url);
     if (external) void shell.openExternal(external);
@@ -1329,8 +986,6 @@ function createWindow(root: string, explicitRoot = true): WinState {
   };
   win.webContents.on("will-navigate", blockForeignNavigation);
   win.webContents.on("will-redirect", blockForeignNavigation);
-  // Dev-only: surface renderer console output in the terminal that launched `npm run dev`, so viewer-side
-  // logs/errors are visible without opening DevTools.
   if (DEV_BUILD) {
     win.webContents.on("console-message", (...args: unknown[]) => {
       // Electron 36+ passes a single details object ({ message, level, ... }); older builds passed
@@ -1347,16 +1002,8 @@ function createWindow(root: string, explicitRoot = true): WinState {
     scheduleAnalysisPrewarm(state);
   });
   win.webContents.once("did-finish-load", () => {
-    // KAKAPO_NO_DEVTOOLS=1 keeps it shut. The review inlines the whole minified viewer as one ~1.3MB
-    // line, and DevTools indexing that froze this window indefinitely — reproducibly, on the first launch
-    // after every `npm run build`, which is exactly when a developer relaunches. The renderer answered no
-    // CDP evaluate for over two minutes; suppressing DevTools, the same build opens instantly.
     if (DEV_BUILD && !process.env.KAKAPO_NO_DEVTOOLS) win.webContents.openDevTools({ mode: "detach" });
   });
-  // Fill the screen. A review is a two-pane diff plus a file tree: at the default 1440x960 the panes are
-  // narrow enough that most lines wrap or clip, and the first thing anyone did was maximize the window.
-  // Maximize BEFORE show, so it opens at full size rather than opening small and snapping.
-  // (width/height above are still the restore-down size, and the OS remembers a later resize as usual.)
   win.once("ready-to-show", () => {
     if (win.isDestroyed()) return;
     win.maximize();
@@ -1376,8 +1023,6 @@ function createWindow(root: string, explicitRoot = true): WinState {
   return state;
 }
 
-// A second CLI launch joins this app process. Launching from the same repository (including from a nested
-// directory) focuses the window already reviewing it; another repository gets its own window.
 function openOrFocusWorkspace(root: string): WinState {
   const canonicalRoot = resolveWorkspaceRoot(root);
   const existing = Array.from(states.values()).find(
@@ -1395,16 +1040,11 @@ function openOrFocusWorkspace(root: string): WinState {
   return created;
 }
 
-// Stop this window's pollers. Idempotent, and clears the handles so a re-arm on window reuse can't leak the
-// previous set.
 function clearWatchTimers(state: WinState): void {
   if (state.refreshTimer) { clearInterval(state.refreshTimer); state.refreshTimer = undefined; }
   if (state.commentsTimer) { clearInterval(state.commentsTimer); state.commentsTimer = undefined; }
 }
 
-// Arm this window's pollers (clearing any prior set first): the --watch diff refresh (opt-in) and the
-// comments-file sync, which runs whether or not the diff itself is being polled — a thread can be appended
-// to from outside this window. The one immediate sync catches up on anything written before it existed.
 function armWatchTimers(state: WinState): void {
   clearWatchTimers(state);
   if (state.options.watch) state.refreshTimer = setInterval(() => { if (isVisibleWorkspace(state)) void refreshIfChanged(state); }, WATCH_INTERVAL_MS);
@@ -1412,15 +1052,10 @@ function armWatchTimers(state: WinState): void {
   syncCommentsFile(state);
 }
 
-// Only a window on screen is worth polling. A minimized one shows nothing while its --watch tick shells out
-// to `git diff` over the whole worktree every second (issue #24). Every poller compares a signature, so a
-// minimized window simply catches up on its first tick after it is restored.
 function isVisibleWorkspace(state: WinState): boolean {
   return !state.win.isDestroyed() && !state.win.isMinimized();
 }
 
-// Reclaim a window's language servers once it has been minimized for a while. Arm the countdown when it
-// leaves the screen and let it run, so a window genuinely parked for half an hour gives its fleet back.
 function reconcileIdleSuspend(state: WinState | undefined): void {
   if (!state || state.win.isDestroyed()) return;
   if (isVisibleWorkspace(state)) {
@@ -1434,22 +1069,13 @@ function reconcileIdleSuspend(state: WinState | undefined): void {
     state.analysisSuspended = true;
     state.sourceFiles.clear();
     state.bodyCache.clear();
-    // Main just dropped this workspace's caches, so a rebuild is owed on the way back in either way. The
-    // renderer holds the same review a second time, as DOM — 169 MB for a 130-file diff, and Chromium cannot
-    // purge live DOM behind a hidden view — so ask for that back too, and let the same rebuild repaint it.
-    // Only a workspace that got as far as painting a review has one to give.
     state.viewReleased = true;
     if (state.bootStarted && !state.win.isDestroyed()) state.win.webContents.send("kakapo:release-view");
   }, ANALYSIS_IDLE_SUSPEND_MS);
   state.idleTimer.unref?.();
 }
 
-// Only the session's FIRST window gets the full-size startup mark; see loadingHtml.
 let firstWindowBooted = false;
-// Cold start: the first window's build depends on nothing the window provides — it is a git read and a render,
-// in the worker, keyed by the CLI-resolved root. Kicked off the moment the app is ready (see whenReady) so the
-// ~80ms Chromium spends constructing the BrowserWindow and the ~70ms it spends loading the boot mark run
-// alongside it instead of in front of it. Claimed once, by the window that matches the root it was started for.
 let pendingFirstBuild: Promise<BuildSnapshot> | undefined;
 function claimPendingBuild(root: string): Promise<BuildSnapshot> | undefined {
   const pending = pendingFirstBuild;
@@ -1457,55 +1083,31 @@ function claimPendingBuild(root: string): Promise<BuildSnapshot> | undefined {
   pendingFirstBuild = undefined;
   return pending;
 }
-// Paint the animated mark immediately, then build the (potentially heavy) review off the first paint and swap it
-// in. Building before the window exists left the screen blank for the first few seconds of startup.
 async function bootWindow(state: WinState, themeLight: boolean): Promise<void> {
   const compact = firstWindowBooted;
   firstWindowBooted = true;
-  // A folder without git is a perfectly good thing to open now — its review is the source tree with an empty
-  // diff — so the welcome screen is for one case only: a launch that was never told where to go. Launchpad,
-  // Spotlight and the Applications icon all start in "/" and name no path; that, and nothing else, is what
-  // the Open Folder button is for.
   const welcome = !state.options.explicitRoot && !isGitRepository(state.options.root);
-  // Start the build BEFORE the loading document, not after it. It runs in the worker and needs nothing from
-  // the window, so the ~75ms Chromium spends loading and painting the mark is build time that was previously
-  // spent waiting — and the 60ms "let the animation get a few frames" delay that used to sit between them
-  // was paying off a synchronous main-thread build that no longer exists.
-  //
-  // Diff-first: this build paints the diff + changed-file sources; the full project index is materialized on
-  // demand (ensureFullProjectIndex) so a large tree's enumeration never blocks first paint.
   if (!welcome) attachThreadFiles(state, state.options.root);
-  // Why the message is kept rather than only logged: main's console goes to a pipe the CLI discards, so a
-  // build that threw was invisible from outside — the window simply never stopped loading (see below).
   let buildFailure = "";
   const building = welcome ? null : buildReview(state, true, claimPendingBuild(state.options.root)).catch((error: unknown) => {
-    // One window's build failure shouldn't take down the whole app (other windows may be fine).
     buildFailure = errorMessage(error);
     console.error(buildFailure);
     return null;
   });
   await state.win.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(loadingHtml(themeLight, compact)));
-  state.perf.mark("spinner-loaded"); // stable trace key retained for existing performance histories
+  state.perf.mark("spinner-loaded");
   if (welcome) { void showWelcome(state); return; }
   try {
     const firstBuild = await building;
-    // Window closed mid-build, or superseded. Its closed handler already tore down state, so loading here is
-    // wasted and (critically) arming the watch timer below would re-create an interval nothing will clear.
     if (state.win.isDestroyed()) return;
     if (!firstBuild) {
-      // A build that THREW used to stop here, leaving an animated loading mark that would never resolve —
-      // the one state in the app that says nothing at all, for the rest of the session. Say what happened
-      // and leave the window usable: the welcome screen can open a different folder.
       if (buildFailure) await reportBuildFailure(state, buildFailure);
       return;
     }
     state.signature = firstBuild.signature;
-    preferences.recordRecentProject(state.options.root); // remember the launched/new-window repo for the welcome screen
+    preferences.recordRecentProject(state.options.root);
     restoreCompareRef(state);
     await state.win.loadFile(reviewPath(state.options.root));
-    // ⌘2/⌘1 (and the other in-view shortcuts) are renderer keydown handlers, so they only fire while the page
-    // holds keyboard focus. loadFile swaps the page out from under whatever had it, leaving the freshly
-    // painted review looking ready but ignoring its own shortcuts until the user clicks into it.
     if (!state.win.isDestroyed()) state.win.webContents.focus();
     armWatchTimers(state);
   } catch (error) {
@@ -1513,13 +1115,10 @@ async function bootWindow(state: WinState, themeLight: boolean): Promise<void> {
   }
 }
 
-// Rebuild the review and push the compact diff-update to the renderer in place (no window reload), then warm
-// analysis. Shared by the watch tick and the compare-bar handlers — the one place that owned this sequence in
-// four copies. `force` skips the signature guard for a base/target/compare change, which always warrants it.
 async function rebuildAndPushUpdate(state: WinState, force = false): Promise<void> {
   const prevSignature = state.signature;
   const snapshot = await buildReview(state, false);
-  if (!snapshot) return; // window closed or a newer build superseded this one — nothing to push
+  if (!snapshot) return;
   if (!force && !shouldPushUpdate(prevSignature, snapshot.signature)) return;
   state.signature = snapshot.signature;
   if (snapshot.update && !state.win.isDestroyed()) state.win.webContents.send("kakapo:diff-update", snapshot.update);
@@ -1530,18 +1129,10 @@ async function refreshIfChanged(state: WinState): Promise<void> {
   if (state.refreshing || state.win.isDestroyed()) return;
   state.refreshing = true;
   try {
-    // Fast path: the review-workspace service hashes only the Git diff before a full rebuild. Most watch
-    // ticks see no change, leaving this Electron orchestrator free to serve navigation/search IPC.
     const diffSig = reviewDiffSignature(state.options, state.reviewBase, state.reviewUpstream);
-    // The baseline this compares against was adopted by the build that rendered what is on screen
-    // (applySnapshot), so an untouched repository hashes equal here and skips — the rebuild-after-first-paint
-    // this tick used to be seeded to avoid. What it no longer does is absorb a change it has not drawn.
     const decision = decideWatchTick(state.lastDiffSig, diffSig);
     if (decision.action === "skip") return;
     state.lastDiffSig = decision.diffSig;
-    // Refresh the diff in place instead of reloading the window so review context remains stable; the update
-    // is only pushed when the review signature actually changed (rebuildAndPushUpdate's default guard). The
-    // build runs off-main (worker) and `state.refreshing` stays held across the await, serializing ticks.
     await rebuildAndPushUpdate(state);
   } catch (error) {
     console.error(errorMessage(error));
@@ -1550,39 +1141,16 @@ async function refreshIfChanged(state: WinState): Promise<void> {
   }
 }
 
-// Apply a worker-built review snapshot to this window's state. Split from the build call so the (async,
-// off-main) build and the (sync, main-thread) state mutation are separable, and a superseded build's result
-// can be dropped without touching state. Mirrors the state updates the old sync writeReviewFile did.
 function applySnapshot(state: WinState, snapshot: BuildSnapshot): void {
-  // Adopt the watch baseline the BUILD read, not the one the watcher would read a second later.
-  //
-  // This used to be `state.lastDiffSig = ""` at each of the six places that trigger a rebuild, which made
-  // the next tick take the `seed` branch: record whatever the tree says NOW and return without rebuilding.
-  // Anything written between the build's own read and that tick was therefore folded into the baseline and
-  // never drawn — every later tick compared equal and skipped, so the review sat on a stale diff until some
-  // further change happened to move the hash. A reviewer reading a diff that is one write out of date, with
-  // nothing on screen saying so, is the worst thing this app can do; the saving it bought was one rebuild on
-  // a quiet repository, which the baseline below still buys, because an untouched tree hashes the same.
   state.lastDiffSig = snapshot.watchSignature;
   state.reviewBase = snapshot.reviewBase;
   state.reviewTarget = snapshot.reviewTarget;
-  // Set beside the field it mirrors, on the one path that assigns it: the analyzer reads the working tree,
-  // so it has to learn when the canvas stops showing one. A compare that moves to a revision while
-  // navigation keeps answering from disk is the whole failure this guards.
   state.analysis.setReviewTarget(snapshot.reviewTarget);
   state.reviewUpstream = snapshot.reviewUpstream;
-  // The review artifact mirrors the workspace's absolute folder structure below userData. Different
-  // repositories, nested monorepo packages, and worktrees therefore never share a file or touch source.
   state.bodies = snapshot.bodies;
   state.bodyCache.clear();
-  // Retain native records from the workspace snapshot instead of serializing and parsing the whole project
-  // index (which can approach the source budget on large repositories).
   state.sourceFiles = new Map(snapshot.sourceFiles.map((file) => [file.path, file]));
-  // Diff-first: this build carried only the changed files (fullIndexDeferred). Mark the full index owed so the
-  // first project-index pull materializes it. A full build (deferFullIndex=false) clears the flag outright.
   state.fullIndexPending = snapshot.fullIndexDeferred;
-  // Re-index what moved instead of discarding the whole symbol index. A diff-first build carried only the
-  // changed files, so it cannot speak for the paths it never looked at — there, keep invalidating.
   if (snapshot.fullIndexDeferred) state.analysis.invalidate();
   else void state.analysis.syncIndex(snapshot.sourceFiles).then(
     (outcome) => state.perf.mark("analysis-index-sync", { outcome, files: snapshot.sourceFiles.length }),
@@ -1590,11 +1158,6 @@ function applySnapshot(state: WinState, snapshot: BuildSnapshot): void {
   );
 }
 
-// Build (or rebuild) this window's review OFF the main process, via the shared worker, then apply the result.
-// The main thread only pays the compact snapshot clone (~7-14ms for a 6k-file index) instead of the full
-// ~90-180ms build, so a rebuild never freezes IPC/terminal handling. Returns null when the window closed or a
-// newer build superseded this one (buildSeq) — the caller then leaves state untouched. The worker writes the
-// review HTML file itself, so callers that reload/loadFile can do so once this resolves.
 async function buildReview(state: WinState, deferFullIndex = false, inFlight?: Promise<BuildSnapshot>): Promise<BuildSnapshot | null> {
   const seq = ++state.buildSeq;
   const started = performance.now();
@@ -1602,21 +1165,12 @@ async function buildReview(state: WinState, deferFullIndex = false, inFlight?: P
   let snapshot: BuildSnapshot;
   try {
     snapshot = await (inFlight ?? reviewBuilder.build(reviewPath(state.options.root), state.options, APP_TITLE, deferFullIndex));
-    // `kakapo <file>` lands on that file ONCE. A watch rebuild reloads nothing, but switching this window to
-    // another repo does — and being thrown back to a file from the previous launch would be a haunting.
     state.options.openPath = undefined;
   } catch (error) {
     console.error(errorMessage(error));
     return null;
   }
-  if (state.win.isDestroyed() || seq !== state.buildSeq) return null; // window closed, or a newer build won
-  // workerMs is wall-clock WAITED on the worker (the main loop was free the whole time); mainBlockMs is the
-  // only stretch the main loop was actually blocked — the snapshot handoff. The old sync build blocked main
-  // for the entire workerMs, so this split is what makes the off-main win legible in the trace.
-  //
-  // On a cold start the build was already started at app-ready (pendingFirstBuild), so this figure is the
-  // REMAINDER of it — the part that outlasted window creation, not the build's own cost. That is the number
-  // worth watching: it is what the reader is still waiting for.
+  if (state.win.isDestroyed() || seq !== state.buildSeq) return null;
   const workerMs = Math.round((performance.now() - started) * 10) / 10;
   const applyStarted = performance.now();
   applySnapshot(state, snapshot);
@@ -1629,19 +1183,13 @@ async function buildReview(state: WinState, deferFullIndex = false, inFlight?: P
   return snapshot;
 }
 
-// Diff-first startup: materialize the deferred full project index into state.sourceFiles the first time the
-// renderer needs it (project-index pull, or a get-source for a file outside the changed set). Runs in the
-// worker too, so opening the tree on a large repo doesn't freeze main. Idempotent + deduped: concurrent pulls
-// share one in-flight build, and any watch rebuild that clears fullIndexPending first makes the result a
-// no-op. state.signature is intentionally left at the first-paint (changed-only) value — that is what the
-// renderer pulled the index against, and its installProjectIndex guard requires the pulled signature to match.
 function ensureFullProjectIndex(state: WinState): Promise<void> {
   if (!state.fullIndexPending) return Promise.resolve();
   if (state.fullIndexInFlight) return state.fullIndexInFlight;
   const started = performance.now();
   state.fullIndexInFlight = reviewBuilder.index(state.options, state.reviewBase, state.reviewTarget)
     .then((full) => {
-      if (state.win.isDestroyed() || !state.fullIndexPending) return; // closed, or a full rebuild beat us to it
+      if (state.win.isDestroyed() || !state.fullIndexPending) return;
       state.sourceFiles = new Map(full.map((file) => [file.path, file]));
       state.fullIndexPending = false;
       state.perf.mark("full-index-materialized", {
@@ -1674,48 +1222,35 @@ function reviewPath(root: string): string {
   return workspaceReviewFile(app.getPath("userData"), root);
 }
 
-// Welcome screen for the packaged .app (double-clicked, no cwd repo). Written to userData (we can't write
-// the review file under "/") and loaded so preload exposes window.kakapoApp.openFolder to its button.
 async function showWelcome(state: WinState): Promise<void> {
   if (state.win.isDestroyed()) return;
   const welcomePath = join(app.getPath("userData"), "welcome.html");
   mkdirSync(dirname(welcomePath), { recursive: true });
-  const recent = preferences.readRecentProjects().filter((p) => existsSync(p.path)); // hide entries whose folder is gone
+  const recent = preferences.readRecentProjects().filter((p) => existsSync(p.path));
   writeFileSync(welcomePath, renderWelcomeHtml(isLightTheme(), recent, tr(), currentLocale()));
   await state.win.loadFile(welcomePath);
 }
 
-// What a window does when its review cannot be built. Before this it did nothing at all: the loading mark
-// went on animating for the rest of the session, which is the one state in the app that says nothing. Main's
-// console goes to a pipe the CLI discards, so the message was not readable from outside either.
 async function reportBuildFailure(state: WinState, message: string): Promise<void> {
   if (state.win.isDestroyed()) return;
   const t = tr();
   dialog.showErrorBox(t("dialog.buildFailed.title"), t("dialog.buildFailed.message", { path: state.options.root, error: message }));
-  await showWelcome(state); // leave the window usable: from here another folder can be opened
+  await showWelcome(state);
 }
 
-// Load a chosen git repo into an existing window — the welcome screen's folder picker, or File > Open
-// Folder. Repoints the window's root, (re)writes the review, swaps the page, and re-arms its watch timer.
-// No process.chdir: root is threaded through buildReview/refreshIfChanged per window.
 async function openReview(state: WinState, root: string): Promise<void> {
   if (state.analysisWarmTimer) { clearTimeout(state.analysisWarmTimer); state.analysisWarmTimer = undefined; }
   state.analysis.dispose();
   const previousRoot = state.options.root;
   state.options.root = resolve(root);
-  // Same rule as a new window's (compareSelectionFor): a base belongs to the repository it was chosen in.
-  // This window was the second place that forgot it — File > Open Folder carried `--base HEAD~5` into
-  // whatever repo the picker chose next.
   Object.assign(state.options, compareSelectionFor(resolveWorkspaceRoot(previousRoot), resolveWorkspaceRoot(state.options.root), state.options));
   state.perf = new ReviewPerformanceTrace(state.options.root, app.getPath("userData"));
   state.perf.mark("review-opened");
   state.analysis = makeAnalysis(state.options.root, () => state);
-  preferences.recordRecentProject(state.options.root); // remember it for the welcome screen's Recent Projects
+  preferences.recordRecentProject(state.options.root);
   restoreCompareRef(state);
-  clearWatchTimers(state); // stop the previous repo's pollers before switching this window to the new repo
-  attachThreadFiles(state, state.options.root); // new repo -> its own thread, its own shared notes
-  // Diff-first, same as the cold boot: reusing this window for another repo paints its diff without waiting
-  // on the new tree's full enumeration; the full index is pulled on demand (state.ensureFullIndex persists).
+  clearWatchTimers(state);
+  attachThreadFiles(state, state.options.root);
   let switchFailure = "";
   const build = await buildReview(state, true).catch((error: unknown) => {
     switchFailure = errorMessage(error);
@@ -1723,8 +1258,6 @@ async function openReview(state: WinState, root: string): Promise<void> {
     return null;
   });
   if (!build) {
-    // Not only "closed mid-build, or superseded" — a throw landed here too, as an unhandled rejection
-    // inside a menu handler, leaving this window showing the PREVIOUS repo's review under the new root.
     if (switchFailure) await reportBuildFailure(state, switchFailure);
     return;
   }
@@ -1733,21 +1266,17 @@ async function openReview(state: WinState, root: string): Promise<void> {
   armWatchTimers(state);
 }
 
-// File > Open Folder (Cmd/Ctrl+O): pick a repo and load it into the focused window.
 async function openFolderInCurrent(): Promise<void> {
   const state = focusedState();
   if (!state) return;
   const root = await pickRepo(BrowserWindow.getFocusedWindow() ?? undefined, state.options.root);
   if (root) await openReview(state, root);
 }
-// File > Open in New Window (Cmd/Ctrl+Shift+O): pick a repo and open it in a brand-new window.
 async function openFolderInNewWindow(): Promise<void> {
   const parent = BrowserWindow.getFocusedWindow() ?? undefined;
   const root = await pickRepo(parent, focusedState()?.options.root);
   if (root) createWindow(root);
 }
-// Shared directory picker — just the dialog; returns the chosen path or undefined if canceled. Callers
-// validate (the welcome flow reports it in-page; the File menu shows the custom overlay via pickRepo).
 async function pickDirectory(parent: BrowserWindow | undefined, defaultPath?: string): Promise<string | undefined> {
   const dialogOptions: Electron.OpenDialogOptions = {
     properties: ["openDirectory"],
@@ -1760,8 +1289,6 @@ async function pickDirectory(parent: BrowserWindow | undefined, defaultPath?: st
   return result.canceled ? undefined : (result.filePaths[0] || undefined);
 }
 
-// File-menu picker: a directory this app can review, or undefined (canceled, or gone — with a custom
-// overlay message). Used by Open Folder / Open in New Window, which have no in-page error surface.
 async function pickRepo(parent: BrowserWindow | undefined, defaultPath?: string): Promise<string | undefined> {
   const root = await pickDirectory(parent, defaultPath);
   if (!root) return undefined;
@@ -1773,49 +1300,23 @@ async function pickRepo(parent: BrowserWindow | undefined, defaultPath?: string)
   return resolveWorkspaceRoot(root);
 }
 
-// Clone the CLI-resolved flags for a new window, overriding only the repo root. root + ignoreWhitespace are
-// then mutated per window without affecting other windows or the template.
-// `explicitRoot` defaults to true because every OTHER caller is a repo the reader picked — File > Open, a
-// recent project, a second window. The FIRST window is the exception: it inherits whatever the launch had,
-// and a GUI launch (Launchpad, Spotlight, the Applications icon) inherits "/". Hardcoding true here sent
-// that straight past the welcome screen into a review of the whole filesystem.
 function makeOptions(root: string, explicitRoot = true): AppOptions {
   const resolved = resolveWorkspaceRoot(root);
-  // The compare selection belongs to the repository it was typed in, and only to that one. `kakapo --base
-  // HEAD~5` is a statement about THIS history; carried into another repository — File > Open, a recent
-  // project, a second window, a folder handed over by a second launch — it names a revision that one may
-  // not have. A repo with a single commit answered `fatal: bad revision 'HEAD~5'`, the build threw, and the
-  // window it was opened for sat on the loading mark for the rest of the session. Every other option here
-  // (context, watch, whitespace) is a preference about READING and travels between repositories fine.
   const compare = compareSelectionFor(resolveWorkspaceRoot(options.root), resolved, options);
   return { ...options, ...compare, root: resolved, openPath: undefined, explicitRoot };
 }
 
 function parseArgs(args: string[]): AppOptions {
-  const parsed = parseReviewArgs(args); // pure flag parsing; this function adds the git-dependent resolution
+  const parsed = parseReviewArgs(args);
   const requestedRoot = resolve(parsed.requestedCwd ?? process.cwd());
   const root = isGitRepository(requestedRoot) ? resolveWorkspaceRoot(requestedRoot) : requestedRoot;
-  // Default (neither flag): diff the working tree against an automatic base — the upstream merge-base when the
-  // branch has unpushed commits, otherwise HEAD. --base <ref> reviews the working tree against any branch/tag/
-  // commit (e.g. the whole AI feature branch: --base main). --staged reviews the index against HEAD.
   const base = parsed.baseValue !== undefined && isGitRepository(root)
     ? validateReviewBase(root, parsed.baseValue)
     : parsed.baseValue;
-  // The CLI hands over an absolute file; the review speaks in paths relative to its root. A file outside the
-  // resolved root (root climbed to a repo top level above it) still relativises cleanly.
   const openPath = parsed.openPath ? relative(root, resolve(parsed.openPath)).replace(/\\/g, "/") : undefined;
   return {
     root,
     base,
-    // `--base main` is the reader naming a branch, which is exactly what baseLabel records — and the CLI
-    // was the one writer that never set it. Everything that reads it then had to guess: the toolbar pill
-    // printed the resolved sha for a base the reader had asked for by name, and the compare menu's mode
-    // derivation (app-review-ipc) read "a base with no label" as a patch-set pick and stopped ticking
-    // "모든 변경사항" for `kakapo --base main` — the launch README documents as the main way to use this.
-    //
-    // Only when it IS a branch, though. `--base HEAD~3` is a revision, and labelling it as a branch sent
-    // the menu down the "All changes" path, where it ticked a row measured against origin/main while the
-    // pill above it read `HEAD~3 → Working tree`.
     baseLabel: parsed.baseValue && isGitRepository(root) && isBranchRef(root, parsed.baseValue)
       ? parsed.baseValue
       : undefined,

@@ -1,12 +1,9 @@
-// The header band is a layout fact, so it needs a browser. jsdom reports every height as 0, which is why
-// the seam this measures could drift without one test in the suite noticing.
 const { app, BrowserWindow } = require("electron");
 const { readFileSync } = require("node:fs");
 
 app.commandLine.appendSwitch("disable-gpu");
 
 const css = readFileSync(process.argv[2], "utf8");
-// <body> carries no class, which is what render.ts emits.
 const html = `<!doctype html>
 <html><head><meta charset="utf-8"><style>
 ${css}

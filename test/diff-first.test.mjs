@@ -1,7 +1,3 @@
-// Diff-first startup: the first paint indexes only the changed files, and the FULL project index is
-// materialized on demand the first time the renderer pulls it. These pin the main-process IPC wiring —
-// that get-project-index and get-source trigger ensureFullIndex — without a running window. The build-side
-// behavior (deferFullIndex gating, collectReviewSourceIndex spanning the tree) is covered in build-lazy.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { registerReviewIpc } from "../dist/app-review-ipc.js";
@@ -11,12 +7,11 @@ import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-// Minimal stand-in for Electron's ipcMain: capture each handler so a test can invoke it directly.
 function fakeIpc() {
   const handlers = new Map();
   return {
     handle: (channel, fn) => handlers.set(channel, fn),
-    on: (channel, fn) => handlers.set(channel, fn), // fire-and-forget channels (e.g. perf-mark); unused here
+    on: (channel, fn) => handlers.set(channel, fn),
     invoke: (channel, ...args) => handlers.get(channel)({}, ...args),
   };
 }
@@ -43,7 +38,6 @@ test("get-project-index materializes the deferred full index before returning it
   });
   state.ensureFullIndex = async () => {
     ensured += 1;
-    // Simulate the on-demand full build (worker) adding the unchanged sibling the first paint omitted.
     state.sourceFiles.set("src/b.ts", { path: "src/b.ts", changed: false, content: "", size: 1, signature: "b", embedded: true });
     state.fullIndexPending = false;
   };
@@ -56,14 +50,13 @@ test("get-project-index materializes the deferred full index before returning it
     ["src/a.ts", "src/b.ts"],
     "the returned index includes the newly-materialized unchanged file",
   );
-  // The pulled signature must stay the first-paint value the renderer holds (installProjectIndex's guard).
   assert.equal(result.signature, "sig-first-paint", "the pull keeps the first-paint signature");
 });
 
 test("get-source falls back to the full index for a path outside the changed set", async () => {
   const ipc = fakeIpc();
   let ensured = 0;
-  const state = baseState({ sourceFiles: new Map() }); // changed-only index lacks the requested file
+  const state = baseState({ sourceFiles: new Map() });
   state.ensureFullIndex = async () => {
     ensured += 1;
     state.sourceFiles.set("src/b.ts", { path: "src/b.ts", changed: false, deferred: false, content: "hi", size: 2, signature: "b", embedded: true });
@@ -90,10 +83,6 @@ test("get-source does not build the full index when the changed set already has 
   assert.equal(result.path, "src/a.ts");
 });
 
-// A symlink is a change in its own right, and statSync FOLLOWS it — so an untracked link whose target is
-// missing (or lives outside the worktree) threw and the entry was dropped without a trace: git listed it as
-// untracked while kakapo said "no changed files", with nothing to explain the disagreement. Git stores a
-// symlink as a blob holding its target, so that is what the diff shows.
 test("an untracked symlink shows up, even when its target is gone", () => {
   const root = mkdtempSync(join(tmpdir(), "kakapo-symlink-"));
   try {

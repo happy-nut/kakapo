@@ -1,5 +1,3 @@
-// Shared Kakapo artwork. The CSS variable points at a tiny derivative of the real application icon, so
-// every brand mark and wait state reuses one cached image instead of carrying a parallel logo/spinner.
 function kakapoMarkHtml(extraClass) {
   return '<span class="kakapo-mark' + (extraClass ? ' ' + extraClass : '') + '" aria-hidden="true"></span>';
 }
@@ -8,24 +6,16 @@ function kakapoLoaderHtml(extraClass) {
     + kakapoMarkHtml() + '</span>';
 }
 
-// Shared delayed-work state. Keeping one compact visual vocabulary for indexing, file hydration, history,
-// and editor startup makes genuine waits legible without animating already-responsive interactions.
 function loadingStateHtml(message, extraClass) {
   return '<div class="mc-loading-state' + (extraClass ? ' ' + extraClass : '') + '" role="status" aria-live="polite">'
     + kakapoLoaderHtml('kakapo-loader-inline') + '<span>' + escapeHtml(message) + '</span></div>';
 }
 
 const REVIEW_LAZY = document.getElementById('review-meta')?.dataset.lazy === 'true';
-// lazy-LOAD (Phase 2): file bodies are NOT embedded; they are fetched on demand (serve: GET /file,
-// Electron: window.kakapoFile.get) so the initial HTML stays small. Implies REVIEW_LAZY (shells).
 const REVIEW_LAZY_LOAD = document.getElementById('review-meta')?.dataset.lazyLoad === 'true';
-// `kakapo <file>`: the file this launch was asked to land on, relative to the review root ('' when none).
 const REVIEW_OPEN_PATH = document.getElementById('review-meta')?.dataset.openPath || '';
 var diffImportOpenPaths = Object.create(null);
 
-// Focus belongs to a review panel, not permanently to whichever scroll container happened to receive DOM
-// focus last. Give each panel one short arrival flash, then remove it; logical cursors (the file tree and
-// read-only code carets) call the same function even though they intentionally do not move native focus.
 var REVIEW_FOCUS_PANEL_SELECTOR = [
   '.activity-rail', '.sidebar', '.content', '#diff2html-container', '.source-body',
   '.semantic-peek', '.history-list',
@@ -40,22 +30,15 @@ function reviewFocusPanelFor(node) {
   if (!node || !node.closest) return null;
   return node.matches(REVIEW_FOCUS_PANEL_SELECTOR) ? node : node.closest(REVIEW_FOCUS_PANEL_SELECTOR);
 }
-// `force` re-flashes a panel that is already the focused one. The skip below is there so programmatic
-// navigation inside one panel does not strobe it; a key the reader pressed ON PURPOSE is the other case —
-// Tab into the content pane you are already in had nothing to move and so showed nothing at all, which is
-// indistinguishable from a key that does not work.
 function flashReviewPanelFocus(node, force) {
   var panel = reviewFocusPanelFor(node);
   if (!panel || panel.classList.contains('hidden')) return;
   panel.setAttribute('data-mc-focus-panel', 'true');
-  // Pointer placement already makes its destination obvious. Reserve the arrival flash for keyboard and
-  // programmatic navigation, where the user's eyes otherwise have no direct spatial cue.
   if (reviewFocusInputModality === 'pointer') return;
   if (!force && reviewFocusedPanel === panel && panel.isConnected) return;
   if (reviewFocusedPanel) reviewFocusedPanel.classList.remove('mc-panel-focus-flash');
   if (reviewFocusFlashTimer) clearTimeout(reviewFocusFlashTimer);
   reviewFocusedPanel = panel;
-  // Restart the CSS animation when returning to a panel that was focused earlier.
   panel.classList.remove('mc-panel-focus-flash');
   void panel.offsetWidth;
   panel.classList.add('mc-panel-focus-flash');
@@ -99,18 +82,12 @@ window.addEventListener('focus', function () {
   if (!refocusEl || (refocusEl.tagName !== 'TEXTAREA' && refocusEl.tagName !== 'INPUT')) return;
   try { refocusEl.blur(); } catch (e) {}
   requestAnimationFrame(function () {
-    // Something else may have claimed focus in the meantime (a click is what usually brings the view back) —
-    // it owns the keyboard now, and stealing it back would be worse than the bug.
     var landed = document.activeElement;
     if (!refocusEl.isConnected || (landed && landed !== document.body)) return;
     try { refocusEl.focus({ preventScroll: true }); } catch (e) { try { refocusEl.focus(); } catch (ignore) {} }
   });
 });
 
-// Shared lightweight import detection for the read-only source renderer and the diff. It deliberately
-// recognizes only top-level dependency declarations: an indented Python import inside a function or a
-// dynamic `import()` call remains ordinary code. Multiline `{ ... }`, `( ... )`, and `[ ... ]` imports are
-// consumed as one statement, while comments/package declarations may precede the import header.
 function isTopLevelImportLine(raw) {
   var text = String(raw == null ? '' : raw).replace(/^\uFEFF/, '');
   if (/^\s/.test(text)) return false;
@@ -160,10 +137,6 @@ function findImportRange(lines) {
   }
   return first >= 0 && last >= first ? { start: first, end: last } : null;
 }
-// These three read the catalog through t() like everything else. They used to open I18N themselves and
-// carry their own English fallback — which is the same sentence written a third time, after the two
-// locales, and the copy nothing checks. "{count} folded lines" never learned the plural forms the
-// catalog grew, so the fold row said "1 folded lines" in a build where the catalog was already right.
 function codeFoldMessage(kind, count) {
   return t(kind === 'imports' ? 'fold.imports' : 'fold.block', { count: count || 0 });
 }
@@ -227,7 +200,6 @@ function decorateDiffImportFold(wrapper, oldRows, newRows) {
   var oldLines = oldRows.map(function (row) { return isDiffCodeRow(row) ? diffLineText(row) : null; });
   var newLines = newRows.map(function (row) { return isDiffCodeRow(row) ? diffLineText(row) : null; });
   var oldRange = findImportRange(oldLines), newRange = findImportRange(newLines);
-  // An added/deleted/misaligned import header is itself review evidence, so leave the entire header open.
   if (!oldRange || !newRange || oldRange.start !== newRange.start || oldRange.end !== newRange.end) return;
   if (diffImportRangeHasChange(oldRows, oldRange) || diffImportRangeHasChange(newRows, newRange)) return;
   var count = oldRange.end - oldRange.start + 1;
@@ -250,7 +222,6 @@ function openDiffImportFold(row) {
   scheduleAsymmetricDiffScroll();
   if (diffCursor && diffCursor.path === path) renderDiffCaret();
 }
-
 
 function diffContextHeader(row) {
   var raw = row && (row.dataset.hunkHeader || (row.textContent || '').trim());
@@ -295,9 +266,6 @@ function finishDiffContextFoldRow(row) {
   if (!row) return;
   row.classList.remove('mc-context-fold-row');
   row.classList.add('mc-context-expanded-marker');
-  // Keep the @@ row in the DOM as the stable F7/hunk id, but remove it from the table layout. Leaving a
-  // nominal 1px row let diff2html's cell line-height expand it into an empty horizontal bar after context
-  // was opened. Navigation lands on the following code row, so the marker itself never needs to paint.
   row.setAttribute('aria-hidden', 'true');
   delete row.dataset.contextHunk;
   delete row.dataset.contextLoading;
@@ -305,8 +273,6 @@ function finishDiffContextFoldRow(row) {
   var line = row.querySelector('.d2h-code-side-line');
   if (line) line.textContent = '';
 }
-// Every @@ separator that actually hides lines becomes a keyboard-accessible expansion control. The
-// side-by-side tables are positional peers, so both controls share one hunk key and expand atomically.
 function decorateDiffContextFolds(wrapper, oldRows, newRows) {
   if (!wrapper) return;
   oldRows = oldRows || diffRowsOf(diffSideTable(wrapper, 'old'));
@@ -370,8 +336,6 @@ function fallbackDiffContext(request) {
     if (!file || !file.embedded || typeof file.content !== 'string') return { ok: false };
     var lines = file.content.split(/\r?\n/); if (lines[lines.length - 1] === '') lines.pop();
     var newLines = lines.slice(request.newStart - 1, request.newEnd);
-    // A folded gap is unchanged. Standalone HTML only embeds the working source, so use that text with
-    // old-side line numbers; Electron/browser-watch fetch both reviewed revisions from the host.
     return { ok: true, oldStart: request.oldStart, newStart: request.newStart, oldLines: newLines.slice(), newLines: newLines };
   });
 }
@@ -454,8 +418,6 @@ function expandDiffContext(row) {
   });
 }
 
-// Assign global hunk ids/classes to a freshly materialized file body, keyed off its shell's
-// data-first-hunk so indices stay globally consistent with the eager numbering.
 function markWrapperHunks(wrapper) {
   var base = parseInt(wrapper.dataset.firstHunk || '0', 10) || 0;
   var fileName = diffWrapperPathKey(wrapper);
@@ -473,8 +435,8 @@ function markWrapperHunks(wrapper) {
   });
   annotateDiffHunkRows(wrapper);
 }
-var bodyCache = {};   // file index -> diff body html (lazy-LOAD cache)
-var bodyPromise = {}; // file index -> Promise that resolves once the body is materialized
+var bodyCache = {};
+var bodyPromise = {};
 function loadBodyHtml(index) {
   if (bodyCache[index]) return Promise.resolve(bodyCache[index]);
   var p;
@@ -485,44 +447,30 @@ function loadBodyHtml(index) {
   } else {
     p = Promise.resolve('');
   }
-  // An empty answer is a FAILED load, never a file's body. Main returns "" for an index it cannot resolve —
-  // a watch rebuild swaps state.bodyDiffs out from under an in-flight fetch — and for a window whose state it
-  // cannot find. Caching that as the body (the guard here was `!= null`, so "" counted as an answer) and then
-  // stripping data-lazy left the file blank for the rest of the session, with a perfectly good diff sitting
-  // in main and nothing that would ever ask for it again. Cache only a real body; let a miss be retried.
   return p.then(function (html) { if (html) bodyCache[index] = html; return html || ''; }, function () { return ''; });
 }
 function materializeBody(wrapper, html) {
   var body = wrapper.querySelector('.d2h-files-diff[data-lazy]');
   if (!body) return;
   body.removeAttribute('data-loading');
-  if (!html) return; // failed load (see loadBodyHtml): keep data-lazy so the next look fetches it again
+  if (!html) return;
   body.innerHTML = html;
   body.removeAttribute('data-lazy');
-  // The body now lives in the DOM, so the string behind it is a second copy of the same bytes — and it is
-  // the expensive copy: walking a 130-file review costs 169 MB, of which 51 MB is these strings. Nothing
-  // reads them once the body is materialized (the rebuild path re-snapshots bodies off the DOM itself), and
-  // the paths that do need one again — a fast-path swap, a body dropped by a rebuild — refetch it from main.
   delete bodyCache[(wrapper.id || '').replace('file-', '')];
   invalidateDiffRows(wrapper);
   markWrapperHunks(wrapper);
   if (diffBootDone && typeof reviewComments !== 'undefined' && reviewComments.length) { try { refreshComments(); } catch (e) {} }
 }
-// Materialize a lazily-emitted file body. Phase 1 reads it from an inert embedded island (sync);
-// Phase 2 lazy-LOAD fetches it on demand (async) — callers that then need rows must use whenFileReady().
 function ensureFileReady(wrapper) {
   if (!wrapper) return null;
   var body = wrapper.querySelector('.d2h-files-diff[data-lazy]');
-  if (!body) return wrapper; // already materialized (or eager mode)
+  if (!body) return wrapper;
   var idx = (wrapper.id || '').replace('file-', '');
   if (REVIEW_LAZY_LOAD) {
     if (!bodyPromise[idx]) {
       body.setAttribute('data-loading', '1');
       bodyPromise[idx] = loadBodyHtml(idx).then(function (html) {
         materializeBody(wrapper, html);
-        // A failed fetch must not leave a resolved promise behind: this map is the "already handled" guard, so
-        // a cached miss made every later look — opening the file, navigating to it — a no-op against a body
-        // that was never there. Forget it, and the next look tries again.
         if (!html) delete bodyPromise[idx];
         return wrapper;
       });
@@ -533,9 +481,6 @@ function ensureFileReady(wrapper) {
   if (island) materializeBody(wrapper, island.textContent || '');
   return wrapper;
 }
-// Run cb once the wrapper's body is materialized — synchronously when it already is (eager / Phase 1
-// island / cached), or after the fetch resolves (cold lazy-LOAD). Lets navigation stay correct without
-// turning every caller async.
 function whenFileReady(wrapper, cb) {
   if (!wrapper) { cb(); return; }
   ensureFileReady(wrapper);
@@ -548,26 +493,13 @@ function whenFileReady(wrapper, cb) {
 function setupLazyDiff() {
   var container = document.getElementById('diff2html-container');
   if (!container) return;
-  // The diff shows one file at a time (showOnlyFile). Observing every empty shell makes them all intersect
-  // before that first file is isolated, so a large review requests every body at once and exhausts V8.
-  // Navigation already calls ensureFileReady for the selected file; only seed the initial one here.
   ensureFileReady(container.querySelector('.d2h-file-wrapper'));
 }
 if (REVIEW_LAZY) { setupLazyDiff(); setTimeout(function () { diffBootDone = true; }, 0); }
-let links = Array.from(document.querySelectorAll('#changes-panel .file-link')); // re-captured on in-place diff update
-let sourceLinks = Array.from(document.querySelectorAll('.source-link')); // re-captured when a deferred tree materializes
+let links = Array.from(document.querySelectorAll('#changes-panel .file-link'));
+let sourceLinks = Array.from(document.querySelectorAll('.source-link'));
 let sourceFiles = JSON.parse(document.getElementById('source-files-data')?.textContent || '[]');
-// i18n: the message catalog (en + ko) is emitted server-side; the locale lives in localStorage and the
-// whole UI switches live (no reload). t() feeds dynamically-built text; applyI18n() rewrites the static
-// chrome (data-i18n / -ph / -title / -aria). English is the first-paint default.
 var I18N = JSON.parse(document.getElementById('i18n-data')?.textContent || '{}');
-// Cross-reopen persistence. Electron persists via the main process (window.kakapoSettings — survives
-// app restart; file:// localStorage doesn't); browser/serve falls back to localStorage. persistRead
-// returns the bridge value (native) if present, else undefined so callers parse localStorage themselves.
-// What THIS page has saved since it loaded. kakapoSettings.all is a snapshot taken in the preload — set()
-// goes to main but never back into it — so a read that prefers the bridge returns the value from before the
-// write, for the rest of the window's life — a panel that marks itself seen would read the mark back from
-// a snapshot that predates it.
 var persistWrittenHere = {};
 function persistRead(key) {
   if (key in persistWrittenHere) return persistWrittenHere[key];
@@ -594,20 +526,6 @@ var locale = (function () {
   if (v !== 'ko' && v !== 'en') { try { v = localStorage.getItem(LOCALE_KEY); } catch (e) {} }
   return (v === 'ko' || v === 'en') ? v : 'en';
 })();
-/**
- * A catalog key and the values it counts, in one call: `t('problems.summary', { n: 3, errors: 1, files: 2 })`.
- *
- * It was two roads, and both of them leaked. `{name}` was substituted by hand at 93 call sites, and the
- * plural forms by a SECOND call wrapping this one — `plural(t(key), { n: n }).replace('{n}', String(n))`,
- * the count written twice. A sentence whose two counts disagree is then one typo away, and resultsLabel
- * was living proof: it pluralized on the total while printing the shown figure, so a filtered list read
- * "1 results". Everything that skipped the wrapper simply never pluralized at all — "(1 usages)",
- * "1 problems (1 errors) in 1 files", "Clear 1 comments in this file".
- *
- * One object means the noun and the number cannot disagree, because they read the same property.
- * `t(key)` with no values is unchanged, and a `{name}` with no value is left standing rather than
- * printed as "undefined" — a visible "{symbol}" is a bug report, and i18n-parity already fails on it.
- */
 function t(key, values) {
   var all = (typeof I18N !== 'undefined' && I18N) || {};
   var table = all[locale] || all.en || {};
@@ -620,23 +538,9 @@ function t(key, values) {
     return Object.prototype.hasOwnProperty.call(values, name) ? String(values[name]) : whole;
   });
 }
-/**
- * "{n} results" / "결과 {n}개" — the whole sentence from the catalog, not a number glued to a noun.
- *
- * Gluing is what produced "3 개 결과" in Korean: the count on the wrong side of the noun with a stray
- * space, the same defect the comment badge had. A locale that counts differently needs the number INSIDE
- * its own string, so the string carries `{n}` and this substitutes it.
- */
 function resultsLabel(shown) {
   return t('quickopen.results', { n: shown });
 }
-/**
- * Ask main to stand the application menu's accelerators down, counted rather than toggled.
- *
- * Three surfaces need this at once — the merged dock, Quick Open and a rebind capture — and it was one
- * boolean: a capture ending inside an open dock revoked the dock's protection, and ⌘Q quit the app from
- * inside it. A count is the smallest thing that lets them overlap.
- */
 var menuShortcutHolds = 0;
 function holdMenuShortcuts(hold) {
   var before = menuShortcutHolds;
@@ -647,20 +551,11 @@ function holdMenuShortcuts(hold) {
   }
 }
 var langSelectRef = null, themeSelectRef = null, syntaxThemeSelectRef = null;
-// Every control whose own paint writes a localized label, registered WHERE IT IS CREATED rather than listed
-// by hand in applyI18n. The hand-written list is what this replaces, and it had already drifted: the
-// Changed-lines select is built by the same factory as the language select and was simply left out of it, so
-// its value stayed in the language it was first painted in ("The characters that differ" sitting in an
-// otherwise Korean panel) while everything around it switched. One list cannot disagree with itself — the
-// same rule SYNTAX_FAMILIES is written down for.
 var localizedPaints = [];
 function registerLocalizedPaint(ref) {
   if (ref && typeof ref.render === 'function' && localizedPaints.indexOf(ref) < 0) localizedPaints.push(ref);
   return ref;
 }
-// Replace a native <select> with a button that opens our custom dropdown (consistent with the comment
-// dropdown + themable; native <select> popups ignore the app theme). getOptions() -> [{value,label}];
-// returns { render } so localized labels can be refreshed on a language switch.
 function setupCustomSelect(id, getOptions, getCurrent, onPick) {
   var el = document.getElementById(id);
   if (!el) return null;
@@ -679,15 +574,6 @@ function setupCustomSelect(id, getOptions, getCurrent, onPick) {
   render();
   return registerLocalizedPaint({ render: render });
 }
-// A control that advertises a shortcut names the ID, not the chord: the chord is read off the table, so the
-// hover hint and the title say what the key actually is — including after it has been rebound. These were
-// literals typed beside each button, and they had already drifted into three spellings of the same modifier
-// ("Shift+F7", "⇧F7", "Option+W").
-//
-// Takes a root because it has to run again on anything built after the document was first translated. The
-// floating dock's bar is created when the dock opens, long after applyI18n last swept, so its buttons kept
-// their data-keyhint-id and never received a chord: the maximize button's tooltip read "Maximize panel"
-// with no key in it, and a chord chip that is only ever drawn from data-keyhint was drawn on neither.
 function applyKeyHints(root) {
   (root || document).querySelectorAll('[data-keyhint-id]').forEach(function (el) {
     var ref = el.getAttribute('data-keyhint-id').split(':');
@@ -708,40 +594,17 @@ function applyI18n() {
   localizedPaints.forEach(function (ref) { try { ref.render(); } catch (e) {} });
   refreshDiffContextFoldLabels();
   refreshCodeFoldLabels();
-  // The collapsed-file note is written once, by the paint, and carries no data-i18n: without this it kept
-  // its old-locale sentence (and a stale chord after toggleFold was rebound) while everything around it
-  // changed language. The paint is idempotent, so re-running it is the whole fix.
   paintDiffFileCollapse();
-  // Five more paints that write a translated string straight into the DOM instead of leaving a data-i18n
-  // behind, so the loops above cannot reach them and each one froze in whichever language it first ran in:
-  // the changed-file rows' accessible name, the per-file comment-count tooltip, the analyzer's detail
-  // tooltip, the update line in Settings and the compare pill's. They are all idempotent, so re-running
-  // them is the whole fix. Declared in later slices and called bare: the slices are one script, so the
-  // declarations hoist, and each of these reads either the DOM or state 01-core has already initialized.
   paintTreeRowAriaLabels();
   renderCommentBadges();
   paintAnalysisStatusTitle();
   repaintUpdateStatus();
-  // After the title loop above, not before: it composes on top of what that loop writes.
   paintComparePillTitle();
-  // Quick Open's title and the sentence in its box are chosen by its mode, so neither can be a data-i18n:
-  // the title's was the FILES string, which relabelled a structure search "Search files" in whatever
-  // language you switched to.
   paintQuickOpenMode();
-  // The action list caches its rows with their labels already translated, so a language switch has to drop
-  // it or ⌘⇧A keeps answering in the language you just left.
   forgetFindActionItems();
   syncDiffReviewChrome();
 }
-// Theme mirrors the locale pattern: persisted choice, applied by toggling data-theme on <html> so the
-// :root[data-theme="light"] palette takes over. Dark is the default (matches the inline :root). Applied
-// immediately at script start to minimize a first-paint flash from the dark default to light.
 var THEME_KEY = 'kakapo-theme';
-// The theme is light or dark and nothing else. "System" used to sit alongside them as a third choice that
-// resolved to one of the two — which made the setting answer two questions at once (which palette, and who
-// decides) and left every reader of `theme` needing resolvedTheme() to find out what was actually on screen.
-// Anyone still holding the old preference is resolved ONCE here, to whatever the OS was saying at that moment,
-// and keeps it: their app looks the same the next time they open it as it did when they closed it.
 var theme = (function () {
   var v = persistRead(THEME_KEY);
   if (v !== 'light' && v !== 'dark' && v !== 'system') { try { v = localStorage.getItem(THEME_KEY); } catch (e) {} }
@@ -755,19 +618,11 @@ var theme = (function () {
 })();
 function resolvedTheme() { return theme === 'light' ? 'light' : 'dark'; }
 function applyTheme() {
-  beginDiffViewportChurn(); // every row's computed style is about to change at once — settle, don't thrash
+  beginDiffViewportChurn();
   document.documentElement.setAttribute('data-theme', resolvedTheme());
   if (themeSelectRef) themeSelectRef.render();
 }
 applyTheme();
-// The persisted syntax choice is a complete theme family rather than a code-only palette. `theme` selects
-// the family's dark/light member, keeping navigation chrome, diff, raw source, and HTTP coherent.
-// Whole-interface scale. Persisted here; the Electron main process reads it and applies a Chromium zoom
-// factor to every review window — see applyUiScale in app-main.ts. Outside
-// Electron there is no main process, so the page scales itself with CSS zoom instead.
-// How much of a changed line is coloured: the characters that differ ('word', IntelliJ's default and
-// diff2html's own markup), the whole line only ('line'), or nothing but the gutter ('none'). Three CSS
-// readings of one DOM — nothing is re-rendered when this changes.
 var DIFF_HIGHLIGHT_KEY = 'kakapo-diff-highlight';
 var DIFF_HIGHLIGHT_MODES = ['word', 'line', 'none'];
 var diffHighlightSelectRef = null;
@@ -785,30 +640,13 @@ function applyDiffHighlight(next) {
 }
 applyDiffHighlight(diffHighlightMode);
 
-// ---- How the code is DRAWN, as against what it says -------------------------------------------------
-// Six switches that change nothing about the review and everything about reading it, and they are one
-// table because they are one shape: a persisted boolean, an attribute on <html>, and a stylesheet that
-// reads it. Nothing re-renders when one flips — the marks they act on (ws-lead/ws-trail, the symbol
-// ranges, the diagnostic severities) are already in the DOM, and these decide whether they are shown.
-// That is the same bargain --diff-highlight above makes, and the reason the toggles are instant on a
-// 30k-line file.
-//
-// IntelliJ keeps each of these as its own action: Show Whitespaces, Show Indent Guides, Show Sticky Lines,
-// Highlight Only Current Declaration (its Focus Mode), Essential Highlighting, and Align Changes In
-// Side-by-Side Diff. None of them carries a keystroke there — they live in menus — so the chords are this
-// app's, and they are one family on ⇧⌥ because they are one kind of thing.
 var RENDER_TOGGLES = {
   showWhitespace: { key: 'kakapo-show-whitespace', attr: 'data-show-whitespace', on: false },
   indentGuides: { key: 'kakapo-indent-guides', attr: 'data-indent-guides', on: false },
   stickyLines: { key: 'kakapo-sticky-lines', attr: 'data-sticky-lines', on: true },
   focusMode: { key: 'kakapo-focus-mode', attr: 'data-focus-mode', on: false },
   essentialHighlighting: { key: 'kakapo-essential-highlighting', attr: 'data-essential-highlighting', on: false },
-  // Default on: the asymmetric alignment engine (01-diff-alignment.js) has always run, and a toggle that
-  // changed the app's behaviour the first time it shipped would be a different change from this one.
   alignChanges: { key: 'kakapo-align-changes', attr: 'data-align-changes', on: true },
-  // The two decoration switches, on by default because they are on by default in IntelliJ: a reader who
-  // has never heard of Code Vision should still see "3 usages" over a function they are being asked to
-  // review, and a reader who finds it noisy has a key for it.
   codeVision: { key: 'kakapo-code-vision', attr: 'data-code-vision', on: true },
   inlayHints: { key: 'kakapo-inlay-hints', attr: 'data-inlay-hints', on: true },
 };
@@ -818,7 +656,6 @@ Object.keys(RENDER_TOGGLES).forEach(function (name) {
   if (typeof saved !== 'string') { try { saved = localStorage.getItem(entry.key); } catch (e) {} }
   if (saved === '1' || saved === '0') entry.on = saved === '1';
 });
-/** Source view or diff — the two surfaces the drawing switches act on. */
 function isCodeSurfaceVisible() {
   return isSourceViewerVisible() || isDiffViewVisible();
 }
@@ -837,9 +674,6 @@ function setRenderToggle(name, on) {
   entry.on = Boolean(on);
   persistSave(entry.key, entry.on ? '1' : '0');
   paintRenderToggle(name);
-  // Four of them are not pure paint: they own something the stylesheet cannot reach — the pinned header,
-  // the dim, the opposite pane's transform, and which diagnostics exist at all. The slices are one script,
-  // so these are simply called (test/viewer-slices.test.mjs: a `typeof` guard here could only hide a rename).
   if (name === 'stickyLines') refreshStickyLines();
   if (name === 'focusMode') refreshFocusMode();
   if (name === 'alignChanges') refreshDiffAlignment();
@@ -861,8 +695,7 @@ var uiScale = (function () {
   return UI_SCALES.indexOf(v) >= 0 ? v : 1;
 })();
 function paintUiScale() {
-  beginDiffViewportChurn(); // zoom changes every row's HEIGHT; re-project once it has settled, not per row
-  // In the packaged app main owns the zoom, so the page must NOT also scale itself — that would compound.
+  beginDiffViewportChurn();
   if (window.kakapoSettings) return;
   try { document.documentElement.style.zoom = uiScale === 1 ? '' : String(uiScale); } catch (e) {}
 }
@@ -873,26 +706,17 @@ function applyUiScale(next) {
   paintUiScale();
   if (uiScaleSelectRef) uiScaleSelectRef.render();
 }
-// ⌘+ / ⌘− are menu accelerators (Chromium eats them before any keydown here), so main changes the size and
-// says so. Adopt the value WITHOUT writing it back — main has already stored it, and echoing would race the
-// other views doing the same — but do re-render the Settings dropdown, or the keyboard and the panel would
-// disagree about what the current size is.
 if (window.kakapoMenu && typeof window.kakapoMenu.onUiScale === 'function') {
   window.kakapoMenu.onUiScale(function (next) {
     if (UI_SCALES.indexOf(next) < 0) return;
-    noteKakapoActivity('zoom'); // so a stall right after this one says so (trackMainThreadStalls)
-    beginDiffViewportChurn(); // main has already zoomed this view; the re-projection is ours to settle
+    noteKakapoActivity('zoom');
+    beginDiffViewportChurn();
     uiScale = next;
     if (uiScaleSelectRef) uiScaleSelectRef.render();
   });
 }
 paintUiScale();
 var SYNTAX_THEME_KEY = 'kakapo-syntax-theme';
-// Every palette family, named once. A family is a pair of CSS blocks in viewer.css, a row in THEMES
-// (08-dock.js) and a name in this list — nothing else. It lives HERE, not beside the settings grid, because
-// this is where a stored preference is validated at boot, and the two lists had already drifted: 'github' was
-// added to the grid but not to the check below, so choosing GitHub Dark worked until you reopened the app and
-// it silently came back as Kakapo. One list cannot disagree with itself.
 var SYNTAX_FAMILIES = ['default', 'darcula', 'github', 'solarized', 'dracula', 'contrast'];
 var syntaxTheme = (function () {
   var v = persistRead(SYNTAX_THEME_KEY);
@@ -900,49 +724,32 @@ var syntaxTheme = (function () {
   return SYNTAX_FAMILIES.indexOf(v) >= 0 ? v : 'default';
 })();
 function applySyntaxTheme() {
-  beginDiffViewportChurn(); // a syntax family repaints every token in the diff — same story as the theme
+  beginDiffViewportChurn();
   document.documentElement.setAttribute('data-syntax-theme', syntaxTheme);
   if (syntaxThemeSelectRef) syntaxThemeSelectRef.render();
 }
 applySyntaxTheme();
 let fileStates = JSON.parse(document.getElementById('file-state-data')?.textContent || '[]');
 let httpEnvironments = JSON.parse(document.getElementById('http-env-data')?.textContent || '{}');
-// `$shared`, `$dotenv` and `$env` ride in the same island as the named environments (diff.ts explains why).
-// They are variable scopes, not environments, so the dropdown must never offer them as one.
 let httpEnvNames = Object.keys(httpEnvironments).filter(function (name) { return name.charAt(0) !== '$'; });
 const httpEnvKey = 'kakapo-http-env:' + location.pathname;
 const httpRequestsByPath = new Map();
 const httpVarsByPath = new Map();
-// `import other.http` lines, per file: the files whose named requests a `run #Name` here may address.
 const httpImportsByPath = new Map();
-// Which files a `run` is already inside, so a file that runs itself stops instead of recursing.
 const httpRunStack = [];
-// client.global.set() from a response handler: variables a later request reads as {{name}}. IntelliJ keeps
-// these until the IDE closes; kakapo keeps them for the window and persists them, so a watch rebuild (which
-// repaints the whole page) does not quietly empty a chain of requests that depend on an earlier login.
 const httpGlobalsKey = 'kakapo-http-globals:' + location.pathname;
 let httpGlobals = (function () {
   const saved = persistRead(httpGlobalsKey);
   return saved && typeof saved === 'object' ? saved : {};
 })();
-// request.variables.set() from a pre-request script — scoped to the one request that follows it.
 const httpRequestVars = new Map();
-// Named responses, for {{login.response.body.$.token}}. `@no-log` keeps a request out of here.
 const httpResponsesByName = new Map();
-// Per-request script output: client.test() results, client.log() lines, and a script's own error.
 const httpScriptLogByRequest = new Map();
-let sourceByPath = rebuildSourceByPath(sourceFiles, new Map()); // one writer; see the helper below
+let sourceByPath = rebuildSourceByPath(sourceFiles, new Map());
 var projectIndexLoaded = !REVIEW_LAZY_LOAD;
 var projectIndexPromise = null;
 var projectIndexPayload = null;
 
-// The map behind every "what do we know about this path" lookup: the project's own files AND the library
-// records loadLibrarySourceFile() adds. A library file is openable but joins no index, so it is in no
-// project-index payload — and the two sites that rebuilt this map from a payload built it from the payload
-// alone, evicting the library file the reader had open. Nothing said so: the tab stayed and the body stayed
-// painted, but the next repaint found no entry for its path while libraryLoadPromises went on answering with
-// the evicted record, so openSourceFile's retry recursed on it without end. That was the hang. One writer,
-// so a third rebuild site cannot forget again (pinned in viewer-slices.test.mjs).
 function rebuildSourceByPath(records, previous) {
   var next = new Map(records.map(function (file) { return [file.path, file]; }));
   previous.forEach(function (file, path) {
@@ -951,8 +758,6 @@ function rebuildSourceByPath(records, previous) {
   return next;
 }
 
-// Merge the lazily-fetched project index without discarding source bodies that are already open. Electron's
-// contextBridge freezes returned records, so clone each one before the renderer annotates it with __loaded.
 function installProjectIndex(payload) {
   if (!payload || !Array.isArray(payload.sourceFilesMeta)) return null;
   if (payload.signature && currentSignature && payload.signature !== currentSignature) return null;
@@ -970,12 +775,6 @@ function installProjectIndex(payload) {
   });
   sourceFiles = records;
   sourceByPath = rebuildSourceByPath(records, previousByPath);
-  // The project index is SOURCE metadata; ProjectIndexPayload carries no review file states (types.ts), and a
-  // source record's own signature is not the one the review was built with. Rebuilding the map from those
-  // records therefore moved every changed file's signature the moment the Files tree was first opened — and a
-  // viewed mark is stored AS that signature (isFileViewed), so every box the reviewer had ticked silently
-  // came undone. Only a payload that actually brings file states may replace them; otherwise the review's own
-  // remain, and paths the review never knew about are added with no signature of their own.
   if (Array.isArray(payload.fileStates) && payload.fileStates.length) {
     fileStates = payload.fileStates.slice();
     fileSignatureByPath = new Map(fileStates.map(function (file) { return [file.path, file.signature]; }));
@@ -1010,29 +809,18 @@ function ensureProjectIndex() {
   });
   return projectIndexPromise;
 }
-// Electron starts with metadata only. Source bodies are fetched one file at a time so opening a large
-// project never clones every source file into the renderer. The browser server retains its bulk endpoint
-// as a compatibility fallback, but the desktop app always uses kakapoFile.getSource(path).
 sourceFiles.forEach(function (file) { file.__loaded = !REVIEW_LAZY_LOAD || !file.embedded; });
 var sourceLoadPromises = Object.create(null);
 var bulkSourcePromise = null;
-var sourceGeneration = 0; // increments on watch refresh so an older IPC response cannot overwrite new source
-// The path whose content is ACTUALLY painted in #source-body right now. dataset.openPath is the INTENDED
-// path and gets set BEFORE the body paints in the lazy-LOAD branch, so the caret fast-path must check this
-// instead — else it patches the caret onto a stale body, leaving one file's content under another's path.
+var sourceGeneration = 0;
 var sourceBodyPath = null;
-// The file the source view is SHOWING (its `openPath`), '' when nothing is open or the element is not up
-// yet. One accessor on purpose: this is the most-asked question in the viewer, and it used to be spelled
-// eight ways across sixteen slices — some returning '' for "nothing", some `undefined`, some reading
-// `.dataset` off an element they had not null-checked. Every reader goes through here so the answer has
-// one type. Contrast sourceBodyPath above, which is the file actually PAINTED.
 function sourceOpenPath() {
   var viewer = document.getElementById('source-viewer');
   return (viewer && viewer.dataset.openPath) || '';
 }
-var sourceTabs = []; // Files-mode tab paths (session-only); see addSourceTab / renderSourceTabs.
-var sourceImportOpenPaths = Object.create(null); // imports start folded in Review mode until explicitly opened
-var sourceManualFoldKeys = Object.create(null);  // path -> { "start:end": true } for Cmd/Ctrl+. brace folds
+var sourceTabs = [];
+var sourceImportOpenPaths = Object.create(null);
+var sourceManualFoldKeys = Object.create(null);
 function sourceContentLoaded(file) {
   return Boolean(file && (!REVIEW_LAZY_LOAD || !file.embedded || file.__loaded));
 }
@@ -1040,19 +828,11 @@ function mergeSourceRecord(record) {
   if (!record || !record.path) return null;
   var file = sourceByPath.get(record.path);
   if (!file) return null;
-  // Copy availability fields too: a deferred file can have become missing, binary, or oversized before
-  // it is opened. Conversely, a successful on-demand response clears deferred/skipped metadata.
   Object.assign(file, record);
   file.content = String(record.content || '');
   file.__loaded = true;
   return file;
 }
-// Library navigation. A definition can point at a file the project index does not hold — inside
-// node_modules, which the index skips on purpose, or outside the review root altogether (a stdlib module, a
-// bundled type stub). Main reads those on demand (librarySource in app-review-ipc.ts); here they join
-// sourceByPath, so the ordinary source view can paint one, but they never join sourceFiles, so the file tree
-// and quick-open stay the project's own files. That is how IntelliJ treats library sources too: you can read
-// them, you did not add them to the project.
 var libraryLoadPromises = Object.create(null);
 function loadLibrarySourceFile(path) {
   if (sourceByPath.has(path)) return Promise.resolve(sourceByPath.get(path));
@@ -1060,11 +840,6 @@ function loadLibrarySourceFile(path) {
   if (!(typeof window !== 'undefined' && window.kakapoFile && typeof window.kakapoFile.getSource === 'function')) {
     return Promise.resolve(null);
   }
-  // A FAILED read is not an answer to cache. The text behind a compiled target is produced by a language
-  // server, and a server that has not finished reading the project yet answers nothing — so the first ⌘↓
-  // after opening a Java file could lose the file for the rest of the session while the server went on to
-  // become perfectly able to decompile it. Only a record that arrived is remembered; a miss forgets itself
-  // and the next press asks again.
   var promise = Promise.resolve()
     .then(function () { return window.kakapoFile.getSource(path); })
     .then(function (record) {
@@ -1091,16 +866,10 @@ function loadSourceFile(path) {
     promise = Promise.resolve().then(function () { return window.kakapoFile.getSource(path); }).then(function (record) {
       if (generation !== sourceGeneration) return sourceByPath.get(path) || null;
       var merged = mergeSourceRecord(record);
-      // Main had no record for a path the index does hold — the file was deleted between the index and this
-      // open. Mark it loaded anyway, as the reject arm below always has: openSourceFile retries until
-      // sourceContentLoaded() is true, so a null answer left the flag off and turned a missing file into an
-      // unbounded retry loop instead of an empty body. A null answer is an answer too.
       if (!merged) file.__loaded = true;
       return merged || file;
     });
   } else {
-    // The standalone browser viewer has a single source-data endpoint. Fetch it at most once and mark
-    // each returned record loaded; Electron never enters this branch.
     if (!bulkSourcePromise) {
       bulkSourcePromise = (typeof fetch !== 'undefined'
         ? fetch('source-data').then(function (r) { return r.ok ? r.text() : '[]'; })
@@ -1151,23 +920,9 @@ let quickMode = 'all';
 let quickItems = [];
 let quickActive = 0;
 
-// The four things every Quick Open list does identically. Ten renderers share this overlay — files,
-// workspace symbols, content search, usages, problems, actions, file structure, hierarchy, recent locations
-// and bookmarks — and each used to spell these out itself, which is how the active-row clamp came to exist
-// in ten copies and the empty state in thirteen. A fix to any of them reached one list.
-/**
- * Keep the active row inside the list. Every assignment to quickItems must be followed by this: without it
- * the highlight (and therefore Enter) keeps an index from the PREVIOUS, longer list and opens either nothing
- * or the wrong thing.
- */
 function clampQuickActive() {
   quickActive = Math.min(quickActive, Math.max(quickItems.length - 1, 0));
 }
-/**
- * The chip above the list: a spinner and a waiting message while a provider is still working, otherwise the
- * list's own one-line summary. `busyLabel` overrides the waiting message for a provider that can say
- * something more useful than "Searching…" (the problems scan reports its progress).
- */
 function setQuickFilterChip(busy, label, busyLabel) {
   if (!quickFilterEl) return;
   quickFilterEl.className = 'quick-open-filter' + (busy ? ' is-loading' : '');
@@ -1175,16 +930,10 @@ function setQuickFilterChip(busy, label, busyLabel) {
     ? kakapoLoaderHtml('kakapo-loader-micro') + '<span>' + escapeHtml(busyLabel || t('quickopen.searching')) + '</span>'
     : escapeHtml(label);
 }
-/** The list body while a provider is still working, and no preview (there is nothing to preview yet). */
 function showQuickLoading() {
   if (quickResults) quickResults.innerHTML = loadingStateHtml(t('quickopen.searching'), 'quick-open-empty');
   renderQuickPreview(null);
 }
-/**
- * The list body with nothing in it. `note` is the optional second line that says WHY it is empty — a bad
- * pattern, a filter hiding everything, files no server could check. An empty list without that sentence is
- * the reassuring lie: it reads as "nothing is wrong" when the truth is "nothing was looked at".
- */
 function showQuickEmpty(text, note) {
   if (quickResults) {
     quickResults.innerHTML = '<div class="quick-open-empty">' + escapeHtml(text)
@@ -1192,7 +941,7 @@ function showQuickEmpty(text, note) {
   }
   renderQuickPreview(null);
 }
-let recentFilter = ''; // IntelliJ-style speed-search: typed letters narrow the Recent list (no search box)
+let recentFilter = '';
 let contentSearchItems = [];
 let contentSearchQuery = '';
 let contentSearchSeq = 0;
@@ -1201,13 +950,9 @@ let contentSearchBusy = false;
 let contentSearchTruncated = false;
 let contentSearchEngine = 'local';
 let contentSearchExcludeNoise = false;
-// IntelliJ's three Find in Files modifiers. They travel to ripgrep as flags (src/search.ts) and the
-// in-page fallback honours them itself, so a standalone review answers the same question.
 let contentSearchMatchCase = false;
 let contentSearchWholeWords = false;
 let contentSearchRegex = false;
-// IntelliJ's Find in Files scope: 'all' is its In Project, and the others are its predefined scopes that
-// mean something in a review (see CONTENT_SEARCH_SCOPES in 03-quick-open.js).
 let contentSearchScope = 'all';
 let workspaceSymbolItems = [];
 let workspaceSymbolQuery = '';
@@ -1215,13 +960,12 @@ let workspaceSymbolSeq = 0;
 let workspaceSymbolTimer = null;
 let workspaceSymbolBusy = false;
 let workspaceSymbolEngine = 'index';
-// Go to Class is Go to Symbol with this on — see openWorkspaceSymbols in 03-quick-open.js.
 let workspaceSymbolTypesOnly = false;
-let usageItems = []; // find-usages results for the Cmd+B-on-declaration popup
+let usageItems = [];
 let usageActive = 0;
 let viewerCursor = null;
-let selectedCommentRow = null; // a comment box "selected" while navigating with arrows (caret hidden); Backspace deletes it
-let selectedDiffFoldRow = null; // an omitted-context stop selected with arrows; Space expands both panes
+let selectedCommentRow = null;
+let selectedDiffFoldRow = null;
 let currentHttpEnvName = (function () {
   let saved = persistRead(httpEnvKey);
   if (typeof saved !== 'string') { try { saved = localStorage.getItem(httpEnvKey) || ''; } catch (error) { saved = ''; } }
@@ -1230,29 +974,20 @@ let currentHttpEnvName = (function () {
 })();
 let treeFocusIndex = -1;
 let selectionAnchor = null;
-let diffCursor = null; // { path, side: 'old'|'new', rowIndex, column } — keyboard caret in the side-by-side diff
-// Cursor-position history for Cmd/Ctrl+[ (back) and Cmd/Ctrl+] (forward), IDE-style.
+let diffCursor = null;
 let navList = [];
 let navPos = -1;
 let navSuppress = false;
 var NAV_JUMP_LINES = 8;
 var NAV_MAX = 60;
-let diffSelectionAnchor = null; // { side, rowIndex, column } — Shift+Arrow drag-select origin in the diff
+let diffSelectionAnchor = null;
 let measuredCharWidth = 0;
 
-// Review-comment state — initialized here (early) so saved comments are loaded before
-// restoreUiState()/openDefaultSourceFile() run on startup and try to render them.
 var COMMENTS_KEY = 'kakapo-comments:' + location.pathname;
 var reviewComments = [];
 reviewComments = (function () { var b = persistRead(COMMENTS_KEY); if (Array.isArray(b)) return b; try { return JSON.parse(localStorage.getItem(COMMENTS_KEY) || '[]'); } catch (commentsErr) { return []; } })();
 if (!Array.isArray(reviewComments)) reviewComments = [];
-// Handed-over comments. They are kept, not deleted — copying a review archives it — but they are held OUT
-// of `reviewComments` so that every reader of that list (the cards beside the code, F8, the hand-off
-// document, the counts) keeps working without learning what an archive is. Only saving, loading and the
-// sidebar's archive list know this array exists.
 var archivedComments = [];
-// Questions ("q") and change requests ("c") were unified into one review comment; anything persisted under
-// the old split reads back as the one kind, so a card saved last week doesn't render with a dead label.
 reviewComments.forEach(function (c) { if (c && c.kind !== 'note') c.kind = 'c'; });
 var commentSeq = reviewComments.reduce(function (max, c) { return Math.max(max, c.seq || 0); }, 0);
 var composerState = null;
@@ -1287,8 +1022,6 @@ function prepareDiff2HtmlHunks() {
 }
 
 document.addEventListener('click', function (event) {
-  // A run button in the diff's gutter. Checked first because it sits inside a line-number cell, which the
-  // caret also listens to — without this the click would place the caret instead of sending the request.
   var runButton = event.target && event.target.closest ? event.target.closest('.http-run-diff') : null;
   if (runButton) {
     event.preventDefault();
@@ -1331,18 +1064,11 @@ function currentFileSignature(path) {
 function isFileViewed(path) {
   const viewed = loadViewedState();
   const signature = currentFileSignature(path);
-  // A review mark belongs to the exact diff the reviewer inspected, not merely to a path. Keeping a plain
-  // boolean here made a later edit to the same file silently remain "viewed": F7 skipped it even though the
-  // sidebar (rebuilt by live refresh) looked like an ordinary modified file. Old boolean records are treated
-  // as stale once so existing installs recover from that ambiguous state; new records survive restarts and
-  // unrelated watch refreshes as long as this file's own diff signature is unchanged.
   return Boolean(signature && typeof viewed[path] === 'string' && viewed[path] === signature);
 }
 
 function setFileViewed(path, viewed) {
   const state = loadViewedState();
-  // Persist the PER-FILE diff signature. It is stable across restarts and unrelated repository changes,
-  // but changes as soon as this file's reviewed patch changes, which correctly puts it back in the queue.
   if (viewed) {
     const signature = currentFileSignature(path);
     if (signature) state[path] = signature;
@@ -1352,20 +1078,15 @@ function setFileViewed(path, viewed) {
   applyViewedState();
 }
 
-// Viewed marks persist across restarts and unrelated refreshes, but only for the exact per-file diff that
-// was reviewed. applyViewedState is also rerun after every in-place update so the visible check badge and
-// F7's queue filtering can never disagree.
 function applyViewedState() {
   document.querySelectorAll('.d2h-file-wrapper').forEach((wrapper) => {
     const fileName = diffWrapperPathKey(wrapper);
     const viewed = isFileViewed(fileName);
     wrapper.classList.toggle('file-viewed', viewed);
   });
-  // Viewed is a diff-review concept: only the Changes list shows it, not the Files/source tree.
   links.forEach((link) => {
     const viewed = isFileViewed(link.dataset.file || '');
     link.classList.toggle('viewed', viewed);
-    // The box is a real checkbox to anything reading the tree, so its state has to be told, not just painted.
     link.querySelector('.viewed-box')?.setAttribute('aria-checked', viewed ? 'true' : 'false');
   });
 }

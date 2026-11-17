@@ -26,7 +26,7 @@ function electronRoot() {
   try {
     return dirname(require.resolve("electron/package.json"));
   } catch {
-    return null; // electron not installed
+    return null;
   }
 }
 
@@ -58,7 +58,7 @@ function findAppBundleEntry(distDir) {
 
 function main() {
   const root = electronRoot();
-  if (!root) return; // not macOS, or electron missing — nothing to do
+  if (!root) return;
   const distDir = join(root, "dist");
   const newAppDir = join(root, "dist", APP_BUNDLE);
   const appBundleEntry = findAppBundleEntry(distDir);
@@ -91,7 +91,6 @@ function main() {
       return;
     }
 
-    // 2. Bundle metadata: display name -> Kakapo, executable -> kakapo, bundle id -> kakapo.
     const before = readFileSync(plistPath, "utf8");
     const after = [
       ["CFBundleName", APP_DISPLAY_NAME],
@@ -101,7 +100,6 @@ function main() {
     ].reduce((plist, [key, value]) => setPlistString(plist, key, value), before);
     if (after !== before) { writeFileSync(plistPath, after); changed = true; }
 
-    // 3. Rename either Electron's stock executable or a pre-Kakapo executable left by an older checkout.
     const legacyExe = LEGACY_EXECUTABLE_NAMES.map((name) => join(macosDir, name)).find((path) => existsSync(path));
     if (legacyExe && !existsSync(newExe)) { renameSync(legacyExe, newExe); changed = true; }
 
@@ -116,22 +114,17 @@ function main() {
       changed = true;
     }
 
-    // 5. Repoint electron's path.txt at the renamed binary so require("electron") resolves it.
     if (existsSync(pathTxt)) {
       const pt = readFileSync(pathTxt, "utf8");
       const fixed = APP_BUNDLE + "/Contents/MacOS/" + APP_EXECUTABLE_NAME;
       if (fixed !== pt) { writeFileSync(pathTxt, fixed); changed = true; }
     }
 
-    // Only when something actually changed: refresh LaunchServices so the Dock / Cmd+Tab show "kakapo"
-    // instead of a cached "Electron". Skipping it when already-branded keeps the startup re-run cheap.
     if (changed) {
       registerBundle(appDir);
       console.log('kakapo: branded Electron app as "' + APP_DISPLAY_NAME + '"');
     }
   } catch (e) {
-    // Surface the reason (perms / read-only) instead of failing SILENTLY — otherwise the Dock/Cmd+Tab/menu
-    // keep showing "Electron" with no hint why. Non-fatal: the CLI launcher retries before spawning Electron.
     console.warn('kakapo: could not rebrand the Electron app to "' + APP_DISPLAY_NAME + '". Dock/Cmd+Tab/menu may stay "Electron". Reason: ' + (e && e.message ? e.message : e));
   }
 }

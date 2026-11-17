@@ -1,15 +1,3 @@
-// ===== Who owns the keyboard right now =============================================================
-// One decision, asked by every shortcut below, instead of each branch re-deriving "is a modal up / is a
-// panel focused / am I in a text field". Ordered most-capturing first:
-//
-//   modal    a surface that owns the keyboard outright — settings, go-to-line. Nothing else fires.
-//   history  the History overlay: its own keys, and the window-level ones (it is a view, not a text box).
-//   panel    a focused dock. Every key is going INTO it; only window-level ones survive.
-//   field    a focused input/textarea/contenteditable anywhere else. Same rule as `panel`.
-//   content  the diff/source review itself. Everything is available.
-//
-// A shortcut is then described by the scopes it may fire in, not by where it happens to sit in this file —
-// "did I put this above or below the focus guard?" is what kept going wrong.
 function isTextEntry(el) {
   return !!(el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable));
 }
@@ -17,45 +5,22 @@ function inTextField() { return isTextEntry(document.activeElement); }
 function keyboardScope() {
   var settings = document.getElementById('settings-modal');
   if (settings && !settings.classList.contains('hidden')) return 'modal';
-  // Go-to-line owns the keys while it HOLDS them — not merely while it exists. A box that has lost focus
-  // but is still in the DOM used to keep this at 'modal', which stands every window-level shortcut down:
-  // one stray click beside an open ⌘L prompt and the whole keyboard went dead with nothing on screen
-  // saying why. It closes itself on an outside click now (13-goto.js); this is the second lock on the
-  // same door, because "a prompt nobody is typing into does not own the keyboard" is true regardless.
   var gotoLine = document.getElementById('goto-line');
-  if (gotoLine && gotoLine.contains(document.activeElement)) return 'modal'; // owns the keys until Enter/Esc
-  // The pull-request prompt (⌥L) is the same shape of box and takes the keys on the same terms: while it
-  // HOLDS them. Its input is disabled while gh is answering, which moves focus off it — so the test is the
-  // box, not the input, or a reader could type a window shortcut into the gap and have it fire underneath.
+  if (gotoLine && gotoLine.contains(document.activeElement)) return 'modal';
   var prPrompt = document.getElementById('pr-prompt');
   if (prPrompt && (prPrompt.contains(document.activeElement) || prPrompt.querySelector('input:disabled'))) return 'modal';
   var history = document.getElementById('history-view');
   if (history && !history.classList.contains('hidden')) return 'history';
-  if (isDockFocused()) return 'panel'; // the merged dock (see 08-dock.js)
+  if (isDockFocused()) return 'panel';
   if (inTextField()) return 'field';
   return 'content';
 }
-// Kept as the name the content-level handlers (here and in 11-render-http.js) already ask by: everything
-// below the stand-down point is review navigation, which belongs to the review only.
 function isFloatingModalOpen() { return keyboardScope() !== 'content'; }
 
-// The surfaces that cover the whole screen — the History overlay (z75) and the floating merged dock (z78)
-// — are exclusive in practice: each renders over (or under) the other, so a shortcut activating one while
-// the other was up either looked like it did nothing or switched a view invisibly underneath. Every door
-// into one of them puts the rest away first: the ⌘2/⌘1 activations call this, and openHistory
-// (12-history.js) and mountDock (08-dock.js) do it from their side.
 function leaveFullScreenPanels() {
   closeHistoryIfOpen();
   closeMergedDock();
 }
-
-// Cmd+1/2 and their header icons are focus-aware. From content they reveal/focus the matching tree; only a
-// repeated activation while that tree owns the logical focus collapses it. A collapsed tree expands first.
-//
-// "That tree", not "a tree": the guard used to be `treeFocusIndex >= 0` alone, which is true whenever ANY
-// tree holds the logical cursor — including the other one. So ⌘2 (focus Changes) followed by ⌘1 read as a
-// repeat and collapsed the sidebar instead of switching to Files, and the same in reverse. The first press
-// of either key must always be "take me to my tree".
 
 function activateChangesView(navigateToDiff) {
   leaveFullScreenPanels();
@@ -66,8 +31,6 @@ function activateChangesView(navigateToDiff) {
     focusOpenFileInTree();
     return;
   }
-  // Outside the diff, keep the current content visible and move navigation to Changes. Enter on a row
-  // performs the actual diff transition, matching the existing Cmd+2 -> arrows -> Enter workflow.
   setSourceSidebarCollapsed(false);
   setReviewSidebarCollapsed(false);
   if (navigateToDiff) showDiffView(false);
@@ -91,8 +54,6 @@ function activateFilesView() {
     if (path && sourceByPath.has(path)) {
       openSourceFile(path);
     } else {
-      // Never leave the UI in the invalid hybrid state "Files sidebar + Diff content". A deferred project
-      // index can still discover the path after the view opens; until then show the source placeholder.
       showSourceView();
       if (path && REVIEW_LAZY_LOAD && !projectIndexLoaded) {
         ensureProjectIndex().then(function () {
@@ -106,37 +67,10 @@ function activateFilesView() {
   setTab('files');
   focusOpenFileInTree();
 }
-// ===== Who gets the key FIRST ======================================================================
-// The surfaces that own the keyboard outright while they are up, most-capturing first. A row's handle()
-// returns true when it consumed the key and dispatch stops there.
-//
-// This order used to live in two invisible places at once: which slice registered its listener first (the
-// build script's VIEWER_SLICES order) and whether that listener passed `true` for capture. "Capture so
-// closing settings wins over other Escape handlers (lightbox / composer)" was a comment in 08-dock.js
-// asserting a precedence no reader of 11-render-http.js could see, and the only way to change it was to
-// move a file in a build script. It is a row order now — the same treatment WINDOW_SHORTCUTS gave the
-// chords, for the same reason: adding a surface should be a row, not a fourth thing to get right.
-//
-// The owner whose handler is a `var` a later slice ASSIGNS (settings) is looked up through `typeof`:
-// unlike a function declaration, that binding is undefined until its slice runs. Everything else here is a plain call — see test/viewer-slices.test.mjs.
-// NOT here, and correctly so: the go-to-line prompt (13-goto.js) and the comment composer (08-dock.js)
-// both scope their listener to their own lifetime or target, so they never race anything.
 var KEY_OWNERS = [
-  // Settings is the top-most overlay: its Esc beats the lightbox and the composer, and its Cmd+, toggle
-  // has to work while it is itself up (keyboardScope reports 'modal' then, standing down everything below).
   { name: 'settings', handle: function (event) { return typeof handleSettingsKey === 'function' && handleSettingsKey(event); } },
-  // Semantic navigation is a caret-local dropdown. It must own arrows/Enter before the persistent sidebar's
-  // logical tree focus gets a chance to consume them; otherwise Enter opens the tree row instead of the
-  // selected definition when Cmd+B was invoked after Cmd+1/Cmd+2.
   { name: 'semantic-peek', handle: function (event) { return handleSemanticPeekKey(event); } },
-  // A small popover anchored to the toolbar pill. Above Quick Open only because it can be open while nothing
-  // else is; it stands down the moment it is hidden, so the order below it never matters.
   { name: 'compare-menu', handle: function (event) { return handleCompareMenuKey(event); } },
-  // Quick Open / Find in Files is a true modal keyboard scope. Its own handler consumes navigation and
-  // dismissal keys, then every other key is stopped from reaching the shortcut router (or later document
-  // listeners). Do NOT prevent an unhandled key's default: native input editing such as Cmd/Ctrl+Left/Right,
-  // Cmd/Ctrl+A, clipboard shortcuts, and text composition must keep working inside the focused search field
-  // without moving the dimmed source/diff caret behind the dialog.
   { name: 'quick-open', handle: function (event) {
     if (quickOpen?.classList.contains('hidden')) return false;
     handleQuickOpenKey(event);
@@ -148,8 +82,6 @@ var KEY_OWNERS = [
     if (!box || box.classList.contains('hidden')) return false;
     return handleUsagesKey(event);
   } },
-  // Cmd/Ctrl+F belongs to the active file surface, not the project-wide quick-open search. It sits above the
-  // general focus guard so Enter/Shift+Enter/Esc keep working while its input owns focus.
   { name: 'file-find', handle: function (event) { return handleFileFindKey(event); } },
   { name: 'lightbox', handle: function (event) {
     if (event.key !== 'Escape' || !lightboxOpen()) return false;
@@ -158,17 +90,12 @@ var KEY_OWNERS = [
     closeLightbox();
     return true;
   } },
-  // Quick Documentation is a caret panel like the peek, so it answers Escape the same way and in the same
-  // place in this order — above the highlight, below every real dialog.
   { name: 'quick-doc', handle: function (event) {
     if (event.key !== 'Escape') return false;
     if (!closeQuickDoc()) return false;
     event.preventDefault();
     return true;
   } },
-  // The in-file usage highlight (17-find-usages.js) owns no surface — it is painted over the source and the
-  // caret keeps working under it — but Escape takes it down, as IntelliJ's does. Last row on purpose: every
-  // dialog above gets Escape first, and this only answers while something is actually painted.
   { name: 'usage-marks', handle: function (event) {
     if (event.key !== 'Escape' || !(typeof usageMarks !== 'undefined' && usageMarks.length)) return false;
     event.preventDefault();
@@ -177,31 +104,12 @@ var KEY_OWNERS = [
   } },
 ];
 
-// ===== What each shortcut does ====================================================================
-// The combination lives in the shared table (src/shortcuts.ts, reaching the bundle as SHORTCUT_DEFS); this
-// says what the id means. Splitting them is the point: the Settings sheet, the `data-keyhint` on the
-// buttons that do the same thing, and this dispatcher now read one spelling instead of three, and a
-// rebind is a string in one place rather than an edit in each.
-//
-// A handler returning false declines — the key falls through untouched, the convention the old
-// WINDOW_SHORTCUTS table already used. `i` is which of the action's combinations fired, so one entry
-// covers both directions of a pair (F8/⇧F8) or both halves of a choice (⌥A/⌥U).
 var SHORTCUT_ACTIONS = {
-  // -- window level: these belong to the window, so they fire from a focused dock or the History overlay
   maximizePanel: function () { return toggleDockMaximized() ? undefined : false; },
   allComments: function () { toggleMergedView(); },
   openHistory: function () { toggleHistory(); },
-  // ⌘2/⌘1 mean "take me to the tree"; activate* itself puts every full-screen surface away first
-  // (leaveFullScreenPanels) — otherwise the view they activate would be switched invisibly underneath one.
   filesChangesTab: function (event, i) { if (i) activateChangesView(false); else activateFilesView(); },
-  // Undo the last comment removal — a Backspace on a selected card in the merged dock deletes one, so the
-  // safety net has to reach into that dock. Text surfaces keep their own native undo, and the key is only
-  // swallowed when there was actually something to restore.
   undoCommentRemoval: function () {
-    // A text surface keeps its own native undo, so the key is not taken there. But the dock leaves focus
-    // in a composer after a delete, so the reviewer pressed the key the toast had just named and got
-    // nothing at all — two silences in a row around the one action that loses work. Declining is right;
-    // declining without a word, when something IS waiting to be restored, is not.
     if (inTextField()) {
       if (commentRemovalPending()) showCaretHint(t('comment.undoInField'));
       return false;
@@ -210,12 +118,10 @@ var SHORTCUT_ACTIONS = {
   },
   revealInTree: function () { revealOpenFileInTree(); },
 
-  // -- review level: a cursor move, never text, so a focused composer must not swallow them
   nextChange: function () { stepToChange(1); },
   prevChange: function () { stepToChange(-1); },
   nextComment: function (event, i) { clearTreeFocus(); gotoComment(i ? -1 : 1); },
 
-  // -- content level: the review itself owns the keyboard
   gotoDiagnostic: function (event, i) { return gotoDiagnostic(i ? -1 : 1) ? undefined : false; },
   errorDescription: function () {
     if (treeFocusIndex >= 0) return false;
@@ -226,21 +132,14 @@ var SHORTCUT_ACTIONS = {
     if (qo && !qo.classList.contains('hidden') && quickMode === 'problems') { closeQuickOpen(); return; }
     return openProblemsView() ? undefined : false;
   },
-  // These three call `async` functions, so their return value is a Promise and `? undefined : false` can
-  // only ever be `undefined` — the rule stated above the `runShortcut` call below, broken here three times.
-  // The applicability question is asked synchronously instead, which is what that rule is for: the panel
-  // these two draw into is the thing that can be absent, and with it missing the key used to be eaten in
-  // total silence. The symbol case is NOT a decline — the callees announce it themselves.
   quickDoc: function () {
     if (treeFocusIndex >= 0 || !quickDocPanel()) return false;
     openQuickDocumentation();
   },
   expressionType: function () {
     if (treeFocusIndex >= 0) return false;
-    showExpressionType(); // answers in a caret hint, with no panel to be missing
+    showExpressionType();
   },
-  // One sentence, two surfaces: "fold the thing the caret is in" is a code block in the source view and a
-  // FILE in the diff, and "collapse everything" is every region or every file. Same rows in the table.
   toggleFold: function () {
     if (isDiffViewVisible()) return toggleDiffFileCollapse() ? undefined : false;
     return toggleCurrentSourceFold() ? undefined : false;
@@ -258,8 +157,6 @@ var SHORTCUT_ACTIONS = {
   selectEditor: function () { return selectAllInView() ? undefined : false; },
   gotoLine: function () { return openGotoLine() ? undefined : false; },
   copyLocation: function () { return copyCaretLocation() ? undefined : false; },
-  // openComposer always handles the key: it opens the composer, or says why it cannot (no line under the
-  // caret, a library file). There is no "not mine" path, so there is nothing here to convert.
   addComment: function () { openComposer('c'); },
   recentFiles: function () {
     var qo = document.getElementById('quick-open');
@@ -269,16 +166,10 @@ var SHORTCUT_ACTIONS = {
   findInFiles: function () { openQuickOpen('content'); },
   searchExtensions: function () { openQuickOpen('content'); setTimeout(focusContentSearchExtensions, 0); },
   excludeSearchNoise: function () { openQuickOpen('content'); toggleContentSearchNoise(); },
-  // ⌥A and ⌥U name the two compare states outright instead of toggling between them: a toggle is only
-  // usable if you already know which one you are on, and not knowing that is why you reached for the key.
   compareMode: function (event, i) { pickCompareMode(['all', 'uncommitted', 'tip', 'since'][i] || 'all'); },
   openPullRequest: function () { return openPullRequestPrompt() ? undefined : false; },
   patchSetStep: function (event, i) { return stepPatchSet(i ? -1 : 1) ? undefined : false; },
   compareRef: function () { openCompareBranchPicker(); },
-  // ⌘B is IntelliJ's chord and keeps IntelliJ's meaning wherever the caret is, the diff included: the
-  // symbol under it, resolved. ⌘↓ is this app's own second key for the same row and keeps the answer it
-  // has always given in a diff — open the file this row belongs to — which is what a reader wants from a
-  // diff row more often than a jump, and which ⌘-click does not take away because it is semantic too.
   goToDef: function (event, i) {
     if (isSourceViewerVisible() || i === 0) goToDefinitionUnderCursor();
     else openDiffFileAtCaret();
@@ -305,9 +196,6 @@ var SHORTCUT_ACTIONS = {
   },
   goToImplementation: function () { goToImplementation(); },
   defUsages: function () { findUsagesUnderCursor(); },
-  // The grouped view, the in-file highlight and its two step keys. Each declines when there is nothing to
-  // act on — no symbol under the caret, no source view up — so the chord falls through instead of being
-  // swallowed, which is what every other navigation entry here does.
   findUsages: function () {
     if (treeFocusIndex >= 0) return false;
     return openFindUsages() ? undefined : false;
@@ -325,10 +213,7 @@ var SHORTCUT_ACTIONS = {
     cycleSourceTab(i ? 1 : -1);
   },
   cursorBackForward: function (event, i) {
-    clearTreeFocus(); // jumping the cursor history moves the caret, so arrows follow it
-    // Declines at the ends of the history instead of consuming the key. It never returned false, so ⌘]
-    // with an empty forward stack was preventDefault-ed with nothing to show — indistinguishable from a
-    // key that does not work, and it is also what let ⌘⇧] reach this action at all (see shortcutChords).
+    clearTreeFocus();
     return (i ? navForward() : navBack()) ? undefined : false;
   },
   toggleRendered: function () {
@@ -337,9 +222,6 @@ var SHORTCUT_ACTIONS = {
     toggleRenderMode();
   },
   toggleLineWrap: function () { return toggleLineWrap() ? undefined : false; },
-  // The six reading switches (RENDER_TOGGLES in 01-core.js). Each is a persisted boolean and an attribute
-  // on <html>; the stylesheet does the rest, so there is nothing here to re-render. The four that act on
-  // code decline outside it, the way every other `where: "code"` entry does.
   showWhitespace: function () { return isCodeSurfaceVisible() ? toggleRenderToggle('showWhitespace') : false; },
   indentGuides: function () { return isCodeSurfaceVisible() ? toggleRenderToggle('indentGuides') : false; },
   stickyLines: function () { return isCodeSurfaceVisible() ? toggleRenderToggle('stickyLines') : false; },
@@ -351,27 +233,13 @@ var SHORTCUT_ACTIONS = {
   copyAsPatch: function () { return copyActiveFileAsPatch() ? undefined : false; },
   compareClipboard: function () { return compareClipboardWithFile() ? undefined : false; },
   runHttp: function (event, i) {
-    // A focused tree owns Enter and ⌥Enter outright (handleTreeKey: open the row / row actions). That used
-    // to be settled by sitting below the tree in the chain; it is said here now, because the order a table
-    // walks in is not something a reader of this entry can see.
     if (treeFocusIndex >= 0) return false;
-    // The diff shows .http files too, and the request on the new side is the one the file now says to
-    // send. This used to be gated on the source view being up, so the key did nothing there.
     var enterPath = isSourceViewerVisible() ? sourceOpenPath() : '';
     if (enterPath && isHttpFile(enterPath)) { runHttpAtCaret(); return; }
     if (!isSourceViewerVisible() && isDiffViewVisible() && runDiffHttpAtCaret()) return;
-    // ⌥Enter on a diagnostic line drafts a "fix this" change-request comment for the agent. On BOTH
-    // surfaces: this sat below an early `return false` for the diff, so pressing it beside a problem F2
-    // had just jumped to did nothing at all — in the view where the reviewer is reading the change, and
-    // therefore the view where "write this one up for the agent" is the whole point of the key.
     if (i === 1 && createFixCommentAtCaret()) return;
     return false;
   },
-  // Both decline (return false) outside a .http file, so the chord stays available to anything else.
-  // Checked synchronously here rather than inside the async runner: a promise is always truthy, so
-  // "did it handle the key?" cannot be answered by its return value.
-  // Structure navigation. Each declines (returns false) when it has nothing to act on, so the chord
-  // falls through to whatever else wants it rather than being swallowed on a file with no symbols.
   typeDeclaration: function () {
     if (treeFocusIndex >= 0) return false;
     goToTypeDeclaration();
@@ -384,7 +252,6 @@ var SHORTCUT_ACTIONS = {
     if (treeFocusIndex >= 0 || isFloatingModalOpen()) return false;
     return goToNextSymbol(i ? -1 : 1) ? undefined : false;
   },
-  // Index 0 is ⌥↑ (grow), 1 is ⌥↓ (shrink) — the order the row spells them, which is IntelliJ's.
   extendShrinkSelection: function (event, i) {
     if (treeFocusIndex >= 0 || isFloatingModalOpen()) return false;
     return extendShrinkSelection(i === 0) ? undefined : false;
@@ -394,15 +261,7 @@ var SHORTCUT_ACTIONS = {
     return openEndpoints() ? undefined : false;
   },
   recentLocations: function () { return openRecentLocations() ? undefined : false; },
-  // ⌘P is the file list on its own; ⇧⇧ is the All tab — one list merging recent files, files, symbols
-  // and actions, with the tab strip beside it. That is what Search Everywhere is: the strip is a tab
-  // strip, not a menu of separate searches, so ⌘P's own list keeps it (the chord names a tab) while
-  // nothing about it is "hidden" any more.
   searchFiles: function () { openQuickOpen('all'); },
-  // `seNextTab` / `sePrevTab` deliberately have no entry here: they only mean anything while the dialog
-  // is up, and the dialog answers every key itself (handleQuickLauncherTabKey, 24-search-everywhere.js).
-  // A dispatcher entry would also put them in the command palette, which lists the commands that work
-  // from a cold start — see the note in 19-find-action.js.
   searchEverywhere: function () { switchQuickLauncherSection('everywhere'); },
   goToTest: function () { return goToTestCounterpart() ? undefined : false; },
   typeHierarchy: function () {
@@ -421,11 +280,8 @@ var SHORTCUT_ACTIONS = {
     if (treeFocusIndex >= 0) return false;
     goToSuperDeclaration();
   },
-  // No tree guard: F3 means "mark the line the caret is on", and the caret is in the file whether or not
-  // the sidebar happens to hold the logical focus. There is no other F3 to stand down for.
   toggleBookmark: function () { return toggleBookmarkAtCaret() ? undefined : false; },
   showBookmarks: function () { return openBookmarks() ? undefined : false; },
-  // `i` is which of the nine keys fired, so one entry covers all of them.
   assignBookmark: function (event, i) { return assignBookmarkMnemonic(i + 1) ? undefined : false; },
   jumpBookmark: function (event, i) { return goToBookmarkMnemonic(i + 1) ? undefined : false; },
 
@@ -443,22 +299,9 @@ var SHORTCUT_ACTIONS = {
   },
 };
 
-// Dispatch scope, by id. Everything else in SHORTCUT_ACTIONS is content-level — the review itself.
-//   window   fires unless a true modal (settings, go-to-line) owns the keyboard outright
-//   review   also fires from a focused text field: these move a cursor and never insert text, and the
-//            composer is exactly where you are when the note you want to step to is why you are typing
-// `findAction` is here because a command palette that only opens when nothing else has the keyboard is a
-// palette you cannot reach when you need it: typing in the composer, or with the dock focused, ⌘⇧A did
-// nothing and said nothing — and looking a command up is most useful precisely when you have stopped
-// knowing which key it is. IntelliJ's Find Action answers from anywhere too. A true modal still stands it
-// down, which is the one case where another surface genuinely owns the keyboard.
 var WINDOW_SHORTCUT_IDS = ['maximizePanel', 'allComments', 'openHistory', 'filesChangesTab', 'undoCommentRemoval', 'revealInTree', 'findAction'];
 var REVIEW_SHORTCUT_IDS = ['nextChange', 'prevChange', 'nextComment'];
 
-/**
- * Run whichever of `ids` this event is. True when one of them consumed the key.
- * A chord shared across surfaces offers several candidates; each is tried until one does not decline.
- */
 function runShortcut(event, ids) {
   var hits = shortcutHits(event);
   for (var i = 0; i < hits.length; i += 1) {
@@ -479,20 +322,11 @@ function contentShortcutIds() {
 }
 var contentShortcutIdsCache;
 
-// F7 forward from the source view enters the diff at the open file's own hunk, so the reviewer lands where
-// they were reading. Shift+F7 — and any file with no hunk of its own — falls through to plain prev/next.
 function stepToChange(delta) {
-  // Navigating changes moves the CODE caret, so arrows have to follow it. The sidebar owns arrows while
-  // treeFocusIndex >= 0, and nothing here focuses a DOM node inside the diff, so that index survived: after
-  // clicking a file in the tree and then pressing F7, the caret moved but arrows still drove the tree.
-  // (Not in setDiffCursor — a sidebar CLICK legitimately keeps its row focused while opening the diff.)
   clearTreeFocus();
   if (delta > 0 && isSourceViewerVisible()) {
     var sp = sourceOpenPath();
     var sourceHunk = firstHunkForPath(sp);
-    // Enter the diff at the open file's own hunk — UNLESS it's already viewed. A viewed file's diff body
-    // is hidden (display:none), so landing on it blanks the content and F7 appears stuck; fall through to
-    // next() instead so we skip to an unviewed change.
     if (sourceHunk >= 0 && !isFileViewed(sp)) { setActive(sourceHunk); return; }
   }
   next(delta);
@@ -503,66 +337,39 @@ function closeHistoryIfOpen() {
 }
 document.addEventListener('keydown', (event) => {
   for (var oi = 0; oi < KEY_OWNERS.length; oi += 1) {
-    // Each owner does its own preventDefault/stopPropagation — Quick Open in particular must NOT prevent an
-    // unhandled key's default, so the loop cannot do it on their behalf.
     if (KEY_OWNERS[oi].handle(event)) return;
   }
 
-  // ---- the shortcut table ------------------------------------------------------------------------
-  // Window-level shortcuts belong to the window, not to whatever has focus, so they fire from a focused
-  // dock or the History overlay too. A true modal (settings, go-to-line) is the one thing that stands them
-  // down — it owns the keyboard while it is up. Adding one is a row in the table and an entry in
-  // SHORTCUT_ACTIONS, never another branch with its own hand-written guard; the eight `!settingsUp &&`
-  // conditions this replaces were where the "above or below the focus guard?" mistakes kept happening.
   var scope = keyboardScope();
   if (scope !== 'modal' && runShortcut(event, WINDOW_SHORTCUT_IDS)) return;
 
-  // The bare navigation F-keys sit just above the content stand-down: they move a cursor and never insert
-  // text, so a focused text field — a comment composer, which is exactly where you are when the note you
-  // want to step to is the reason you are typing — must not swallow them. A focused PANEL still does: the
-  // dock owns its keys outright, and F7 inside the merged dock has always meant nothing.
   if ((scope === 'content' || scope === 'field') && runShortcut(event, REVIEW_SHORTCUT_IDS)) return;
 
-  // Settings overlay (or a focused merged dock) captures keys: stand down the rest of the global
-  // shortcuts (F7, Cmd+[/], Cmd+B, …). Each has its own Esc + editing handlers.
   if (isFloatingModalOpen()) return;
 
-  // Every chorded shortcut of the review, in one walk. The guard that used to sit in each branch
-  // ("is an INPUT focused?") is gone because it could never fire: isFloatingModalOpen() above already
-  // means the scope is 'content', and 'content' is by definition not a text field — ten copies of a
-  // condition that was always true. What a shortcut still owns is its own applicability, which it says by
-  // returning false (SHORTCUT_ACTIONS), not by where it sits in a chain.
   if (runShortcut(event, contentShortcutIds())) return;
 
-  // Tab / Shift+Tab move the "cursor" horizontally between the left sidebar and the right content pane.
   if (event.key === 'Tab') {
     const activeEl = document.activeElement;
     const inField = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'SELECT');
     if (!inField) {
       event.preventDefault();
       if (event.shiftKey) {
-        // In the diff view, Shift+Tab toggles the caret between the old/new panes (this change owns
-        // Shift+Tab L/R; plain arrows stay in-pane and Cmd/Ctrl+Arrows also cross — see diff nav).
         if (isDiffViewVisible() && diffCursor) {
           const tabSide = diffCursor.side === 'new' ? 'old' : 'new';
           const tabWrap = diffWrapperByPath(diffCursor.path);
           const tabRow = tabWrap ? diffRowAt(tabWrap, tabSide, diffCursor.rowIndex) : null;
-          // An added line has no base row and a deleted line has no working-tree row: the other pane holds
-          // a placeholder there, not a line. Say which, instead of the nothing this used to do — on a
-          // changed line, the one place a reviewer most wants to look across, the key appeared broken.
           if (isDiffCodeRow(tabRow)) setDiffCursor(diffCursor.path, tabSide, diffCursor.rowIndex, 0, true);
           else showCaretHint(t(tabSide === 'old' ? 'diff.noBaseLine' : 'diff.noWorkingLine'));
           return;
         }
-        focusTree(treeFocusIndex >= 0 ? treeFocusIndex : 0); // ← left: focus sidebar tree
+        focusTree(treeFocusIndex >= 0 ? treeFocusIndex : 0);
       } else {
-        clearTreeFocus(); // → right: hand focus back to the content pane (source caret / diff nav)
+        clearTreeFocus();
         const openPath = sourceOpenPath();
         if (isSourceViewerVisible() && openPath && (!viewerCursor || viewerCursor.path !== openPath)) {
           setSourceCursor(openPath, viewerCursor ? viewerCursor.lineIndex : 0, 0, false, -1);
         }
-        // Forced, because Tab pressed in the pane that already has the keyboard has nothing to move and
-        // was therefore completely silent. The flash is the app's own "the keys arrive here" cue.
         flashReviewPanelFocus(isSourceViewerVisible()
           ? document.getElementById('source-body')
           : document.getElementById('diff2html-container'), true);
@@ -571,7 +378,6 @@ document.addEventListener('keydown', (event) => {
     }
   }
 
-  // Opt/Alt + Left/Right: word-wise caret jump (source or diff view).
   if (event.altKey && !event.metaKey && !event.ctrlKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
     var wae = document.activeElement;
     var wInField = wae && (wae.tagName === 'INPUT' || wae.tagName === 'TEXTAREA' || wae.tagName === 'SELECT');
@@ -582,9 +388,6 @@ document.addEventListener('keydown', (event) => {
     }
   }
 
-  // PageUp/Down scroll the diff/source view. There's no focusable scroller (the diff caret is a JS cursor),
-  // and d2h-file-side-diff's horizontal scrollport even swallows vertical wheel, so handle paging explicitly.
-  // Only when the tree isn't focused — the tree pages itself in handleTreeKey below.
   if (treeFocusIndex < 0 && (event.key === 'PageDown' || event.key === 'PageUp') && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey) {
     var psc = isDiffViewVisible() ? document.getElementById('diff2html-container') : (isSourceViewerVisible() ? document.getElementById('source-body') : null);
     if (psc) { event.preventDefault(); psc.scrollTop += (event.key === 'PageDown' ? 0.9 : -0.9) * psc.clientHeight; return; }
@@ -607,16 +410,6 @@ document.addEventListener('keydown', (event) => {
     return;
   }
 
-  // Diff view: Cmd/Ctrl + Left/Right goes to the line start / end; pressing it again AT the
-  // edge crosses to the adjacent pane (Left -> old, Right -> new). Plain arrows never cross.
-  //
-  // With Shift it SELECTS to that edge instead, the same as Cmd+Shift+Left/Right in any editor. setDiffCursor
-  // drops diffSelectionAnchor on every caret placement (it cannot tell a jump from an extend), so the anchor
-  // is captured before the move and put back after — exactly what moveDiffCursor already does for plain
-  // Shift+Arrow (06-diff-caret.js). Without it this branch moved the caret to the line edge and cleared the
-  // selection on the way, so Cmd+Shift+Arrow was the one selection gesture that could not be made here.
-  // Shift also suppresses the pane crossing: a selection that spans the old and new panes is not a thing
-  // (applyDiffSelection drops any anchor from the other side anyway), so at the edge it simply stops.
   if ((event.metaKey || event.ctrlKey) && !event.altKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight') && isDiffViewVisible() && diffCursor) {
     event.preventDefault();
     const edgeWrap = diffWrapperByPath(diffCursor.path);
@@ -628,15 +421,15 @@ document.addEventListener('keydown', (event) => {
       : null;
     if (event.key === 'ArrowLeft') {
       if (diffCursor.column > 0) {
-        setDiffCursor(diffCursor.path, diffCursor.side, diffCursor.rowIndex, 0, true); // -> line start
-      } else if (!edgeExtend && diffCursor.side === 'new') { // already at start -> cross to old (left)
+        setDiffCursor(diffCursor.path, diffCursor.side, diffCursor.rowIndex, 0, true);
+      } else if (!edgeExtend && diffCursor.side === 'new') {
         const oldRow = edgeWrap ? diffRowAt(edgeWrap, 'old', diffCursor.rowIndex) : null;
         if (isDiffCodeRow(oldRow)) setDiffCursor(diffCursor.path, 'old', diffCursor.rowIndex, diffLineText(oldRow).length, true);
       }
-    } else { // ArrowRight
+    } else {
       if (diffCursor.column < edgeLen) {
-        setDiffCursor(diffCursor.path, diffCursor.side, diffCursor.rowIndex, edgeLen, true); // -> line end
-      } else if (!edgeExtend && diffCursor.side === 'old') { // already at end -> cross to new (right)
+        setDiffCursor(diffCursor.path, diffCursor.side, diffCursor.rowIndex, edgeLen, true);
+      } else if (!edgeExtend && diffCursor.side === 'old') {
         const newRow = edgeWrap ? diffRowAt(edgeWrap, 'new', diffCursor.rowIndex) : null;
         if (isDiffCodeRow(newRow)) setDiffCursor(diffCursor.path, 'new', diffCursor.rowIndex, 0, true);
       }
@@ -644,12 +437,10 @@ document.addEventListener('keydown', (event) => {
     if (edgeAnchor) { diffSelectionAnchor = edgeAnchor; applyDiffSelection(); }
     return;
   }
-
 });
 
 quickInput?.addEventListener('input', () => renderQuickOpenResults());
 quickExtensionInput?.addEventListener('input', restartContentSearch);
-// One button, two lists: in the usage view it means "comments, strings and tests are noise" (⌥P there too).
 quickExcludeNoiseButton?.addEventListener('click', function () {
   if (quickMode === 'usages') toggleUsageViewNoise();
   else toggleContentSearchNoise();
@@ -689,15 +480,9 @@ document.getElementById('usages')?.addEventListener('click', function (event) {
   if (event.target && event.target.id === 'usages') closeUsages();
 });
 
-// Delegated (like #files-panel below) so it survives the in-place diff update that re-captures `links`
-// on every watch tick — per-element listeners would be lost on the new nodes, and then Cmd+2 → arrow →
-// Enter (which calls row.click()) would silently do nothing.
 document.getElementById('changes-panel')?.addEventListener('click', (event) => {
   const link = event.target && event.target.closest ? event.target.closest('.file-link') : null;
   if (!link) return;
-  // The viewed box is inside the row's anchor, so its click would otherwise also open the file — which is
-  // the opposite of what ticking "I've read this" means. It toggles and stops there; Space on the focused
-  // row (04-source-tree.js) is the same action from the keyboard.
   if (event.target.closest('.viewed-box')) {
     event.preventDefault();
     event.stopPropagation();
@@ -705,7 +490,6 @@ document.getElementById('changes-panel')?.addEventListener('click', (event) => {
     if (viewedFile && currentFileSignature(viewedFile)) setFileViewed(viewedFile, !isFileViewed(viewedFile));
     return;
   }
-  // Shift+Click extends a multi-file selection (for batch "mark as viewed" with Space) instead of opening.
   if (event.shiftKey && extendTreeSelectionToRow(link)) {
     event.preventDefault();
     return;
@@ -715,15 +499,13 @@ document.getElementById('changes-panel')?.addEventListener('click', (event) => {
   const target = diffHunkForLink(link);
   if (target >= 0) {
     event.preventDefault();
-    setActive(target, true, true); // explicit selection always opens this file, even when it is already viewed
+    setActive(target, true, true);
   } else if (activateDiffFile(link.dataset.file, true)) {
-    // A changed file with no hunks of its own — opened by path, because it has no hunk to aim at.
     event.preventDefault();
   }
   if (pointerSelection) focusTreeRowFromPointer(link);
 });
 
-// Delegated so it works whether the tree is inline (small repos) or materialized later (big repos).
 document.getElementById('files-panel')?.addEventListener('click', (event) => {
   const link = event.target && event.target.closest ? event.target.closest('.source-link') : null;
   if (!link || !link.dataset.sourceFile) return;
@@ -732,9 +514,6 @@ document.getElementById('files-panel')?.addEventListener('click', (event) => {
   if (pointerSelection) focusTreeRowFromPointer(link);
 });
 
-// The header icons are the pointer half of ⌘2/⌘1 now that the activity rail is gone, so they do what those
-// keys do — bring the matching view forward, not just swap which tree the sidebar shows. Clicking "Changes"
-// while reading a source file used to leave the file on screen with the Changes tree beside it.
 document.querySelectorAll('.sidebar-switch-item').forEach((button) => {
   button.addEventListener('click', () => {
     if ((button.dataset.tab || 'changes') === 'files') activateFilesView();
@@ -751,23 +530,17 @@ document.getElementById('source-tabs')?.addEventListener('click', function (even
   var tab = event.target && event.target.closest && event.target.closest('.source-tab');
   if (tab) openSourceFile(tab.getAttribute('data-tab-path'));
 });
-// The incoming-review banner's one way out. Delegated because the banner is re-rendered from every watch
-// payload — a listener bound to the button would be lost the first time the review refreshed under it.
 document.addEventListener('click', function (event) {
   if (event.target && event.target.closest && event.target.closest('#compare-open-history')) openHistory();
 });
 document.getElementById('diff-prev-change')?.addEventListener('click', function () { next(-1); });
 document.getElementById('diff-next-change')?.addEventListener('click', function () { next(1); });
-// The file arrows beside them. goToDiffFile answers for both the buttons and ⌘⇧→/⌘⇧←, so a click and
-// the chord step the stack the same way — including opening a file that was collapsed.
 document.getElementById('diff-prev-file')?.addEventListener('click', function () { goToDiffFile(-1); });
 document.getElementById('diff-next-file')?.addEventListener('click', function () { goToDiffFile(1); });
 document.getElementById('diff-open-source')?.addEventListener('click', function () { openDiffFileAtCaret(); });
 document.getElementById('diff-sidebar-toggle')?.addEventListener('click', function () { toggleReviewSidebar(); });
 document.getElementById('source-body')?.addEventListener('mousemove', updateCmdLink);
 document.getElementById('source-body')?.addEventListener('mouseleave', hideCmdLink);
-// The modifier can be released without the mouse moving, and a scroll moves the code out from under a
-// measured rectangle — both leave the underline pointing at nothing.
 document.addEventListener('keyup', function (event) { if (event.key === 'Meta' || event.key === 'Control') hideCmdLink(); });
 document.getElementById('source-body')?.addEventListener('scroll', hideCmdLink, true);
 document.getElementById('source-body')?.addEventListener('click', handleSourceClick);
@@ -777,10 +550,6 @@ document.getElementById('source-body')?.addEventListener('click', function (even
   if (img) openLightbox(img.getAttribute('src'), img.getAttribute('alt'));
 });
 
-// One consistent tooltip for controls that have an explicit application shortcut, including controls
-// created after startup. Do not synthesize an Enter tooltip for ordinary buttons: list rows, tabs and menu
-// items already state their action on screen, so repeating that label in a large bubble only obscures content.
-// Custom select triggers are excluded, and activity-rail buttons keep their own tooltip.
 (function installButtonShortcutHints() {
   var hint = document.createElement('div');
   hint.id = 'mc-button-hint';
@@ -791,8 +560,6 @@ document.getElementById('source-body')?.addEventListener('click', function (even
   var owner = null;
   function buttonFor(target) {
     var button = target && target.closest ? target.closest('button') : null;
-    // The launcher's rail rows print their own shortcut on the row, so a bubble repeating it under the
-    // cursor says nothing and covers the row below — same reason .rail-btn is excluded.
     return button && button.hasAttribute('data-keyhint')
       && !button.classList.contains('rail-btn') && !button.classList.contains('mc-select')
       && !button.classList.contains('quick-open-side-item')
@@ -807,8 +574,6 @@ document.getElementById('source-body')?.addEventListener('click', function (even
     if (!button || !button.isConnected) return;
     owner = button;
     hint.querySelector('.mc-button-hint-label').textContent = buttonLabel(button);
-    // The custom bubble replaces the browser's delayed native `title` bubble. Keeping both produced two
-    // overlapping shortcut guides over Viewed and other toolbar controls.
     if (button.hasAttribute('title')) {
       button.setAttribute('data-hint-title', button.getAttribute('title') || '');
       button.removeAttribute('title');
@@ -865,57 +630,37 @@ document.getElementById('source-body')?.addEventListener('click', function (even
   }, { capture: true, passive: true });
 })();
 
-applyI18n(); // first paint already shows English (inline); this swaps to the saved locale before the rest of init renders dynamic text
-// The server emits the branch as one run of text, which is the right fallback and the wrong shape once
-// it has to be cut. Split it into head/tail here, once, on the name the document arrived with.
+applyI18n();
 (function () {
-  // Every match: the chip is rendered into both toolbars (render.ts branchChip), and getElementById would
-  // have split the head/tail once, on whichever copy the document happened to put first.
   document.querySelectorAll('.brand-branch-name').forEach(function (chip) {
     applyBranchChip(chip, chip.textContent || '');
   });
 }());
 populateHttpEnvSelect();
-// A named file beats the restored tabs: the reader just asked for it on the command line, and that is a
-// more recent statement of intent than wherever they were when they last closed this repo.
 const restored = REVIEW_OPEN_PATH ? (openSourceFile(REVIEW_OPEN_PATH), true) : restoreUiState();
 if (!restored) {
   const initial = location.hash.match(/^#hunk-(\d+)$/);
   const hasDiff = Boolean(document.querySelector('#diff2html-container .d2h-file-wrapper'));
   if (initial) setActive(Number(initial[1]), false);
-  // Clean tree (nothing to review): open a file (README first) instead of staring at an empty diff.
   else if (!hasDiff) openDefaultSourceFile();
-  else if (REVIEW_LAZY_LOAD) showDiffView(false); // big repos with changes: open to the diff (Changes); the source tree stays deferred until the Files tab is opened
+  else if (REVIEW_LAZY_LOAD) showDiffView(false);
   else openDefaultSourceFile();
 }
 initSourceTreeFolds();
 initChangesTreeFolds();
-// Electron receives live updates over IPC (kakapoMenu.onDiffUpdate); only serve/browser needs the HTTP
-// poller. Under file:// its fetch just fails every 1.5s for the app's whole life, so skip it in Electron.
 if (watchEnabled && !(window.kakapoMenu && typeof window.kakapoMenu.onDiffUpdate === 'function')) {
   setInterval(checkForLiveUpdate, 1500);
 }
 window.addEventListener('beforeunload', saveUiState);
 
-// A menu item asked for one of the reading actions. It arrives as the shortcut's own id and runs through
-// SHORTCUT_ACTIONS — the same entry the chord dispatches to, called with the same (event, index) shape —
-// so there is one implementation of each and the menu cannot drift from the key. A handler that declines
-// (returns false) declines here too: View → Show Whitespaces with no file open does nothing, exactly as
-// ⇧⌥W does.
 if (window.kakapoMenu && typeof window.kakapoMenu.onReadingAction === 'function') {
   window.kakapoMenu.onReadingAction(function (id, index) {
-    // A plain truthiness check, not a typeof one: test/viewer-slices.test.mjs reads every typeof guard in
-    // this directory as a claim about a GLOBAL — and it reads the COMMENTS too, so the phrase cannot be
-    // written here either. This is a table lookup. `id` comes from a menu item built out of the same
-    // table, so a miss means the two have gone out of step, and nothing happening is the right answer.
     var action = SHORTCUT_ACTIONS[id];
     if (!action) return;
     action(new KeyboardEvent('keydown'), Number(index) || 0);
   });
 }
 
-// First render has painted — drop the boot overlay (it bridged the blank gap right after loadFile). Two
-// rAFs so the Kakapo loading mark stays until the diff/tree are actually on screen, then a short fade-out.
 (function () {
   var ov = document.getElementById('boot-overlay');
   if (!ov) return;
@@ -950,8 +695,6 @@ if (window.kakapoMenu && typeof window.kakapoMenu.onReadingAction === 'function'
   });
   document.addEventListener('mousemove', (event) => {
     if (!resizing) return;
-    // Subtract the activity rail's width: the sidebar starts to its right, so its width is the cursor X
-    // minus the rail offset (not clientX itself, which would over-size it by the rail width).
     const railW = parseFloat(getComputedStyle(document.body).getPropertyValue('--rail-width')) || 0;
     const width = Math.min(640, Math.max(180, event.clientX - railW));
     document.documentElement.style.setProperty('--sidebar-width', width + 'px');
@@ -968,9 +711,6 @@ if (window.kakapoMenu && typeof window.kakapoMenu.onReadingAction === 'function'
 (function setupDiffCaret() {
   const container = document.getElementById('diff2html-container');
   if (!container) return;
-  // No contenteditable: the diff caret is the JS diffCursor. A native contenteditable caret
-  // would render a second blinking cursor alongside it. Text selection (for comment capture)
-  // still works on non-editable content.
   container.setAttribute('aria-readonly', 'true');
   container.querySelectorAll('.d2h-code-side-linenumber, .d2h-code-linenumber, .d2h-code-line-prefix').forEach((el) => el.setAttribute('contenteditable', 'false'));
   const inComment = (event) => Boolean(event.target && event.target.closest && event.target.closest('.mc-comment-row'));
@@ -980,12 +720,6 @@ if (window.kakapoMenu && typeof window.kakapoMenu.onReadingAction === 'function'
   container.addEventListener('beforeinput', block);
   container.addEventListener('paste', block);
   container.addEventListener('drop', block);
-  // 'dragstart' is NOT in this list. The other three stop the diff being EDITED — typed into, pasted
-  // into, dropped onto — and dragging a selection OUT of it edits nothing; it is a way of reading, the
-  // same as Cmd+C. Grouped with them it silently removed drag-and-drop of selected code to another
-  // window, and only from the diff: the source view never blocked it, and that asymmetry is what gives
-  // the grouping away as a reflex rather than a decision. The app's own selection IS the native one
-  // (see test/drag-select.test.mjs), so nothing here is protecting a gesture of its own either.
   container.addEventListener('keydown', (event) => {
     if (inComment(event)) return;
     if (event.metaKey || event.ctrlKey || event.altKey) return;
@@ -995,19 +729,10 @@ if (window.kakapoMenu && typeof window.kakapoMenu.onReadingAction === 'function'
   });
   container.addEventListener('click', (event) => {
     if (inComment(event)) return;
-    // The second click is completed by the dblclick handler below. Re-inserting the fake caret here would
-    // split the target text a second time and erase Chromium's pending word selection.
     if (Number(event.detail) > 1) return;
-    // The tail of a drag, for the same reason: repainting the caret re-splits the text nodes the selection
-    // is anchored in, so every attempt to select code by dragging ended with nothing selected.
     if (selectedText()) return;
     const info = diffRowInfoFromNode(event.target);
     if (!info || !info.path) return;
-    // Land the caret where the pointer is, not at the start of the line. The column was hard-coded to 0 here
-    // while the dblclick handler right below already asked estimateColumnFromClick for the real one — so a
-    // double click selected the word under the pointer, and the single click that preceded it threw that
-    // same information away. Clicks outside the code cell (the line-number gutter, the row's padding) have no
-    // column to speak of and still start the line.
     const code = event.target?.closest?.('.d2h-code-line-ctn');
     const row = code?.closest?.('tr');
     const column = code && row && isDiffCodeRow(row) ? estimateColumnFromClick(code, event, diffLineText(row)) : 0;

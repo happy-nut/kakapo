@@ -1,7 +1,3 @@
-// CORE USER FLOW: the source preview shows the changed file's content.
-//
-// A selected folder inside a monorepo is a first-class review workspace. Git still uses the enclosing
-// repository, but diff/source paths are rebased to the selected folder and sibling packages are excluded.
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -18,12 +14,10 @@ after(() => {
     try {
       rmSync(d, { recursive: true, force: true });
     } catch {
-      /* best effort */
     }
   }
 });
 
-// A repo whose changed file lives in a subdirectory, so repo-root-relative != cwd-relative.
 function repoWithSubdirChange() {
   const dir = mkdtempSync(join(tmpdir(), "mc-subroot-"));
   made.push(dir);
@@ -52,7 +46,7 @@ async function buildFrom(cwd) {
       includeUntracked: true,
       context: 12,
       title: "t",
-      lazyLoad: false, // embed source so we can assert on it directly
+      lazyLoad: false,
       app: false,
     });
   } finally {
@@ -72,7 +66,7 @@ test("repo root run: the changed file's source is embedded (not missing)", async
 
 test("subdirectory run (cwd != repo root): selected folder is an isolated monorepo workspace", async () => {
   const dir = repoWithSubdirChange();
-  const build = await buildFrom(join(dir, "pkg")); // run `kakapo` from a subdir
+  const build = await buildFrom(join(dir, "pkg"));
   const source = build.update?.sourceFilesMeta.find((file) => file.path === "app.ts");
   assert.ok(source, "source paths are relative to the explicitly opened folder");
   assert.equal(source.embedded, true);

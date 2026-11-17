@@ -1,15 +1,8 @@
-// ===== Mermaid: lazy-loaded diagram rendering for any Markdown body that embeds a ```mermaid fence. =====
-//
-// Lazy-loads Mermaid through a <script> pointed at the
-// narrow kakapo-asset:// scheme, so ordinary diff review (which never renders a diagram) pays no parse cost
-// for a multi-MB library. Cached after the first successful load.
 var mermaidLoad = null;
 function loadMermaid() {
   if (window.mermaid) return Promise.resolve(window.mermaid);
   if (mermaidLoad) return mermaidLoad;
   mermaidLoad = new Promise(function (resolve, reject) {
-    // A custom-scheme script that neither loads nor errors would leave every diagram on "loading…" forever.
-    // Bound the wait so the failure is visible and retryable instead of silent.
     var timer = setTimeout(function () { reject(new Error('mermaid load timed out')); }, 15000);
     var settle = function (fn, value) { clearTimeout(timer); fn(value); };
     var script = document.createElement('script');
@@ -23,9 +16,6 @@ function loadMermaid() {
   }).catch(function (error) { mermaidLoad = null; throw error; });
   return mermaidLoad;
 }
-// Reads kakapo's own theme CSS variables so Mermaid's rendered SVG (dark or light) matches the app chrome
-// instead of Mermaid's own default palette — the same "read the live custom properties" trick historyRowSvg
-// uses for its halo stroke, just gathered into Mermaid's themeVariables shape.
 function mermaidThemeVariables() {
   var style = getComputedStyle(document.documentElement);
   function v(name, fallback) { var val = style.getPropertyValue(name); return val ? val.trim() : fallback; }
@@ -40,37 +30,26 @@ function mermaidThemeVariables() {
     noteBkgColor: elevated, noteBorderColor: border, noteTextColor: text,
   };
 }
-// Registry of pending Mermaid source strings, keyed by the placeholder div's id — sidesteps HTML-attribute
-// escaping entirely for multi-line Mermaid syntax (vs. stuffing it into a data-* attribute).
 var mermaidSources = {};
 var mermaidSeq = 0;
-// Emit a placeholder for one Mermaid source string; renderMermaidDiagrams() swaps in the SVG afterwards.
 function mermaidPlaceholderHtml(src) {
   mermaidSeq += 1;
   var id = 'explain-mermaid-' + mermaidSeq;
   mermaidSources[id] = String(src);
-  // The source also rides along IN the placeholder. The registry above is a module variable: a card
-  // re-rendered from cached HTML, or the same note after a reload, arrives with an id whose entry no longer
-  // exists — and the renderer then returned silently, leaving "loading…" on screen for good.
   return '<div class="explain-mermaid" id="' + id + '">'
     + '<pre class="explain-mermaid-src" hidden>' + escapeHtml(String(src)) + '</pre>'
     + '<span class="explain-mermaid-status">' + escapeHtml(t('explain.diagramLoading')) + '</span></div>';
 }
-// `root` is any container (usually the whole document, for note cards scattered through the diff).
-// Already-rendered nodes are skipped, so calling this after every comment refresh is near-free.
 function renderMermaidDiagrams(root) {
   var nodes = Array.prototype.slice.call(root.querySelectorAll('.explain-mermaid')).filter(function (node) {
     return !node.dataset.mermaidDone;
   });
   if (!nodes.length) return;
   loadMermaid().then(function (mermaid) {
-    // Re-initialize on every render pass (cheap) so theme variables stay current across a light/dark toggle,
-    // rather than freezing whatever theme was active on the first render.
     mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: 'base', themeVariables: mermaidThemeVariables() });
     nodes.forEach(function (node) {
       var carried = node.querySelector('.explain-mermaid-src');
       var src = mermaidSources[node.id] || (carried ? carried.textContent : '');
-      // No source at all is a broken diagram, not a permanent "loading…".
       if (!src) { node.dataset.mermaidDone = '1'; node.textContent = t('explain.diagramInvalid'); return; }
       node.dataset.mermaidDone = '1';
       mermaid.render(node.id + '-svg', src).then(function (result) {
@@ -128,7 +107,7 @@ document.addEventListener('click', function (event) {
     if (path) navigateToLine(path, line > 0 ? line : 1);
     return;
   }
-  if (link) return; // an ordinary link in a diagram keeps its own meaning
+  if (link) return;
   var svg = host.querySelector('svg');
   var url = svg ? mermaidSvgDataUrl(svg) : '';
   if (url) { event.preventDefault(); openLightbox(url, t('diagram.zoom'), true); }

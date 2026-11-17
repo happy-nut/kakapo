@@ -1,13 +1,3 @@
-// Does the work under review collide with what has landed on its base?
-//
-// Every case here is built as a real repository, because the whole feature is an assertion about what git
-// itself would do. The three outcomes that matter are: both sides changed the same lines (a conflict), both
-// sides changed the same file in different places (worth knowing, not a conflict), and a base that has not
-// moved (nothing to say, and the cheap path).
-//
-// The important one is UNCOMMITTED work. kakapo exists to read changes an agent has just written, which are
-// not commits yet, so `git merge-tree` — which compares two commits — is silent in precisely the case this
-// has to answer. These tests leave the review side in the working tree on purpose.
 import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -31,8 +21,6 @@ function write(root, path, content) {
 }
 const TEN_LINES = "one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\nten\n";
 
-// A repository whose `origin-ish` branch has moved on, and whose working tree holds the review's changes.
-// `baseEdit` and `ourEdit` each rewrite the file; the caller decides whether they touch the same lines.
 function diverged({ baseEdit, ourEdit, extraBaseFile = false }) {
   const root = mkdtempSync(join(tmpdir(), "kakapo-conflicts-"));
   dirs.push(root);
@@ -50,7 +38,6 @@ function diverged({ baseEdit, ourEdit, extraBaseFile = false }) {
   run(root, ["commit", "-qm", "base side"]);
 
   run(root, ["checkout", "-q", "main"]);
-  // The review's own side stays UNCOMMITTED, which is the shape kakapo is built to read.
   write(root, "shared.txt", ourEdit);
   return root;
 }
@@ -123,15 +110,6 @@ test("it declines to guess outside a repository, or with no files to look at", (
   assert.equal(detectBaseDivergence(root, "", ["shared.txt"]), undefined, "no base, nothing to compare against");
 });
 
-// The reason both sides are read in merge-base coordinates, and the only test that can tell. Everywhere
-// else in this file the two sides replace a line in place, so the old and new line numbers coincide and
-// reading the wrong half of `@@ -a,b +c,d @@` gives the right answer by luck — which it did, until this
-// case existed.
-//
-// Here our side inserts eight lines at the very top of the file. In merge-base coordinates that insertion
-// sits at line 0 and the base's edit is at line 5: no overlap, so these two changes merge cleanly. Read in
-// NEW-file coordinates our insertion occupies lines 1 through 8, which swallows the base's line 5 and
-// reports a conflict that git would not have.
 test("line numbers are compared in merge-base coordinates, not the working tree's", () => {
   const prefix = Array.from({ length: 8 }, (_, i) => `inserted ${i}`).join("\n");
   const root = diverged({
@@ -143,9 +121,6 @@ test("line numbers are compared in merge-base coordinates, not the working tree'
     "an insertion above the base's edit does not collide with it");
   assert.deepEqual(result.collisions[0].lines, [], "and no line is named as conflicting");
 
-  // The control for the control, so "diverged" above is a judgement and not this code's only answer: the
-  // base rewrites a block of three lines and we insert INSIDE it. That is a collision in merge-base
-  // coordinates and git conflicts on it too.
   const lines = TEN_LINES.split("\n");
   const inside = diverged({
     baseEdit: ["ONE-base", "TWO-base", "THREE-base", ...lines.slice(3)].join("\n"),
@@ -156,14 +131,6 @@ test("line numbers are compared in merge-base coordinates, not the working tree'
     "an insertion inside a block the base rewrote does collide");
 });
 
-// End to end: a review built on a base that has moved shows the badge on the row the reader decides from.
-// Asserted against the built HTML rather than the detector, because threading the collisions through
-// renderDiffHtml is its own mistake to make — and was: the detector was perfect while the tree rendered
-// nothing, because `changesPanel` is the watch-update payload and the first paint renders its own tree.
-//
-// Every assertion here keys on the `data-i18n` marker, never on the class name. The stylesheet is inlined
-// into this same document, so `.change-collision.cl-diverged` is present in every review ever built and a
-// negative assertion against the class passes nothing and fails nothing useful.
 const BADGE = { conflict: 'data-i18n="collision.conflict"', diverged: 'data-i18n="collision.diverged"' };
 
 test("the review's Changes tree marks a colliding file", async () => {
@@ -180,7 +147,6 @@ test("the review's Changes tree marks a colliding file", async () => {
   assert.ok(elsewhere.includes(BADGE.diverged), "a non-overlapping change is badged as diverged");
   assert.ok(!elsewhere.includes(BADGE.conflict), "and never as a conflict");
 
-  // The ordinary case stays clean: nothing has landed on this base, so the row says nothing at all.
   const quiet = mkdtempSync(join(tmpdir(), "kakapo-conflicts-"));
   dirs.push(quiet);
   run(quiet, ["init", "-qb", "main"]);

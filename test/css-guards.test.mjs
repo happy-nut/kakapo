@@ -1,23 +1,15 @@
-// Layout-level CSS invariants that jsdom can't exercise (it has no flexbox layout — offsetHeight is always
-// 0), so they're guarded as text against the built stylesheet. These regressed real, user-visible behaviour
-// (the diff stopped scrolling and the caret fell off-screen on big files), so treat a break here as serious.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 const css = readFileSync(new URL("../dist/viewer.css", import.meta.url), "utf8");
 
-// Return the declaration block of the FIRST rule whose selector text contains `needle`.
 function ruleBodyContaining(needle) {
   const re = new RegExp("([^{}]*" + needle.replace(/[.#*\[\]]/g, "\\$&") + "[^{}]*)\\{([^}]*)\\}", "s");
   const m = css.match(re);
   return m ? m[2] : null;
 }
 
-// A comment between two rules hides the second from a guard that names it exactly, and the looser
-// ruleBodyContaining then silently reads a DIFFERENT rule that merely ENDS in the same selector — which is
-// how ".d2h-file-side-diff:first-child::-webkit-scrollbar" started answering for "::-webkit-scrollbar".
-// Strip the comments once: a regex that skips them inline nests quantifiers and backtracks forever here.
 const cssRules = css.replace(/\/\*[\s\S]*?\*\//g, "");
 
 function ruleBodyForExactSelector(selector) {
@@ -25,32 +17,21 @@ function ruleBodyForExactSelector(selector) {
   return bodies.length ? bodies[0] : null;
 }
 
-// Every rule written for exactly this selector, in source order. One selector often has several rules — a
-// base one and a themed or layout one further down — and the single-rule reader above answers with the
-// first, which is usually not the one that declares the property a guard is about. Assert over all of them.
 function ruleBodiesForExactSelector(selector) {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const re = new RegExp("(?:^|})\\s*" + escaped + "\\s*\\{([^}]*)\\}", "g");
   return Array.from(cssRules.matchAll(re), (m) => m[1]);
 }
 
-// The one body among them that mentions `needle` — what a guard about a specific property wants.
 function ruleDeclaring(selector, needle) {
   return ruleBodiesForExactSelector(selector).find((b) => b.includes(needle)) ?? null;
 }
 
 test("diff stays scrollable for a single big file: .d2h-file-wrapper keeps flex-shrink:0", () => {
-  // The bug: #diff2html-container is a column flexbox and .d2h-file-wrapper has overflow:hidden, which makes
-  // the flex item's min-height 0. With the default flex-shrink:1, a single shown file (showOnlyFile) shrinks
-  // to the viewport height and overflow:hidden clips the rest — the diff can't scroll and the caret leaves
-  // the screen near the bottom of a large file. flex-shrink:0 pins the wrapper to its content height.
   const wrapper = ruleBodyContaining(".d2h-file-wrapper");
   assert.ok(wrapper, ".d2h-file-wrapper rule must exist");
   assert.match(wrapper, /flex-shrink:\s*0\b/, "the fix: .d2h-file-wrapper must keep flex-shrink:0");
 
-  // Guard the PRECONDITIONS too, so the test still means something if the layout is refactored: if overflow
-  // stops being hidden, or the container stops being a column flexbox, the flex-shrink:0 may no longer be
-  // load-bearing — but then this assertion forces a human to re-check rather than silently passing.
   assert.match(wrapper, /overflow:\s*hidden\b/, "precondition: wrapper still clips (overflow:hidden) — why shrink must be 0");
   const container = ruleBodyContaining("diff2html-container");
   assert.ok(container && /display:\s*flex/.test(css), "precondition: #diff2html-container is a flexbox");
@@ -58,17 +39,11 @@ test("diff stays scrollable for a single big file: .d2h-file-wrapper keeps flex-
 });
 
 test("a focused dock / settings overlay hides the file's blinking caret beneath it (single visible caret)", () => {
-  // A focused merged dock (or the settings overlay) owns the only caret. jsdom has no :has() and no
-  // layout, so guard the rule as text: the file's .code-cursor must be display:none while the dock has focus
-  // (or settings is up), so two carets can never blink across visible panels ("커서는 보이는 패널 통틀어 하나만").
   assert.match(css, /body:has\(\.dock-panel:focus-within\)\s*\.code-cursor[\s\S]{0,200}display:\s*none/, "a focused dock hides the file caret");
   assert.match(css, /body:has\(#settings-modal:not\(\.hidden\)\)\s*\.code-cursor/, "settings overlay covered");
 });
 
 test("the merged dock is a centred floating panel with clickable header controls", () => {
-  // The invariant is that the panel WRAPS what it holds — wide enough for a card plus a margin each side,
-  // and still inset from the viewport edges. Spelling the width here made this a copy of it, and the copy
-  // is what failed when the panel was fitted to its cards.
   const panelWidth = /\.dock-panel\s*\{\s*position:\s*fixed;[^}]*width:\s*min\((\d+)px,\s*calc\(100vw\s*-\s*(\d+)px\)\)/s.exec(css);
   assert.ok(panelWidth, "the floating panel declares a width capped against the viewport");
   const cardWidth = /\.mc-card\s*\{[^}]*max-width:\s*(\d+)px/s.exec(css);
@@ -85,15 +60,6 @@ test("the merged dock is a centred floating panel with clickable header controls
   assert.match(activeDockButtons || "", /cursor:\s*pointer/, "clear, copy, and maximize controls advertise clickability");
 });
 
-// ===== The application layer order =====
-//
-// Which surface paints over which is a RELATION, and z-index can only state an absolute. So the relation
-// had nowhere to live in the stylesheet and leaked into prose: seven comments carried a copy of some other
-// selector's number, and three of those copies were wrong by the time anyone read them — the launcher's
-// said it sat "below the settings overlay" while sitting fourteen above it. The ladder in :root is where
-// the relation lives now, and these three tests are what keep it from going back into sentences.
-
-// Every --z-* token, in the order the stylesheet declares them.
 const layerLadder = () => {
   const root = /^:root \{([\s\S]*?)^\}/m.exec(css);
   assert.ok(root, "the stylesheet still opens with a :root block");
@@ -101,10 +67,7 @@ const layerLadder = () => {
   assert.ok(rungs.length >= 14, `the ladder is declared in :root (found ${rungs.length} rungs)`);
   return rungs;
 };
-// The z-index a selector resolves to, through its token.
 const layerOf = (selector) => {
-  // Not ruleBodyForExactSelector: it anchors on the previous rule's brace, and several of these rules are
-  // introduced by a comment rather than by one.
   const at = css.indexOf("\n" + selector + " {");
   assert.ok(at >= 0, `${selector} has a rule of its own`);
   const body = css.slice(at, css.indexOf("}", at));
@@ -115,7 +78,6 @@ const layerOf = (selector) => {
   return rung[1];
 };
 
-// Reading the list top to bottom has to BE the order, or it is just fifteen numbers in one place.
 test("the layer ladder is declared in the order it paints", () => {
   const rungs = layerLadder();
   for (let i = 1; i < rungs.length; i += 1) {
@@ -124,26 +86,16 @@ test("the layer ladder is declared in the order it paints", () => {
   }
 });
 
-// The anti-drift rule. A literal in a rule is a number with no stated relation to any other, which is how
-// seven comments ended up restating their neighbours' values. Component-local stacking (a gutter over a
-// cell, a sticky header inside one panel) is a different thing and keeps its small literals.
 test("no application surface writes a raw z-index", () => {
-  // Comments are stripped first, and that is not incidental: the ladder's own comment QUOTES one of the
-  // copied numbers it exists to explain, and the first version of this guard failed on its own
-  // documentation. A rule about declarations has to look at declarations.
   const declarations = css.replace(/\/\*[\s\S]*?\*\//g, "");
   const offenders = [...declarations.matchAll(/z-index:\s*(\d+)/g)]
     .map((m) => Number(m[1]))
     .filter((value) => value >= 40);
   assert.deepEqual(offenders, [],
     "an application layer is declared as a literal; put it on the ladder in :root so its order is visible");
-  // Not vacuous: the ladder is still reachable and the surfaces still resolve through it.
   assert.ok(/z-index:\s*var\(--z-/.test(declarations), "surfaces take their layer from the ladder");
 });
 
-// The launcher is a modal keyboard scope: while it is up every key goes to it and menu accelerators are
-// suspended. So it has to be ABOVE everything it can be opened over, or Cmd+E produces an invisible modal
-// that eats every keystroke with nothing on screen to explain why.
 test("the modal launcher paints above the surfaces it can be opened over", () => {
   const quickOpen = layerOf(".quick-open");
   assert.ok(layerOf(".file-find") < quickOpen, "the current-file search is editor chrome, not a modal");
@@ -152,16 +104,11 @@ test("the modal launcher paints above the surfaces it can be opened over", () =>
   assert.ok(layerOf(".history-view") < quickOpen, "Cmd+E over History/Explain must not open behind it");
 });
 
-// The caret hint is how this app ANSWERS a key — "no usages", "already at the declaration", "this line is
-// only in the base". It shared a rung with History/Explain and so painted UNDER the dock, which is open
-// exactly when the keys that raise it are being pressed: a reply nobody can see is the silence the whole
-// hint mechanism exists to replace. It is pointer-events: none, so being high costs nothing.
 test("the caret hint paints above the surfaces it answers from", () => {
   const hint = layerOf(".mc-caret-hint");
   assert.ok(hint > layerOf(".dock-panel"), "a reply raised with the dock open has to be readable");
   assert.ok(hint > layerOf(".dock-backdrop"), "and not dimmed by the backdrop either");
   assert.ok(hint > layerOf(".history-view"), "History raises hints of its own");
-  // And still below a true modal, which owns the keyboard outright while it is up.
   assert.ok(hint < layerOf(".settings-modal"), "Settings owns the screen while it is open");
 });
 
@@ -210,10 +157,6 @@ test("folded-context labels stay centred in the visible diff pane", () => {
   assert.match(label || "", /white-space:\s*nowrap/, "the compact fold bar remains one line tall");
 });
 
-// The empty pane's message centers, but .source-body.empty IS the pane — panel background, border, the lot.
-// Auto margins let a flex item shrink to its content, so centering it that way turned "select a file" into a
-// lit stripe down the middle of the window. It has its own flexbox for the text; only the diff container's
-// bare .empty div needs the margins.
 test("the empty-pane message centers without shrinking the pane into a stripe", () => {
   const scoped = ruleBodyForExactSelector("#diff2html-container > .empty");
   assert.match(scoped || "", /margin:\s*auto/, "the diff container's lone empty div still centers on both axes");
@@ -224,17 +167,12 @@ test("the empty-pane message centers without shrinking the pane into a stripe", 
 });
 
 test("the comment composer textarea restores its own caret (not transparent-inherited from the diff)", () => {
-  // .mc-input is injected INSIDE #diff2html-container, which sets caret-color: transparent (the file view
-  // uses a fake .code-cursor). caret-color inherits, so .mc-input must restore it — a focused textarea must
-  // show its real caret. (The single-caret rule hides the FILE caret while composing, not the textarea's.)
   const input = ruleBodyContaining(".mc-input");
   assert.ok(input, ".mc-input rule must exist");
   assert.match(input, /caret-color:\s*var\(--text\)/, ".mc-input restores caret-color so the composer caret is visible");
 });
 
 test("source line-number gutter stays compact and internally aligned", () => {
-  // The value is declared on .source-viewer, not .source-body: the sticky-lines overlay is a sibling of
-  // the body and a custom property only inherits downward (see the overlay guard below).
   const owner = ruleDeclaring(".source-viewer", "--source-gutter-width");
   assert.ok(owner, ".source-viewer must declare the gutter width");
   assert.match(owner, /--source-gutter-width:\s*56px\b/, "source gutter stays compact");
@@ -331,13 +269,8 @@ test("shared Markdown typography preserves readable paragraph rhythm", () => {
   assert.doesNotMatch(css, /\.md-cell\s*>\s*:last-child\s*\{[^}]*margin-bottom:\s*0/, "source block rows no longer erase every block's bottom margin");
 });
 
-// The activity rail and the integrated native title bar are gone; the window keeps a standard title bar and
-// the sidebar is the left-most column. What still has to hold is how that sidebar collapses.
 test("the sidebar collapses without blanking its contents or jumping its divider", () => {
   assert.match(css, /body\s*\{[^}]*--rail-width:\s*0px/, "no rail column is reserved");
-  // What has to hold is that the grid track, the fixed header and the scrolling contents fall back to the
-  // SAME width — not that the width is any particular number. Spelling the number here made this assertion
-  // a fourth copy of it, and the copy is what failed the first time the default moved.
   const trackDefault = /grid-template-columns:\s*var\(--rail-width\)\s*var\(--sidebar-width,\s*(\d+)px\)/.exec(css);
   assert.ok(trackDefault, "the grid declares a sidebar track with a default width");
   const fallback = new RegExp(
@@ -371,18 +304,9 @@ test("modern chrome uses one compact radius and elevation system without roundin
   assert.match(css, /\.rail-btn\s*>\s*svg\s*\{[^}]*width:\s*16px;\s*height:\s*16px/, "all rail SVGs occupy the same optical box");
   assert.match(css, /\.d2h-file-wrapper\s*\{[^}]*border-radius:\s*0/, "diff rows retain exact square alignment");
   assert.match(css, /\.source-body\s*\{[^}]*border:\s*1px solid var\(--border\)/, "the source canvas remains a flat editor surface");
-  // The accent rail used to be drawn and then switched off again with `content: none` further down the file.
-  // Both halves are gone: the selection is the filled button surface, and nothing draws a partial rail at all.
   assert.doesNotMatch(css, /\.rail-btn\.is-active::before/, "activity selection uses a complete surface rather than a partial blue rail");
   assert.match(css, /\.rail-btn\.is-active\s*\{[^}]*background:\s*var\(--chrome-selected\)/, "the active rail button is one filled surface");
   assert.match(css, /\.tree-focus,[\s\S]{0,220}box-shadow:\s*none/, "sidebar selections use a complete neutral surface without an inset accent");
-  // The tabs used to float on a padded strip (align-items:flex-end + padding:4px 6px 0). 7ccdd8f replaced
-  // that: the 6px under the tabs pushed this bar's bottom rule above the sidebar header's, so the divider
-  // arriving from the left jumped where it met the pane. The strip is now exactly the shared header band
-  // with nothing beneath the tabs, which is what holds the two rules on one line — so that, not the old
-  // padding, is what must not regress.
-  // Its own rule, not the grouped `.source-tabs,` theme selectors and not `body.native-app .source-tabs`.
-  // ruleBodyForExactSelector cannot reach it: a comment sits between it and the previous rule's brace.
   const tabStrip = css.match(/^\.source-tabs\s*\{([^}]*)\}/m)?.[1];
   assert.ok(tabStrip, "the file tab strip has a rule of its own");
   assert.match(tabStrip, /height:\s*var\(--header-band\)/, "the tab strip is exactly the shared header band");
@@ -395,9 +319,6 @@ test("modern chrome uses one compact radius and elevation system without roundin
   assert.match(css, /\.settings-cat\.active\s*\{[^}]*box-shadow:\s*none/, "settings navigation follows the same full-surface selection language");
 });
 
-// Prose is not a selector. The rules below are read with comments stripped, because the comment ABOVE the
-// transition rule names .source-row and .code-cursor to say they must stay out of it — swept raw, that
-// sentence would read as the rule listing them.
 const cssBare = css.replace(/\/\*[\s\S]*?\*\//g, "");
 function selectorOfRuleContaining(declaration) {
   const i = cssBare.indexOf(declaration);
@@ -405,15 +326,6 @@ function selectorOfRuleContaining(declaration) {
   return cssBare.slice(0, cssBare.lastIndexOf("{", i)).split(/[{}]/).pop().trim().replace(/\s+/g, " ");
 }
 
-// Motion here is a language, and the rule that speaks it was written in HTML tags: `button, input, select`
-// plus two panels. Whether a sidebar row answered the pointer therefore depended on which element it was
-// built from. Measured in the running app before this changed: .source-link, a <button>, faded over 120ms,
-// while .change-row (<a>) and .tree-dir summary (<summary>) directly beside it in the same sidebar changed
-// instantly. Neither was a decision — one tree glided and the other snapped because of their markup.
-//
-// The second half is the one that costs something if it is lost: the code canvas stays OUT of the rule. A
-// transition on .source-row or .code-cursor is paid on every caret move, and deleting exactly that kind of
-// per-move work is what PRs #137 and #138 were.
 test("the shared transition names every interactive chrome row, and no code row", () => {
   const selector = selectorOfRuleContaining("transition: color 120ms ease, background-color 120ms");
   assert.ok(selector, "the shared chrome transition rule still exists");
@@ -425,10 +337,6 @@ test("the shared transition names every interactive chrome row, and no code row"
   }
 });
 
-// Seven surfaces open over the app. The dock and the peek rose into place; the three the keyboard opens
-// most — the launcher, Settings and the menus — cut in with no entrance at all, which is where a 150ms
-// difference stops reading as a style and starts reading as a different program. Each is hidden with
-// `display: none`, and that is what restarts the animation on every open; no JS is involved.
 test("every surface that opens over the app shares one entrance", () => {
   const selector = selectorOfRuleContaining("animation: mc-surface-in");
   assert.ok(selector, "the shared entrance rule still exists");
@@ -446,16 +354,10 @@ test("panel focus is a brief shared flash instead of a persistent native outline
   assert.match(css, /@keyframes\s+mc-panel-focus-flash\s*\{[\s\S]{0,240}100%\s*\{[^}]*outline-color:\s*transparent/, "the focus effect fades completely away");
   assert.match(css, /\.history-list\.mc-panel-focus-flash\s*\{[^}]*outline:\s*0;[^}]*animation:\s*mc-history-list-focus-flash/, "history focus does not draw over the activity-rail boundary");
   assert.match(css, /@keyframes\s+mc-history-list-focus-flash\s*\{[\s\S]{0,520}inset\s+-2px\s+0[\s\S]{0,300}100%\s*\{[^}]*box-shadow:\s*inset\s+0\s+0\s+transparent/, "history keeps a three-sided focus cue that fades without a left edge");
-  // The two assertions that stood here pinned the TEXT of rules scoped to `body.native-app`, a layout that
-  // went away with the shell window it was built for — render.ts emits <body> with no class and
-  // views.test.mjs pins that. They could not match anything the app renders, so they were not guarding the
-  // focus cue; they were guarding the continued existence of dead CSS, and would have failed its removal.
-  // What is worth pinning is that nothing is left behind pointing at that layout.
   assert.doesNotMatch(css, /body\.native-app/, "no rule is scoped to the layout the app stopped using");
   assert.doesNotMatch(css, /--native-(titlebar-height|title-safe|traffic-safe)/,
     "and nothing reads the custom properties that layout defined");
 });
-
 
 test("diff hunk connectors bridge both center line-number gutters without stealing input", () => {
   const connector = ruleBodyContaining(".mc-diff-connectors");
@@ -506,14 +408,9 @@ test("diff comment composers stay pinned inside the working-tree viewport", () =
   assert.match(card || "", /position:\s*sticky/, "diff comments are viewport UI, not horizontally scrolling source text");
   assert.match(card || "", /left:\s*62px/, "the comment begins ten pixels after the single visible working-tree gutter");
   assert.match(card || "", /max-width:\s*calc\(100cqw\s*-\s*74px\)/, "the composer and its actions cannot be clipped at the pane's right edge");
-  // A card anchored to a deleted line sits in the BASE pane, whose gutter layer floats at the pane's right
-  // edge — opaque and above the card, so an unpinned card was simply painted over and read as cut in half.
   const baseCard = ruleBodyForExactSelector(".mc-layered-diff-side:first-child .mc-comment-row .mc-card");
   assert.match(baseCard || "", /position:\s*sticky/, "base-pane comments are viewport UI too, not scrolling source text");
   assert.match(baseCard || "", /max-width:\s*calc\(100cqw\s*-\s*74px\)/, "the card stops short of the base pane's right-hand gutter instead of sliding under it");
-  // The slot must paint nothing of its own. It used to be var(--bg), which is NOT the diff canvas (--panel,
-  // and a syntax theme overrides --panel per container) — so the reserved strip showed up as a darker slab
-  // across the review. Transparent inherits whatever surface the row is sitting on, in every theme.
   const spacerCell = ruleBodyForExactSelector(".mc-comment-spacer-row td");
   assert.match(spacerCell || "", /background:\s*transparent/, "the paired base timeline slot cannot paint its own colour over the canvas");
   assert.match(ruleBodyContaining(".mc-comment-row td") || "", /background:\s*transparent/, "nor can the comment row it is paired with");
@@ -572,13 +469,7 @@ test("no rule sets a property that a later rule with the same selector sets agai
   assert.deepEqual(shadowed, [], "these declarations never apply — set the property where it wins, not twice");
 });
 
-// Selecting one turn in a thread used to hand that card 4px of bottom margin, so that its outset ring had
-// somewhere to draw a bottom edge against the next card sitting flush on it. Margin moves things: every card
-// below it, and the code line under the whole thread, jumped 4px down on select and back up on deselect —
-// visible as the text juddering while arrowing through a thread.
 test("selecting a comment turn cannot move the thread it is in", () => {
-  // ruleBodyContaining, not ...ForExactSelector: that one anchors on the previous rule's closing brace, and
-  // this rule is introduced by a comment.
   const selected = ruleBodyContaining(".mc-comment-row.mc-row-selected .mc-card.mc-card-selected");
   assert.ok(selected, "the selected turn still has a ring");
   assert.match(selected, /box-shadow:\s*inset/, "drawn inside the card, so it needs no room of its own");
@@ -587,20 +478,12 @@ test("selecting a comment turn cannot move the thread it is in", () => {
     "…so the neighbour no longer has to give its own margin back");
 });
 
-// The viewed checkbox vanished on the selected row: its border is --chrome-border and the selection is
-// --chrome-selected, and in the app theme those are #34363a and #3a3c40 — the same colour to any eye. A
-// control has to be visible exactly when you are about to click it.
 test("the viewed checkbox keeps an outline on every row the eye is on", () => {
-  // Whatever emphasises a row must also re-colour that outline, and currentColor is the only value that
-  // cannot collide with the background it sits on.
   for (const selector of [".change-row:hover .viewed-box", ".file-link.active .viewed-box",
     ".change-row.active .viewed-box", ".tree-focus .viewed-box"]) {
     const rule = ruleBodyContaining(selector);
     assert.match(rule || "", /border-color:\s*currentColor/, `${selector} borrows the row's own colour`);
   }
-  // …and currentColor has to BE a colour. Hiding the tick by colouring the box transparent made every one of
-  // those borders transparent too, so the box disappeared on exactly the rows the rule above exists for. The
-  // tick is hidden on its own pseudo-element instead.
   const box = ruleBodyContaining(".viewed-box") || "";
   assert.doesNotMatch(box, /(^|[^-])color:\s*transparent/, "the box itself is never transparent-coloured");
   assert.match(box, /color:\s*inherit/, "it takes the row's ink, which is what currentColor then resolves to");
@@ -610,9 +493,6 @@ test("the viewed checkbox keeps an outline on every row the eye is on", () => {
     "and a ticked box shows it again");
 });
 
-// An added file's name in the Changes tree was painted with --add-strong, which is the tint an added diff
-// LINE gets behind its code. A fill is not ink: on the dark palette that is #1f5b34 on a #171b21 panel, and
-// the light palette's #abf2bc on white is worse still. Every palette carries a green meant to be read.
 test("the Changes tree writes an added file's name in ink, not in a diff fill", () => {
   const added = ruleBodyContaining(".change-row.ch-added .change-name");
   assert.ok(added, "added rows still colour their name");
@@ -620,45 +500,21 @@ test("the Changes tree writes an added file's name in ink, not in a diff fill", 
   assert.match(added, /color:\s*var\(--chrome-vcs-\w+\)/, "it uses one of the sidebar's own ink colours");
 });
 
-// A `var(--x)` whose token was never declared is not a style error anywhere — the declaration is simply
-// dropped and the property inherits, so the rule looks present and does nothing. That is how a whole
-// block of new shortcut-sheet styling came to reference `--accent` and `--danger`, neither of which this
-// stylesheet has ever defined (the accent token is `--active`), and look merely subtle on screen.
-// The fallback half of this used to be exempt, and a missing token with a fallback is the worse of the two:
-// `var(--x)` with no --x paints nothing, which someone notices, while `var(--accent, #4a9eff)` paints the
-// literal and looks deliberate. Three such names were live when this was widened — --accent, --ok and
-// --warning, none of them declared anywhere — so the sticky-lines hover, the Test tag and the no-matches
-// count were painted by one hardcoded colour each, identically in all twelve themes, while every rule
-// around them followed the palette. A guard that only swept the un-fallbacked form reported zero.
 test("every custom property a rule reads is one this stylesheet declares", () => {
   const declared = new Set([...css.matchAll(/(--[a-z0-9-]+)\s*:/gi)].map((m) => m[1]));
   const read = [...css.matchAll(/var\(\s*(--[a-z0-9-]+)\s*[,)]/gi)].map((m) => m[1]);
-  // Written as an inline style rather than declared here, so the fallback IS the default and the name
-  // genuinely has nowhere to live in this file. Each one is set in the source named beside it.
   const setInMarkup = new Set([
-    "--depth",            // render-tree.ts, 04-source-tree.js, 17-find-usages.js — per-row indent
-    "--kakapo-ui-icon",   // brand.ts / render.ts / app-main.ts — the page's icon
-    "--structure-depth",  // 16-structure.js
-    "--sidebar-width",    // 05-keymap.js
-    "--hgraph-w",         // 12-history.js
-    "--bookmark-mark",    // 11-render-http.js, 16-structure.js
+    "--depth",
+    "--kakapo-ui-icon",
+    "--structure-depth",
+    "--sidebar-width",
+    "--hgraph-w",
+    "--bookmark-mark",
   ]);
   const undeclared = [...new Set(read.filter((name) => !declared.has(name) && !setInMarkup.has(name)))];
   assert.deepEqual(undeclared, [], "a var() must name a token this file declares, or one the markup sets");
 });
 
-
-// Reduced motion keeps the "still working" indicators alive, and a blanket rule must not silently kill them.
-//
-// Four surfaces say the app is busy: the startup mark, the indexing dot, the starting loader and the
-// context-fold spinner. Under `prefers-reduced-motion` they deliberately swap movement for an opacity
-// breath — going completely still is what a FINISHED indicator looks like. But the same media query ends
-// with a blanket `*, *::before, *::after { animation-duration: .001ms !important }`, which outranked the
-// substitution's shorthand and froze every one of them. The CSS said it was breathing; nothing was.
-//
-// Both halves are asserted: the blanket rule still being there is the precondition that makes `!important`
-// necessary, so if it is ever removed this fails and a human re-checks instead of the guard passing on a
-// rule that no longer needs to win.
 test("the reduced-motion breath outranks the blanket animation clamp it sits under", () => {
   const blanket = /@media \(prefers-reduced-motion: reduce\) \{\s*\*, \*::before, \*::after \{([^}]*)\}/.exec(css);
   assert.ok(blanket, "precondition: a blanket reduced-motion rule still clamps every animation");
@@ -671,13 +527,6 @@ test("the reduced-motion breath outranks the blanket animation clamp it sits und
     "the breath is declared !important, or the blanket clamp above freezes it and the dot lies about working");
 });
 
-
-// The side-by-side diff drew its horizontal scrollbar twice — one per pane, at the bottom of every file.
-//
-// Both sides are a single horizontal position: syncDiffSideScroll mirrors scrollLeft from whichever pane is
-// scrolled onto the other, so the second bar was the same number rendered again. Suppressing the base side's
-// thumb is only safe while that pane is still a scroller — the caret keys walk up to it (revealCaretColumn)
-// and a wheel over it still moves it — so the precondition is asserted with the fix.
 test("the side-by-side diff shows one horizontal scrollbar, not one per pane", () => {
   assert.match(css, /\.d2h-file-side-diff:first-child::-webkit-scrollbar\s*\{[^}]*height:\s*0/s,
     "the base pane's horizontal thumb is suppressed — the working tree's bar drives both");
@@ -692,9 +541,6 @@ test("the side-by-side diff shows one horizontal scrollbar, not one per pane", (
     "precondition: the two sides are mirrored — without that, one bar would only move one pane");
 });
 
-// The rule above hides the FIRST pane's thumb, which is only safe while a second pane exists to carry the
-// bar. A row with one side would lose its only scrollbar and say nothing about it, so assert the renderer
-// still emits both sides for the two cases that have content on one side alone.
 test("a one-sided change still renders both diff panes, so the kept scrollbar always exists", async () => {
   const { renderDiff2Html } = await import("../dist/highlight.js");
   const patch = (header, from, to, hunk, lines) =>
@@ -709,20 +555,6 @@ test("a one-sided change still renders both diff panes, so the kept scrollbar al
   }
 });
 
-// Below 900px the shell stops being two columns and stacks the sidebar ABOVE the diff. The stacked sidebar
-// had `height: auto`, so it was as tall as its file list — and the file list is as long as the review. At 42
-// files it took the whole window and left .content, the diff, a 32px strip under it: narrow the window and
-// the thing you opened the app to read is gone. Measured in the running app at 900px and 720px (sidebar 891
-// and 711 tall, content 32), and after the fix 280 / 520.
-//
-// jsdom has no layout and does not evaluate media queries, so this is guarded as text, like the rules above.
-//
-// The first fix for that spelled the bound `height: 35vh`, which is a ceiling and a FLOOR: a review of one
-// file — the shape this app is opened in most — still reserved 35% of the window for one row of tree, and
-// the diff began under an empty band. Reported from the outside as "a big file comes up like this". So the
-// claim here is "it cannot grow past a bound", not "it is not auto": `height: auto` WITH a `max-height` is
-// the right answer and this test used to forbid it. That the two readings behave identically on a long
-// review is why the floor survived — test/narrow-sidebar.test.mjs measures them apart in real Chromium.
 test("the stacked narrow-window sidebar is bounded, so the diff still gets the window", () => {
   const narrow = cssRules.match(/@media\s*\(max-width:\s*900px\)\s*\{([\s\S]*?)\n\}/);
   assert.ok(narrow, "the max-width:900px block must exist — it is what stacks the two columns");
@@ -738,7 +570,6 @@ test("the stacked narrow-window sidebar is bounded, so the diff still gets the w
   const fixed = sidebar[1].match(/(?<!max-)height:\s*[\d.]+(vh|px|%)/);
   assert.ok(bound || fixed,
     "it must state a bound; an unbounded sidebar here is the file list's full height, which is the whole window on a long review");
-  // The bound has to be a ceiling the tree may stay under, not a height it fills. A plain `height` is both.
   assert.ok(bound,
     "the bound belongs on max-height: a plain `height` also reserves that much for a one-file review");
   assert.match(sidebar[1], /height:\s*auto/,
@@ -746,27 +577,15 @@ test("the stacked narrow-window sidebar is bounded, so the diff still gets the w
 });
 
 test("the sticky-lines overlay can inherit the gutter width: it is declared on the viewer, not the body", () => {
-  // .sticky-lines is a SIBLING of #source-body (an overlay the scroll container must not scroll), and a
-  // custom property inherits down the DOM. Declared on .source-body it never reached the overlay, so
-  // `.num { width: var(--source-gutter-width) }` was invalid at computed-value time there and width fell
-  // back to `auto`; Chromium's auto table layout then gave the number column a share of the surplus of
-  // `width: 100%`. Measured in the running app: the pinned header's gutter came out 39px against the
-  // body's 56px, and its code column started 18px to the left of the code underneath it.
   assert.ok(ruleDeclaring(".source-viewer", "--source-gutter-width:"),
     "the base value belongs on the common ancestor of the body and the overlay");
   assert.equal(ruleDeclaring(".source-body", "--source-gutter-width:"), null,
     "declaring it on the body again would shadow nothing for the body and still miss the overlay");
-  // Blame widens the gutter; the overlay has to widen with it, so that override moved to the viewer too.
   assert.match(cssRules, /\.source-viewer:has\(>\s*\.source-body\.source-blame-visible\)/,
     "the blame override is keyed off the viewer so the sticky header tracks it");
 });
 
 test("the history graph can never squeeze the commit out of its own row", () => {
-  // --hgraph-w is one width for the whole page (lanes must line up row to row), so a repository whose
-  // busiest moment is sixty concurrent branches sized every row to it. As a FIXED grid track that width
-  // could not shrink: measured in the running app at 110 lanes on a 1728px window, the graph cell took
-  // 1764px, .hmsg measured 0, and the date ended at x=1920 — off-screen. The list showed a commit graph
-  // with no commits next to it.
   const hrow = ruleDeclaring(".hrow", "grid-template-columns");
   assert.ok(hrow, ".hrow must lay its columns out");
   assert.match(hrow, /grid-template-columns:\s*minmax\(0,\s*var\(--hgraph-w/,
@@ -775,22 +594,11 @@ test("the history graph can never squeeze the commit out of its own row", () => 
     "and must clip rather than overflow once it has shrunk");
 });
 
-// Two row templates whose column count has to match the children the viewer paints into them.
-//
-// The Problems list (⌘6) paints three — severity mark, message, severity badge — into `.quick-open-item`,
-// whose own template is the Quick Open file row's two columns. The mark took the `1fr` column and grew to
-// 450px, the message started at x=467, and the badge wrapped onto a second line: measured 957x45 for one
-// line of text, in a list of twenty-five.
 test("the Problems row has a template for the three things it paints", () => {
-  // Compound selector, deliberately. `.quick-open-item` declares the two-column file-row template 700
-  // lines further down, and at equal specificity the later rule wins — so the first version of this fix
-  // sat in the stylesheet, passed a guard that only looked for the declaration, and changed nothing.
-  // Measured in the running app: rule present, computed value still `460.125px 470.875px`.
   const row = ruleDeclaring(".quick-open-item.problem-result", "grid-template-columns");
   assert.ok(row, "the Problems template is declared on a selector that outranks .quick-open-item");
   assert.match(row, /grid-template-columns:\s*auto\s+minmax\(0,\s*1fr\)\s+auto/,
     "mark | message | badge, with only the message taking the slack");
-  // And nowhere does a bare `.problem-result` try to declare it — that is the version that loses.
   for (const body of ruleBodiesForExactSelector(".problem-result")) {
     assert.doesNotMatch(body, /grid-template-columns/,
       "a bare .problem-result cannot win against the later .quick-open-item rule");
@@ -803,16 +611,9 @@ test("the Problems row has a template for the three things it paints", () => {
   assert.equal(children, 3, "three top-level children, which is what the template above declares");
 });
 
-// A filename is two facts and tail-ellipsis destroys the second: `navigation-failure.te…` is not the name
-// and not the type. leafNameHtml emits the base name and the extension chain separately so only the base
-// name shrinks — and the tail then carried `max-width: 50%`, which clipped the tail instead on any name
-// that is mostly extension. `views.test.mjs` is 64% extension, so it rendered "views.test…." 9px short of
-// fitting: the one outcome the split exists to prevent.
 test("the extension chain keeps its width and the base name is what shrinks", () => {
   const tail = ruleDeclaring(".tree .path-tail", "max-width");
   assert.ok(tail, "the tail still caps its width");
-  // Both terms, and measured: a flat share clipped `views.test.mjs` in a narrow row, and a flat character
-  // count clipped `map.architecture.json` in a wide one. Either alone is a cap that fails somewhere.
   assert.match(tail, /max-width:\s*max\(\s*\d+ch\s*,\s*\d+%\s*\)/,
     "at least a dozen characters for the type, and half the row when half the row is more");
   const head = ruleDeclaring(".tree .path-head", "text-overflow");
@@ -821,9 +622,6 @@ test("the extension chain keeps its width and the base name is what shrinks", ()
 });
 
 test("the crumb trail gives way in the right order: the figure last, the directories first", () => {
-  // Measured in the running app at a 1024px window: the children were all `flex: 0 1 auto` with
-  // `min-width: auto`, so none of them shrank and `.breadcrumb { overflow: hidden }` cut the LAST one —
-  // the +N −M. A file that was +14 −4 printed `+1`. Not a figure gone missing: a figure gone wrong.
   const crumb = ruleDeclaring(".crumb", "flex-shrink");
   assert.ok(crumb, "a plain crumb has a shrink budget");
   assert.match(crumb, /min-width:\s*0/, "and may shrink below its content");
@@ -841,25 +639,17 @@ test("the crumb trail gives way in the right order: the figure last, the directo
 });
 
 test("every chrome control a pointer aims at clears the 24px target floor", () => {
-  // WCAG 2.5.8. These three measured 20x20, 20x20 and 247x19 in the running app, and the spacing
-  // exemption does not rescue them: each sits within 24px of another target.
   const reveal = ruleDeclaring(".brand-reveal", "min-height");
   assert.match(reveal || "", /min-width:\s*24px/, "the reveal/settings buttons are 24px wide");
   assert.match(reveal || "", /min-height:\s*24px/, "and 24px tall");
   const pill = ruleDeclaring(".compare-pill", "min-height");
   assert.match(pill || "", /min-height:\s*24px/, "the compare pill is a button, and is 24px tall");
-  // ...without making the bar that holds them taller: its padding gave up the 4px they needed.
   const tools = ruleDeclaring(".sidebar-tools", "padding");
   assert.match(tools || "", /padding:\s*3px\s/, "the bar's padding leaves room for 24px buttons inside 30px");
   assert.match(tools || "", /min-height:\s*30px/, "and the bar is still the height it was");
 });
 
 test("the source caret is painted out of the flow, so a caret move cannot relayout the table", () => {
-  // The bug: inserting the caret span into a cell changes the line's layout, which dirties the whole
-  // <table>. The next piece of code to read any geometry — the caret-follow scroll, the sticky header —
-  // then pays a relayout of every row: 40 ms a keystroke at 27,000 rows, 26 ms with the caret out of flow.
-  // Offsets stay auto on purpose: an absolutely positioned box with left/top auto is painted at its static
-  // position, the exact spot the inline span occupied, so the picture does not change.
   const caret = ruleBodiesForExactSelector("#source-body .code-cursor");
   assert.ok(caret.length, "#source-body .code-cursor rule must exist");
   assert.ok(caret.some((body) => /position:\s*absolute\b/.test(body)), "the caret must be absolutely positioned");
@@ -868,19 +658,14 @@ test("the source caret is painted out of the flow, so a caret move cannot relayo
     "and must keep its offsets auto — an offset would move it off the character it marks",
   );
 
-  // The precondition that makes the static position land inside the line rather than somewhere up the tree.
   const cell = ruleBodiesForExactSelector(".source-code");
   assert.ok(cell.some((body) => /position:\s*relative\b/.test(body)),
     "precondition: .source-code is the positioning context (it already is, for the empty-line caret)");
 
-  // Scoped to the source view: the diff's caret hangs in a container that is not a positioning context,
-  // so an unscoped rule would send it up the tree.
   assert.ok(!/(^|,)\s*\.code-cursor\s*\{[^}]*position:\s*absolute/s.test(cssRules),
     "the rule must stay scoped to #source-body — the diff caret has no positioning context of its own");
 });
 
-// A px-only calc() evaluator. The tree's two row kinds reach the same x by different arithmetic, and the
-// only way to guard that they still agree is to do the arithmetic.
 function resolvePx(expr, vars) {
   let e = String(expr).trim();
   for (let i = 0; i < 8 && /var\(/.test(e); i += 1) {
@@ -900,11 +685,6 @@ function declarationIn(body, property) {
 }
 
 test("a folder and a file at the same depth begin on the same line", () => {
-  // They did not. <summary> started at 7px with no border; .file-link started at 8px and carried a 1px
-  // transparent border for its focus ring that nothing subtracted back out, so at every depth a file's
-  // icon sat 2px right of the folder icon above it — close enough to read as a wobble rather than as an
-  // indent, and small enough that three separate off-by-ones hid inside it. Both bases now come off one
-  // declared --tree-pad, and the difference between them is exactly the border, which is the whole claim.
   const tree = ruleDeclaring(".tree", "--tree-pad");
   assert.ok(tree, ".tree must declare the ladder");
   const vars = {
@@ -921,14 +701,11 @@ test("a folder and a file at the same depth begin on the same line", () => {
   assert.ok(fileBorder, ".file-link's border is what the two bases have to differ by");
   const borderPx = Number(String(fileBorder).match(/([\d.]+)px/)[1]);
 
-  // An absolutely positioned box and a padding edge are both measured from the padding box, so the file
-  // row's base has to give back the border its box already spent.
   assert.equal(
     resolvePx(dirBase, vars) - resolvePx(fileBase, vars), borderPx,
     "the file row's base must be the folder's less its own border, or the two ladders drift apart",
   );
 
-  // And the step itself is one number, so the ladders cannot diverge further down.
   for (const depth of [0, 1, 2, 5]) {
     const at = (base, border) => border + resolvePx(base, { ...vars, "--depth": String(depth) }) + depth * resolvePx(vars["--tree-indent"], vars);
     assert.equal(at(dirBase, 0), at(fileBase, borderPx), `depth ${depth}: both row kinds start at the same x`);
@@ -936,31 +713,22 @@ test("a folder and a file at the same depth begin on the same line", () => {
 });
 
 test("the tree's indent guide rides the same ladder the rows do", () => {
-  // A guide drawn from its own numbers is a guide that is right until someone moves the rows. It also has
-  // to hang on <details>: the source tree wraps a folder's contents in .mc-virtual-children and the
-  // changes tree does not, so a guide on that wrapper is a guide only one of the two trees ever gets.
   const guide = ruleDeclaring(".tree-dir::before", "left");
   assert.ok(guide, "the guide hangs on .tree-dir, the one box both trees have");
   const left = declarationIn(guide, "left");
   assert.match(left, /var\(\s*--tree-pad\s*\)/, "it starts from the rows' own base");
   assert.match(left, /var\(\s*--depth[^)]*\)\s*\*\s*var\(\s*--tree-indent\s*\)/, "and steps by the rows' own step");
 
-  // It begins one row down, from the same number the rows are laid out at — not a copy of it.
   assert.match(declarationIn(guide, "top") || "", /var\(\s*--tree-row\s*\)/, "the guide starts one declared row down");
   const rows = [".tree-dir summary", ".file-link"].map((sel) => declarationIn(ruleDeclaring(sel, "min-height"), "min-height"));
   rows.forEach((value, i) => assert.match(value || "", /var\(\s*--tree-row\b/,
     `row kind ${i} is laid out at the same declared height the guide starts below`));
 
-  // Painted from the code view's token, so the twelve themes keep one answer for what a guide looks like.
   assert.match(declarationIn(guide, "background") || "", /var\(\s*--indent-guide\s*\)/,
     "the tree guide and the code guide are the same ink");
 });
 
 test("every pair of tree rows is one declared step apart", () => {
-  // `margin-block: 1px` on the rows produced three different distances from one declaration, because what
-  // it came out to depended on the layout mode of whatever held the row: 3px between two folders (grid
-  // parent, margins do not collapse, plus its own gap), 1px between two files (block parent, they do), and
-  // 2px where the kinds met. The containers own the step now, so the rows must not carry one.
   const rowSelectors = /(^|[,}])\s*[^{}]*(\.tree-dir\s*(>\s*)?summary|\.file-link|\.change-row|\.source-link)[^{}]*\{([^}]*)\}/g;
   const withMargin = Array.from(cssRules.matchAll(rowSelectors))
     .filter((m) => /(^|;)\s*margin(-block|-top|-bottom)?\s*:\s*(?!0)/.test(m[4]))
@@ -972,8 +740,6 @@ test("every pair of tree rows is one declared step apart", () => {
     "and a closed folder reserves none: its content row is the UA slot, which exists whether or not it is open");
 });
 
-// The last value a selector declares for a property, applying its rules in source order the way the
-// cascade would. A band sets its padding in a shorthand and then overrides one edge further down.
 function finalDeclaration(selector, property) {
   let value = null;
   ruleBodiesForExactSelector(selector).forEach((body) => {
@@ -992,10 +758,6 @@ function edgeFromShorthand(shorthand, edge) {
 }
 
 test("a chrome band leaves an even content box for the controls centred in it", () => {
-  // --header-band is a shared OUTER height so the rule under the sidebar's header and the rule under the
-  // pane's toolbar land on the same y. What each band has left after its own padding and its own 1px rule
-  // is not shared, and both of these came out ODD — 37 and 29 — which centres every even-height control in
-  // them on a half pixel: the brand bar's 26px switch sat at 5.5, the toolbar's two 26px buttons at 1.5.
   const band = Number(String(declarationIn(ruleDeclaring(":root", "--header-band"), "--header-band")).match(/([\d.]+)px/)[1]);
   assert.ok(band > 0, "--header-band is declared in px");
 
@@ -1006,8 +768,6 @@ test("a chrome band leaves an even content box for the controls centred in it", 
     const padBottom = padBottomDecl !== null
       ? Number(String(padBottomDecl).match(/([\d.]+)/)[1])
       : Number(String(edgeFromShorthand(padding, "bottom")).match(/([\d.]+)/)[1]);
-    // The rule may be declared on the band's base class rather than on the band — .source-toolbar takes
-    // its 1px from .toolbar — and a guard that only looked at the band read 0 and called an even box odd.
     const rule = finalDeclaration(selector, "border-bottom") || (base ? finalDeclaration(base, "border-bottom") : null);
     assert.ok(rule, `${selector}: the 1px rule under the band has to be found, or this arithmetic is fiction`);
     const border = Number(String(rule).match(/([\d.]+)px/)[1]);
@@ -1018,20 +778,15 @@ test("a chrome band leaves an even content box for the controls centred in it", 
 });
 
 test("the toolbar's icon button is the height of the text button beside it", () => {
-  // They were 27 and 26 and sit 16px apart in the same bar, so the icon button overhung the text button by
-  // half a pixel top and bottom and their hover fills were visibly different heights.
   const icon = finalDeclaration(".diff-tool-button", "height");
   assert.match(icon || "", /26px/, "the icon button is 26px tall");
   assert.match(finalDeclaration(".diff-tool-button", "width") || "", /26px/, "and square");
-  // 26 less its own 1px border leaves 24 for a 14px glyph: 5px a side, whole, like every other icon control.
   const border = finalDeclaration(".diff-tool-button", "border");
   const bw = Number(String(border).match(/([\d.]+)px/)[1]);
   assert.equal((26 - 2 * bw - 14) % 2, 0, "and its glyph is centred on a whole pixel");
 });
 
 test("the tree's two glyphs are one size, and the sidebar has one left inset", () => {
-  // The file glyph was 15px — the only odd icon size in the app, one pixel larger than the folder mark it
-  // shares a column with, and odd inside the row's 20px content box, so all 271 of them sat half low.
   const file = declarationIn(ruleDeclaring(".file-link .ftype", "width"), "width");
   const folder = declarationIn(ruleDeclaring(".folder-icon .folder-ic", "width"), "width");
   assert.equal(file, folder, "a file glyph and a folder glyph in the same column are the same size");

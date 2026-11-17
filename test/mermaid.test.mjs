@@ -1,25 +1,3 @@
-// Mermaid is not decoration here, and it had no test at all.
-//
-// An agent answering in a review thread can embed a ```mermaid fence (23-agent-cards.js splits on it,
-// 07-comments.js renders the pass). The point is not the picture: a node can be a LINK into the code —
-// the codebase-map prompt asks for `click A "#kakapo:path:line"`, and 20-mermaid.js intercepts that
-// anchor and calls navigateToLine. A diagram is a map you click into, which is why the library is worth
-// 5.2 MB of lazily-loaded asset.
-//
-// The only test that touched any of this replaced the renderer with a stub ("the real one needs the
-// lazy-loaded lib") and asserted a placeholder div appeared. So nothing verified that the bundled library
-// still works, and a major version bump could not fail any test — which is exactly what came up when
-// mermaid went 11 -> 12.
-//
-// What is deliberately NOT tested here is render(). It measures text through SVGGraphicsElement.getBBox,
-// which jsdom does not implement; shimming that cascades into getComputedTextLength and friends until the
-// test is measuring the shims instead of Mermaid, and a green light that means "my stubs agree with each
-// other" is worse than no test. Grammar, API shape and the config we actually pass are what a version bump
-// breaks, and those need no layout — so they are here.
-//
-// Layout itself is answered where it can be: `npm run mermaid:smoke` renders a diagram in the real app,
-// over the real kakapo-asset:// protocol, and checks the SVG's getBBox and its laid-out labels. That needs
-// a GUI, so it is not part of this suite.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -35,8 +13,6 @@ before(async () => {
 });
 after(() => cleanupFixtures());
 
-// Loads the ACTUAL file the build copies into dist/monaco — the same bytes the app serves over
-// kakapo-asset://. Nothing is stubbed, so this is the library itself answering.
 function withMermaid(fn) {
   const dom = new JSDOM("<!doctype html><body></body>", { runScripts: "dangerously", pretendToBeVisual: true });
   try {
@@ -51,8 +27,6 @@ function withMermaid(fn) {
 
 test("the copied Mermaid asset registers the global the lazy loader waits for", () => {
   withMermaid((w) => {
-    // loadMermaid() resolves on `window.mermaid` and rejects with "mermaid did not register" otherwise,
-    // so this is the contract between the build's copy step and the viewer's loader.
     assert.equal(typeof w.mermaid, "object", "window.mermaid exists after the asset runs");
     assert.equal(typeof w.mermaid.parse, "function");
     assert.equal(typeof w.mermaid.render, "function");
@@ -62,9 +36,6 @@ test("the copied Mermaid asset registers the global the lazy loader waits for", 
 
 test("Mermaid accepts the exact configuration the viewer passes it", () => {
   withMermaid((w) => {
-    // 20-mermaid.js re-initializes on every render pass with this shape (themeVariables comes from
-    // mermaidThemeVariables, which reads kakapo's live CSS custom properties). A major bump that renamed
-    // or rejected any of it would theme every diagram wrong — silently, since render() swallows nothing.
     w.mermaid.initialize({
       startOnLoad: false,
       securityLevel: "strict",
@@ -85,8 +56,6 @@ test("the bundled Mermaid parses the diagram kinds an agent writes — and rejec
     assert.equal((await w.mermaid.parse("sequenceDiagram\n  A->>B: hi\n")).diagramType, "sequence");
     assert.equal((await w.mermaid.parse("stateDiagram-v2\n  s1 --> s2\n")).diagramType, "stateDiagram");
 
-    // The control. A parse that cannot fail would satisfy every assertion above while proving nothing,
-    // so the guard is only worth having once it is shown to reject a broken fence.
     await assert.rejects(() => w.mermaid.parse("graph TD\n  A-->"),
       "a malformed fence is refused rather than silently accepted");
   });
@@ -100,8 +69,6 @@ test("a diagram node that links into the code navigates there instead of followi
 
     const host = v.document.createElement("div");
     host.className = "explain-mermaid";
-    // What mermaid renders for `click A "#kakapo:src/app-main.ts:42"` is an ordinary anchor; the handler
-    // parses it as data rather than letting mermaid's own `call` callback run agent-written script.
     host.innerHTML = '<svg><a href="#kakapo:src/app-main.ts:42">main</a></svg>';
     v.document.body.appendChild(host);
     v.click(host.querySelector("a"));
@@ -120,9 +87,6 @@ test("a path with a colon or a space survives the round trip through the href", 
 
     const host = v.document.createElement("div");
     host.className = "explain-mermaid";
-    // The handler splits on ":" and pops the line, then decodes what is left — so an encoded path with
-    // its own colon has to come back whole. This is why the line is popped instead of the path being
-    // read as parts[0].
     host.innerHTML = '<svg><a href="#kakapo:src/a%20b%3Ac.ts:7">x</a></svg>';
     v.document.body.appendChild(host);
     v.click(host.querySelector("a"));
@@ -154,9 +118,6 @@ test("an ordinary link inside a diagram keeps its own meaning", async () => {
 test("a diagram placeholder carries its own source, so a re-render is not stuck on 'loading…'", async () => {
   const v = await loadViewer(html);
   try {
-    // mermaidSources is a module variable: a card re-rendered from cached HTML, or the same note after a
-    // reload, arrives with an id whose registry entry is gone. The source rides along in the placeholder
-    // for exactly that case — without it the renderer returned silently and left "loading…" on screen.
     const placeholder = v.window.mermaidPlaceholderHtml("graph TD\n  A-->B");
     assert.match(placeholder, /class="explain-mermaid"/);
     assert.match(placeholder, /<pre class="explain-mermaid-src" hidden>/);

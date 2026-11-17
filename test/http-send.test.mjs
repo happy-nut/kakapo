@@ -1,8 +1,3 @@
-// The .http runner executes a request whose URL, headers and body come from a file in the reviewed
-// repository, in the main process, with no CORS and no sandbox. Loopback stays reachable on purpose — running
-// a request against your own dev server is the point of the feature — but the destination has to be the one
-// written in the file the reviewer ran: a scheme they can read, and not a redirect chain that quietly leads
-// somewhere else.
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
@@ -36,7 +31,6 @@ before(async () => {
       res.end();
       return;
     }
-    // A hop that stays on this origin, and an endpoint that reports what it was sent.
     if (req.url === "/to-echo") {
       res.writeHead(302, { location: "/echo-headers" });
       res.end();
@@ -52,7 +46,6 @@ before(async () => {
       res.end();
       return;
     }
-    // Echoes back what arrived, so a test can assert on the request rather than on the response.
     if (req.url === "/echo") {
       const chunks = [];
       req.on("data", (chunk) => chunks.push(chunk));
@@ -80,8 +73,6 @@ before(async () => {
       res.end(req.headers.authorization);
       return;
     }
-    // A Digest challenge the caller gets to dictate, so one fixture covers every algorithm and qop a
-    // server can ask for. The query is the WWW-Authenticate header, verbatim.
     if (req.url?.startsWith("/challenge")) {
       if (!req.headers.authorization) {
         res.writeHead(401, { "www-authenticate": decodeURIComponent(req.url.split("?")[1] ?? "") });
@@ -150,12 +141,6 @@ test("a URL that is not http(s) never reaches the network", async () => {
   }
 });
 
-// Where the .http runner looks for its environments.
-//
-// They were read only from the repository root, and that is not where they live: a project keeps its
-// requests in a folder with the env file next to them. So every {{variable}} stayed a literal, the request
-// went out as "{{host}}/get", and the sender answered "unsupported URL scheme: {{host}}/get" — naming the
-// symptom and hiding the cause.
 test("environment files are found beside the .http files, not only at the repository root", () => {
   const root = mkdtempSync(join(tmpdir(), "kakapo-httpenv-"));
   try {
@@ -176,8 +161,6 @@ test("environment files are found beside the .http files, not only at the reposi
   }
 });
 
-// The paths come from the review's own file list, so they are repository-relative — but a reader of this
-// function cannot see that, and it opens files by path.
 test("an environment lookup cannot be walked out of the repository", () => {
   const root = mkdtempSync(join(tmpdir(), "kakapo-httpenv-"));
   const outside = mkdtempSync(join(tmpdir(), "kakapo-outside-"));
@@ -191,11 +174,6 @@ test("an environment lookup cannot be walked out of the repository", () => {
     rmSync(outside, { recursive: true, force: true });
   }
 });
-
-// ---- what the request carries ----------------------------------------------------------------------
-// `Authorization: Basic user pass` is IntelliJ's spelling and NOT a valid header value, so the renderer
-// splits it out and main is the side that encodes it. Same for Digest, which cannot be encoded at all
-// until the server has handed out a nonce.
 
 const echo = async (request, context = {}) => {
   const result = await performHttpRequest({ headers: {}, ...request, url: `${origin}/echo` }, context);
@@ -292,9 +270,6 @@ test("@timeout gives up instead of hanging, and says so", async () => {
   assert.match(result.error, /timed out after 60 ms/);
 });
 
-// Two directives describe two phases of one request, and `fetch` offers no hook between them. The larger
-// is used — never shorter than either was asked for — and the message names the deadline applied, so a
-// request that stopped early can be read back to the line that set it.
 test("@connection-timeout counts too: the deadline is the larger of the two", async () => {
   const connectOnly = await performHttpRequest({ method: "GET", url: `${origin}/slow`, headers: {}, connectTimeoutMs: 50 });
   assert.equal(connectOnly.ok, false);
@@ -306,7 +281,6 @@ test("@connection-timeout counts too: the deadline is the larger of the two", as
   assert.equal(both.ok, false);
   assert.match(both.error, /timed out after 80 ms/, "the shorter phase does not shorten the whole request");
 
-  // And a generous connection timeout is not overridden by the 60s default.
   const generous = await performHttpRequest({ method: "GET", url: `${origin}/ok`, headers: {}, connectTimeoutMs: 120_000 });
   assert.equal(generous.ok, true, generous.error);
 });
@@ -318,10 +292,6 @@ test("a non-text response comes back as bytes with its size, not as mojibake", a
   assert.equal(result.bytes, 8);
   assert.equal(Buffer.from(result.bodyBase64, "base64")[1], 0x50);
 });
-
-// ---- the cookie jar ---------------------------------------------------------------------------------
-// Kept in kakapo's own user-data mirror, never in the reviewed project (AGENTS.md), in IntelliJ's own
-// readable `# domain path name value date` format.
 
 test("cookies are saved on one request and sent on the next", async () => {
   const root = mkdtempSync(join(tmpdir(), "kakapo-cookie-repo-"));
@@ -369,15 +339,12 @@ test("a Cookie: line written in the .http file wins outright over the jar", asyn
   }
 });
 
-// ---- reading and writing files the .http file names -------------------------------------------------
-
 test("an attachment read is confined to the review, canonically", () => {
   const root = mkdtempSync(join(tmpdir(), "kakapo-attach-"));
   const outside = mkdtempSync(join(tmpdir(), "kakapo-attach-out-"));
   try {
     writeFileSync(join(root, "payload.json"), '{"ok":true}');
     writeFileSync(join(outside, "secret.txt"), "shh");
-    // A tracked symlink keeps the LINK inside the root while its target is not, which a lexical check misses.
     symlinkSync(join(outside, "secret.txt"), join(root, "leak.txt"));
 
     assert.equal(readHttpAttachment(root, "payload.json").text, '{"ok":true}');
@@ -436,15 +403,12 @@ test("a response save cannot be aimed out of the review", () => {
       const result = saveHttpResponse(root, userData, { path, body: "x" });
       assert.equal(result.ok, false, `${path} must be refused`);
     }
-    // And a folder that does not exist is not created inside someone's repository.
     assert.equal(saveHttpResponse(root, userData, { path: "nope/out.json", body: "x" }).ok, false);
   } finally {
     rmSync(root, { recursive: true, force: true });
     rmSync(userData, { recursive: true, force: true });
   }
 });
-
-// ---- the variable scopes that ride in with the environments ------------------------------------------
 
 test("$shared, .env and the referenced process variables arrive as their own scopes", () => {
   const root = mkdtempSync(join(tmpdir(), "kakapo-scopes-"));
@@ -483,11 +447,6 @@ test("an environment's SSLConfiguration block is not offered as a variable", () 
   }
 });
 
-// ---- a client certificate --------------------------------------------------------------------------
-// `fetch` cannot carry one, so this is the one request path that does not go through it. Both halves are
-// exercised against a real TLS server: the certificate reaching the server, and a self-signed host being
-// refused unless the environment says otherwise.
-
 test("a client certificate is read from the review and presented to the server", async (t) => {
   const { createServer } = await import("node:https");
   const { generateKeyPairSync, X509Certificate, createPrivateKey } = await import("node:crypto");
@@ -495,7 +454,6 @@ test("a client certificate is read from the review and presented to the server",
   const root = mkdtempSync(join(tmpdir(), "kakapo-tls-"));
   let server;
   try {
-    // openssl is the only thing here that can mint a certificate; without it there is nothing to test.
     try {
       execFileSync("openssl", [
         "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
@@ -517,7 +475,6 @@ test("a client certificate is read from the review and presented to the server",
     await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
     const url = `https://127.0.0.1:${server.address().port}/`;
 
-    // Self-signed, so the default (verify) must refuse it — that refusal is the feature working.
     const refused = await performHttpRequest({ method: "GET", url, headers: {}, ssl: { verifyHostCertificate: true, clientCertificate: "cert.pem" } }, { root });
     assert.equal(refused.ok, false, "a self-signed host is not trusted by default");
 
@@ -555,13 +512,6 @@ test("a certificate outside the review, or one needing a passphrase, is refused 
   }
 });
 
-// ---- what travels with a redirect -------------------------------------------------------------------
-// The redirect tests above check where a hop LEADS. Nothing checked what it carries, and the answer was
-// everything: following redirects manually is what makes each destination checkable, and it also took over
-// the one thing `redirect: "follow"` had been doing correctly — fetch drops Authorization when a redirect
-// crosses origins. A server named in a .http file could answer `302 Location: http://elsewhere/` and be
-// handed the reviewer's password in cleartext.
-
 test("credentials do not follow a redirect to another origin", async () => {
   const collected = [];
   const other = createServer((req, res) => {
@@ -597,7 +547,6 @@ test("credentials do not follow a redirect to another origin", async () => {
 });
 
 test("a redirect within the same origin still carries them", async () => {
-  // The ordinary case — a trailing slash, a login hop — and stripping there would break every one of them.
   const result = await performHttpRequest({
     method: "GET",
     url: `${origin}/to-echo`,
@@ -608,14 +557,6 @@ test("a redirect within the same origin still carries them", async () => {
   assert.deepEqual(result.redirects, [`${origin}/echo-headers`]);
   assert.equal(JSON.parse(result.body).authorization, `Basic ${Buffer.from("reviewer:hunter2").toString("base64")}`);
 });
-
-// ---- the cookie jar's half of RFC 6265 ---------------------------------------------------------------
-// The jar is written by hand — IntelliJ's own file format, no dependency — and the tests it had covered
-// the round trip: a cookie saved on one request is sent on the next, @no-cookie-jar skips it, a Cookie:
-// line in the file wins. All happy paths, all from a server behaving itself. What a hand-written jar
-// actually has to get right is the four rules that decide when NOT to send one, and none of them were
-// there: a response could claim any host it liked, `Domain=com` matched every .com, `Secure` was not
-// parsed at all, and a cookie with no Domain= went to every subdomain of the host that set it.
 
 const jarDirs = [];
 function jar() {
@@ -647,8 +588,6 @@ test("a Secure cookie does not go out over plain http", () => {
   j.save("https://bank.test/login", "session=3; Path=/; Secure");
   assert.equal(j.get("http://bank.test/"), "", "the whole meaning of the flag");
   assert.equal(j.get("https://bank.test/"), "session=3");
-  // Loopback counts as secure, as it does in every browser: a .http file run against your own dev server
-  // over http is the feature, not an attack on it.
   j.save("http://localhost:3000/login", "dev=4; Path=/; Secure");
   assert.equal(j.get("http://localhost:3000/me"), "dev=4");
 });
@@ -664,7 +603,6 @@ test("and the flows a reviewer actually runs are untouched", () => {
   const j = jar();
   j.save("https://api.example.com/login", "session=abc; Path=/");
   assert.equal(j.get("https://api.example.com/users"), "session=abc");
-  // A legitimate parent domain — the single-sign-on shape these files are full of.
   j.save("https://auth.example.com/login", "sso=xyz; Domain=example.com; Path=/");
   assert.equal(j.get("https://api.example.com/users"), "session=abc; sso=xyz");
   j.save("https://paths.test/api/v1", "scoped=2; Path=/api");
@@ -674,12 +612,6 @@ test("and the flows a reviewer actually runs are untouched", () => {
   assert.equal(j.get("https://expiry.test/"), "");
 });
 
-// --- Round 5: the multipart body is assembled by hand, so it inherited none of fetch's checks. ---
-// Every assertion below reads the body back through a REAL multipart parser (undici's, the same one a
-// server-side framework uses) rather than through a regex of our own, because the question is not what
-// bytes went out — it is what a server concludes the reviewer asked for.
-
-/** The fields a real parser extracts from the body that actually went on the wire. */
 async function fieldsOnTheWire(result) {
   const echoed = JSON.parse(result.body);
   const form = await new Response(Buffer.from(echoed.body, "base64"), {
@@ -696,12 +628,9 @@ const upload = (boundary, bodyParts, context = {}) => performHttpRequest({
 
 const disposition = (name) => ({ "Content-Disposition": `form-data; name="${name}"` });
 
-/** The shape an encoder actually generates, and the length at which the boundary check never misfires. */
 const WEBKIT_BOUNDARY = "----WebKitFormBoundary7MA4YWxkTrZu0gW";
 
 test("a multipart part whose content carries the delimiter is refused", async () => {
-  // The content is a {{variable}} away from being the server's own words: a value captured out of an
-  // earlier response, or an env value out of the reviewed repository. Two fields were written here.
   const result = await upload("kakapo-boundary", [
     {
       headers: disposition("note"),
@@ -729,7 +658,6 @@ test("a multipart part whose content contains the bare boundary is refused as we
 });
 
 test("a multipart upload whose content does not contain the boundary is untouched", async () => {
-  // Including a near miss: a prefix of the boundary, which is what the strictness costs and does not.
   const note = "dashes -- and ----WebKitFormBoundary, neither of them the whole thing";
   const result = await upload(WEBKIT_BOUNDARY, [
     { headers: disposition("note"), text: note },
@@ -740,14 +668,10 @@ test("a multipart upload whose content does not contain the boundary is untouche
 });
 
 test("a multipart part reading a file whose bytes carry the delimiter is refused", async () => {
-  // The same hole, reached by the path the reviewer is least able to check: a file in the repository
-  // under review, whose contents they never read, sent as a field's text.
   const root = mkdtempSync(join(tmpdir(), "kakapo-mp-delim-"));
   try {
     writeFileSync(join(root, "note.txt"), 'hi\r\n--sep\r\nContent-Disposition: form-data; name="role"\r\n\r\nadmin');
     const result = await upload("sep", [
-      // A file part's disposition carries `filename=` before `name=`, and the error has to name the field
-      // rather than the tail of the filename, or it points the reviewer at the wrong part.
       { headers: { "Content-Disposition": 'form-data; filename="note.txt"; name="note"' }, file: "note.txt" },
       { headers: disposition("role"), text: "viewer" },
     ], { root });
@@ -760,8 +684,6 @@ test("a multipart part reading a file whose bytes carry the delimiter is refused
 });
 
 test("a part header with a line break in its value is refused", async () => {
-  // `fetch` throws on CRLF in a real header value. Nothing checked these, so the break closed the header
-  // block, added a part, and swallowed the reviewer's own value — `note` arrived as `injected`.
   const result = await upload("kakapo-boundary", [
     {
       headers: {
@@ -784,12 +706,6 @@ test("a part header with an ordinary value still goes out", async () => {
   assert.deepEqual(await fieldsOnTheWire(result), [["file", "{}"]]);
 });
 
-// --- Round 5: Digest named an algorithm in the header and then ignored it. ---
-
-/**
- * Recompute the response the way the server does — from the header's own fields, including the `uri` it
- * claims to have signed — and say which hash it was actually built with.
- */
 function digestHashUsed(header, user, password, method) {
   const field = (name) => {
     const match = new RegExp(`${name}=("[^"]*"|[^,]*)`).exec(header);
@@ -822,7 +738,6 @@ test("digest with algorithm MD5 answers with an MD5 response", async () => {
 });
 
 test("digest with algorithm SHA-256 answers with a SHA-256 response", async () => {
-  // It used to send an MD5 digest labelled `algorithm=SHA-256`: 32 hex characters where 64 were promised.
   const result = await challenged('Digest realm="k", qop="auth", nonce="abc", algorithm=SHA-256');
   assert.equal(result.ok, true, result.error);
   assert.match(result.body, /algorithm=SHA-256,/);
@@ -851,8 +766,6 @@ test("digest refuses an algorithm it cannot compute instead of answering with an
 });
 
 test("digest will not drop to the RFC 2069 form when the server offers only auth-int", async () => {
-  // The old fallback sent no cnonce and no nc, which is the replayable 1999 form of the scheme — and the
-  // server that asked for auth-int would have rejected it anyway, as a bare 401 with nothing to read.
   const result = await challenged('Digest realm="k", qop="auth-int", nonce="abc"');
   assert.equal(result.ok, false);
   assert.match(result.error, /qop=auth-int only; kakapo implements qop=auth/);

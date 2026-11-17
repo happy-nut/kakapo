@@ -1,5 +1,3 @@
-// Current-file search shared by Review source and side-by-side diff views. Project-wide content search
-// remains Cmd/Ctrl+Shift+F; this deliberately never walks hidden files/wrappers.
 var fileFindPanel = document.getElementById('file-find');
 var fileFindInput = document.getElementById('file-find-input');
 var fileFindCount = document.getElementById('file-find-count');
@@ -10,9 +8,6 @@ var fileFindResults = [];
 var fileFindActive = -1;
 var fileFindRevision = 0;
 var fileFindRestoreFocus = null;
-// The file the open bar belongs to. A search is ABOUT one file: carrying "value" onto the next file and
-// silently re-running it there hands the reviewer a match count for something they did not ask about, and a
-// bar whose contents no longer describe what is on screen.
 var fileFindPath = '';
 var fileFindRefreshTimer = 0;
 var fileFindHighlightFrame = 0;
@@ -21,33 +16,15 @@ var FILE_FIND_LIMIT = 5000;
 var FILE_FIND_DEBOUNCE_MS = 90;
 var FILE_FIND_HIGHLIGHT_LIMIT = 200;
 var FILE_FIND_SHORT_QUERY_HIGHLIGHT_LIMIT = 48;
-// The field, the count, four toggles and three buttons on one line — IntelliJ's toolbar is one line too.
 var FILE_FIND_WIDTH = 468;
 
-// ---- IntelliJ's find-toolbar toggles ------------------------------------------------------------
-// Cc / W / .* and Search In Selection: the four the editor's own find bar carries, as
-// platform/lang-impl/.../find/editorHeaderActions/Toggle{MatchCase,WholeWordsOnly,Regex,FindInSelection}.
-// IntelliJ keeps the editor search's case/words settings SEPARATE from the ones Find in Files uses
-// (FindSettings.LOCAL_CASE_SENSITIVE_SEARCH / LOCAL_WHOLE_WORDS_ONLY, both off by default), and so does
-// this — "is this word in this file" and "is this string in the project" are not asked with the same
-// precision. Session-scoped, like Find in Files' own three in 03-quick-open.js.
 var fileFindMatchCase = false;
 var fileFindWholeWords = false;
 var fileFindRegex = false;
 var fileFindInSelection = false;
-// IntelliJ's Search In Changes, which its diff toolbar keeps beside the find field: the same query, asked
-// only of the lines this review actually changed. In a 2000-line file a reviewer looking for `userId` does
-// not want the 40 places it was already written — they want the 3 the agent touched.
 var fileFindChangesOnly = false;
-// The lines In Selection was switched on over. Captured once, not read live: the selection is dropped the
-// moment the reviewer clicks into the find field, and a scope that evaporates on its way to being used is
-// not a scope.
 var fileFindSelectionLines = null;
 var fileFindPatternError = '';
-// IntelliJ's Search History (FindBundle's find.search.history), which its toolbar opens as a dropdown from
-// the field. One line of bar has no room for a dropdown, so ⌥↓/⌥↑ — the keys IntelliJ puts the history on —
-// step through it in place. They answer only while the FIELD holds the keyboard, which is how the code
-// surface keeps its own ⌥↓ (next symbol) while the bar is merely open.
 var fileFindHistory = [];
 var fileFindHistoryIndex = -1;
 var FILE_FIND_HISTORY_MAX = 20;
@@ -98,10 +75,6 @@ function clearFileFindHighlights() {
   } catch (e) {}
 }
 
-// Offsets here are columns in the FILE, so the walk has to be the one that ignores the labels the app
-// drew into the line (sourceTextWalker, 10-source-view.js). Walking every text node put a match on a
-// hinted line at whatever characters happened to sit that far along the painted text — column 21 of
-// `return cache.get(cache.key);` resolved to 32 once `key: ` was in front of it.
 function fileFindDomPoint(container, offset, preferAfter) {
   if (!container) return null;
   var remaining = Math.max(0, Number(offset) || 0);
@@ -110,7 +83,6 @@ function fileFindDomPoint(container, offset, preferAfter) {
   var boundary = null;
   while ((node = walker.nextNode())) {
     var length = (node.textContent || '').length;
-    // Strictly inside this node: there is only one answer.
     if (remaining < length) return { node: node, offset: remaining };
     if (remaining === length) {
       // On the seam between two nodes. Both ends of the seam are the same column, and which one to take
@@ -130,8 +102,6 @@ function fileFindDomPoint(container, offset, preferAfter) {
 }
 
 function fileFindRange(container, start, length) {
-  // The start prefers the far side of a seam and the end the near side, so a range never swallows a
-  // label that merely sits at one of its edges.
   var from = fileFindDomPoint(container, start, true);
   var to = fileFindDomPoint(container, start + length, false);
   if (!from || !to) return null;
@@ -143,12 +113,6 @@ function fileFindRange(container, start, length) {
   } catch (e) { return null; }
 }
 
-// The row holding a line among the rows that are PAINTED — null when a big file has not built it yet.
-//
-// That is what a DECORATOR wants. A squiggle, a usage mark, a find highlight draws on what is on screen,
-// and sourceRowsCompleted runs it again each time more rows arrive. Asking one to materialise a row it
-// merely wanted to underline builds the whole file for nobody: diagnostics did exactly that, one flush per
-// item, so a single red dot on line 6 of electron.d.ts painted all 27,089 rows and cost a gigabyte.
 function paintedSourceRow(lineIndex) {
   var body = document.getElementById('source-body');
   if (!body) return null;
@@ -161,8 +125,6 @@ function paintedSourceRow(lineIndex) {
   }) || null;
 }
 
-// The row for a line the reader is being SENT to: a match can be anywhere in the file, not only in the
-// painted window, so this finishes the file first. One caller — revealing the ACTIVE result.
 function sourceFindRow(lineIndex) {
   flushSourceRows();
   return paintedSourceRow(lineIndex);
@@ -194,14 +156,8 @@ function applyFileFindHighlights() {
     }
     if (index === fileFindActive && row) row.classList.add('file-find-row-active');
     if (!container) return;
-    // The cell's OWN text, for the same reason: this is compared against a match found in the file, and
-    // the labels are not in the file. Read with textContent it disagreed on every hinted line and sent
-    // every one of them down the fallback below.
     var shown = sourceCellText(container);
     var start = result.column;
-    // The painted cell is not always the string the match was found in — a rendered markdown or CSV row, a
-    // diff cell carrying its own prefix column. Look for the matched text where the offset does not hold it.
-    // With a pattern this cannot be the query itself, which is why each result remembers what it matched.
     if (shown.substr(start, result.length) !== result.text) {
       start = shown.indexOf(result.text);
       if (start < 0) return;
@@ -233,20 +189,12 @@ function fileFindOwnsKeyboard() {
   return Boolean(fileFindInput && document.activeElement === fileFindInput);
 }
 
-// Typing is the one thing this bar must never interrupt, and publishing results is not a small act: it
-// reveals a file, expands a fold, repaints a window of a large file and scrolls. Any of that may take DOM
-// focus, and the code surfaces bind no plain letters — so a field that quietly lost the keyboard looks
-// exactly like a field that stopped accepting input, with every following keystroke going nowhere.
-// One invariant at the single place every refresh passes through, rather than a guard per caller: if the
-// field held the keyboard before the work and the bar is still open, it holds it after.
 function keepFileFindFocus(owned) {
   if (!owned || !fileFindInput || !isFileFindOpen()) return;
   if (document.activeElement === fileFindInput) return;
   try { fileFindInput.focus({ preventScroll: true }); } catch (e) { try { fileFindInput.focus(); } catch (ignore) {} }
 }
 
-// Where the keyboard goes when the bar closes because the reviewer left the file it was about. Navigation
-// already decided which surface they are on; this hands it the keys so they answer.
 function focusFileFindSurface() {
   var content = isSourceViewerVisible()
     ? document.getElementById('source-body')
@@ -264,7 +212,6 @@ function updateFileFindChrome() {
     fileFindCount.textContent = fileFindPatternError ? t('find.badPattern')
       : !typed ? '0/0'
         : total ? (fileFindActive + 1) + '/' + total : t('find.noResults');
-    // The compiler's own words, where they can be read without taking a line of the bar.
     fileFindCount.title = fileFindPatternError;
   }
   if (fileFindPrev) fileFindPrev.disabled = total === 0;
@@ -275,23 +222,11 @@ function escapeFileFindLiteral(text) {
   return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-/**
- * What the field is asking for, compiled once per query rather than once per line.
- *
- * `{ empty }` when there is nothing to search for, `{ error }` when the pattern will not compile — which
- * IntelliJ reports as "Bad pattern" (find.incorrect.regexp) rather than as no matches, because a typo in a
- * pattern answering "nothing matched" is the wrong answer and the one a reviewer would believe.
- *
- * Literal and case-insensitive stays on indexOf over a folded line: that is the shape a one-character
- * query takes over a 9000-row diff (measured at 10ms, and it runs on every keystroke). The toggles are
- * what bring a RegExp in, each of them exactly one thing IntelliJ's own toggle does.
- */
 function fileFindQuery() {
   var raw = String(fileFindInput && fileFindInput.value || '');
   if (!raw) return { empty: true };
   var flags = fileFindMatchCase ? 'g' : 'gi';
   if (fileFindRegex) {
-    // IntelliJ wraps the pattern for Words rather than the text, so `\bfoo|bar\b` means the whole thing.
     var source = fileFindWholeWords ? '\\b(?:' + raw + ')\\b' : raw;
     try { return { regex: new RegExp(source, flags) }; } catch (error) { return { error: String(error && error.message || error) }; }
   }
@@ -308,19 +243,11 @@ var FILE_FIND_OPTIONS = [
   { id: 'changesOnly', shortcut: 'searchChangesOnly', get: function () { return fileFindChangesOnly; }, set: function (on) { fileFindChangesOnly = on; } },
 ];
 
-/**
- * Is this line one the review changed?
- *
- * Asked of both surfaces, which know it differently: the source view carries `changedLines` (1-based, the
- * same list the `changed-line` class is painted from), and a diff row simply IS a change or is context —
- * `isChangeCodeRow` already says which. Passing the row where there is one keeps that distinction in the
- * caller rather than re-deriving it here.
- */
 function withinFileFindChanges(lineIndex, row) {
   if (!fileFindChangesOnly) return true;
   if (row) return isChangeCodeRow(row);
   var file = sourceByPath.get(sourceOpenPath());
-  if (!file || !Array.isArray(file.changedLines)) return false; // nothing is known to have changed here
+  if (!file || !Array.isArray(file.changedLines)) return false;
   return file.changedLines.indexOf(lineIndex + 1) >= 0;
 }
 
@@ -336,7 +263,6 @@ function rememberFileFindQuery(text) {
 function stepFileFindHistory(direction) {
   if (!fileFindInput || !fileFindHistory.length) return false;
   var next = fileFindHistoryIndex + (direction < 0 ? -1 : 1);
-  // -1 is the query the reviewer was typing before they started walking back; past the oldest, stay put.
   if (next < -1 || next >= fileFindHistory.length) return true;
   fileFindHistoryIndex = next;
   fileFindInput.value = next < 0 ? '' : fileFindHistory[next];
@@ -346,9 +272,6 @@ function stepFileFindHistory(direction) {
 }
 
 function fileFindOptionButton(id) {
-  // Spelled out rather than falling through to in-selection: the last branch used to answer for every id
-  // that was not one of the first three, which would have given the changes-only toggle the wrong button
-  // and made each of them paint the other's state.
   return id === 'matchCase' ? fileFindMatchCaseButton
     : id === 'wholeWords' ? fileFindWholeWordsButton
       : id === 'regex' ? fileFindRegexButton
@@ -364,8 +287,6 @@ function syncFileFindOptions() {
     button.setAttribute('aria-pressed', option.get() ? 'true' : 'false');
     button.classList.toggle('active', option.get());
   });
-  // Nothing is selected: the toggle is still there and still says what it would do, the way IntelliJ
-  // disables it outside a search session rather than hiding it.
   if (fileFindInSelectionButton) fileFindInSelectionButton.disabled = !fileFindInSelection && !fileFindHasSelection();
 }
 
@@ -375,8 +296,6 @@ function toggleFileFindOption(id) {
   if (id === 'inSelection') {
     if (!fileFindInSelection) {
       var lines = fileFindHasSelection() ? fileFindSelectedLines() : null;
-      // Consumed, and said. The disabled button tells a mouse user why nothing happened; a keyboard user
-      // pressing ⌥E with no selection got the same silence this whole pass has been removing.
       if (!lines) { showCaretHint(t('find.inSelection.none')); return true; }
       fileFindSelectionLines = lines;
     } else {
@@ -395,9 +314,6 @@ function appendFileFindMatches(results, text, query, makeResult) {
     query.regex.lastIndex = 0;
     var match;
     while (results.length < FILE_FIND_LIMIT && (match = query.regex.exec(line))) {
-      // A pattern that can match nothing (`a*`, `^`) would otherwise sit on one offset forever. IntelliJ
-      // declines those outright ("Regular expression matches empty string"); stepping past is gentler and
-      // keeps a half-typed `(` from freezing the field.
       if (!match[0].length) { query.regex.lastIndex = match.index + 1; continue; }
       results.push(makeResult(match.index, match[0].length, match[0]));
       if (query.regex.lastIndex <= match.index) query.regex.lastIndex = match.index + 1;
@@ -414,21 +330,6 @@ function appendFileFindMatches(results, text, query, makeResult) {
   }
 }
 
-/**
- * The lines Search In Selection covers, from whichever view owns the selection.
- *
- * Line granularity, where IntelliJ restricts to the exact selected offsets. Both views here select by
- * row — the source view is a table of rows and the diff carries its own row/column cursor — so the first
- * and last line are covered whole. Stated in the READMEs rather than left to be discovered.
- */
-/**
- * Is there a selection at all — the cheap question, asked before the expensive one.
- *
- * fileFindSelectedLines goes through selectedSourceRows, which calls flushSourceRows: it finishes painting
- * the WHOLE file so a selection reaching past the painted window can be read. That is the right thing for
- * a selection a reviewer actually made, and the wrong thing to do on every ⌘F and every toggle — measured
- * at 782ms on a 30k-line file, which is a freeze on the one key that must never stutter.
- */
 function fileFindHasSelection() {
   if (!isSourceViewerVisible()) return Boolean(diffSelectionAnchor && diffCursor);
   var selection = window.getSelection && window.getSelection();
@@ -559,8 +460,6 @@ function scheduleFileFindRefresh(options) {
   }, FILE_FIND_DEBOUNCE_MS);
 }
 
-// Same question the caret asks on every move, same answer — see expandSourceFoldsAt in 10-source-view.js.
-// This one repaints as well, because a find result is revealed without going through setSourceCursor.
 function expandSourceFindResult(result) {
   var changed = expandSourceFoldsAt(result.path, result.lineIndex);
   if (changed) openSourceFile(result.path, false);
@@ -571,30 +470,13 @@ function fileFindIndexAt(index) {
   return ((index % fileFindResults.length) + fileFindResults.length) % fileFindResults.length;
 }
 
-// IntelliJ's "Scroll to results during typing" (FindSettings.SCROLL_TO_RESULTS_DURING_TYPING, on by
-// default): while the query is still being typed the VIEW follows the first match. It does not place the
-// editor caret there — EditorSearchSession passes that setting as `allowedToChangedEditorSelection`, and
-// restores the caret it started from when the field is cleared.
-//
-// kakapo called setDiffCursor/setSourceCursor on every keystroke instead, which is not a scroll: it moved
-// the caret, dropped any selection, re-asserted the active hunk, cleared the caret hint, and pushed one
-// entry per CHARACTER into the ⌘[/⌘] history — so a six-letter query cost six positions, and going back
-// walked the word backwards. The caret is where the reviewer is; a query they are still typing is not a
-// position yet. It moves on Enter / ⌘G / the arrow buttons, and once more when the bar closes.
 function previewFileFindResult(index) {
   if (!fileFindResults.length) return;
   fileFindActive = fileFindIndexAt(index);
   var result = fileFindResults[fileFindActive];
   if (result.kind === 'diff') {
     var wrapper = diffWrapperByPath(result.path);
-    // Same reason setDiffCursor does it: a match in a file that is not the visible one has nothing on
-    // screen to scroll to, and revealing also materializes a lazy body so its rows exist to be found.
     if (wrapper && wrapper.classList && wrapper.classList.contains('df-inactive')) revealDiffFile(result.path);
-    // ...and a file the reader FOLDED is hidden for a different reason and just as completely. Without
-    // this the bar reported "1/27" over a pane showing only "… is folded away", and then Enter — which
-    // goes through setDiffCursor and does unfold — opened the file for match 2. One feature, unfolding
-    // for every match but the one it lands on first. The source branch below has always done the
-    // equivalent for a folded region.
     if (wrapper && wrapper.classList && wrapper.classList.contains('file-collapsed')) {
       delete diffCollapsedFileSet()[result.path];
       paintDiffFileCollapse();
@@ -602,7 +484,7 @@ function previewFileFindResult(index) {
     var row = wrapper && diffRowAt(wrapper, result.side, result.rowIndex);
     if (row) scrolloffReveal(row, document.getElementById('diff2html-container'), 0.15);
   } else {
-    expandSourceFindResult(result); // a match inside a folded region is not shown until the fold opens
+    expandSourceFindResult(result);
     var sourceRow = sourceFindRow(result.lineIndex);
     if (sourceRow) scrolloffReveal(sourceRow, document.getElementById('source-body'), 0.15);
   }
@@ -626,8 +508,6 @@ function revealFileFindResult(index) {
 
 function stepFileFind(direction) {
   if (!fileFindResults.length) return;
-  // IntelliJ's moveCursor calls addTextToRecent before it moves: stepping to a match is the moment a query
-  // stops being something half-typed and becomes one the reviewer used.
   rememberFileFindQuery(fileFindInput && fileFindInput.value);
   revealFileFindResult(fileFindActive + (direction < 0 ? -1 : 1));
 }
@@ -637,19 +517,11 @@ function openFileFind() {
   if (!isFileFindOpen()) fileFindRestoreFocus = document.activeElement;
   fileFindPath = fileFindSurfacePath();
   fileFindPanel.classList.remove('hidden');
-  // Unchanged imports are folded away, so their text is not in the DOM and cannot be matched. Restore them
-  // now, while opening, rather than part-way through the query: this used to run at exactly two characters,
-  // which meant the diff rebuilt its rows, invalidated its geometry and re-ran its scroll BETWEEN a
-  // reviewer's first and second keystroke — a stall landing on the one action that must never stutter, and
-  // on a boundary nobody could predict. The work is the same; it just belongs to the deliberate ⌘F now.
   if (isDiffViewVisible()) {
     var openWrapper = diffActiveWrapper();
     var importFold = openWrapper && openWrapper.querySelector('.mc-import-fold-row');
     if (importFold) openDiffImportFold(importFold);
   }
-  // IntelliJ turns Search In Selection on by itself when ⌘F opens over a selection that spans more than
-  // one line: a reviewer who selected a block and reached for find meant that block. A selection inside one
-  // line is a word they want to search FOR, not a range to search in — which is why only multi-line counts.
   var selected = fileFindHasSelection() ? fileFindSelectedLines() : null;
   if (selected && selected.to > selected.from) {
     fileFindInSelection = true;
@@ -657,10 +529,6 @@ function openFileFind() {
   }
   syncFileFindOptions();
   positionFileFind();
-  // The keyboard moves first, THEN the search runs. The other order looks equivalent and is not: the first
-  // refresh schedules the highlight pass, and that pass asks "did the field own the keyboard" to decide
-  // whether to keep it — asked before the focus call, the answer was no, so the one paint that lands while
-  // the reviewer is typing their first characters was the one paint allowed to leave focus elsewhere.
   fileFindInput.focus({ preventScroll: true });
   fileFindInput.select();
   if (fileFindInput.value) scheduleFileFindRefresh({ preserveActive: true });
@@ -670,10 +538,6 @@ function openFileFind() {
 
 function closeFileFind(restoreFocus) {
   if (!fileFindPanel) return;
-  // Esc ends the search AT the match, the way IntelliJ does: typing only scrolled the view, so without this
-  // a reviewer who typed, found the line and pressed Esc would be returned to where they started with
-  // nothing to show for it. A close caused by LEAVING the file (restoreFocus === false) places nothing —
-  // the match belongs to a file that is no longer on screen.
   if (restoreFocus !== false && fileFindActive >= 0 && fileFindResults[fileFindActive]) {
     var landing = fileFindResults[fileFindActive];
     if (landing.kind === 'diff') setDiffCursor(landing.path, landing.side, landing.rowIndex, landing.column, true);
@@ -695,8 +559,6 @@ function closeFileFind(restoreFocus) {
   }
   fileFindRestoreFocus = null;
   fileFindPath = '';
-  // The toggles survive the bar (they are the reviewer's preference), the SCOPE does not: it described a
-  // selection in a file this search is done with.
   fileFindInSelection = false;
   fileFindSelectionLines = null;
   fileFindPatternError = '';
@@ -705,14 +567,6 @@ function closeFileFind(restoreFocus) {
 
 function refreshFileFindForActiveView() {
   if (!isFileFindOpen()) return;
-  // Moved to another file: the search ends with the file it was about. Closing without restoring focus is
-  // deliberate — navigation already decided where the reviewer is, and pulling focus back to whatever held it
-  // when ⌘F opened would undo that.
-  //
-  // But "not pulling focus back" was implemented as leaving it NOWHERE: the field was hidden while it still
-  // held the keyboard, so focus fell to <body>, which binds no plain letters. Everything typed next went
-  // nowhere — the field had not stopped accepting input, it had stopped existing while still holding the
-  // keys. Hand them to the surface navigation chose.
   if (fileFindSurfacePath() !== fileFindPath) {
     var owned = fileFindOwnsKeyboard();
     closeFileFind(false);
@@ -745,23 +599,17 @@ function handleFileFindKey(event) {
   if (event.key === 'Enter') {
     event.preventDefault(); event.stopPropagation(); stepFileFind(event.shiftKey ? -1 : 1); return true;
   }
-  // Cc / W / .* / In Selection, asked through the shortcut table rather than spelled here, so the Settings
-  // sheet and these branches cannot drift apart. The first three share their row with Find in Files: same
-  // chord, same meaning, a different surface — which is what `where: "find"` is for.
   for (var oi = 0; oi < FILE_FIND_OPTIONS.length; oi += 1) {
     if (!isShortcut(event, FILE_FIND_OPTIONS[oi].shortcut)) continue;
     event.preventDefault();
     event.stopPropagation();
     return toggleFileFindOption(FILE_FIND_OPTIONS[oi].id);
   }
-  // ⌥↓ walks back through recent searches, ⌥↑ forward to the one being typed. Only while the field holds
-  // the keyboard — with the bar merely open, ⌥↓ is still the code surface's next symbol.
   if (fileFindOwnsKeyboard() && isShortcut(event, 'findHistory')) {
     event.preventDefault();
     event.stopPropagation();
     return stepFileFindHistory(shortcutMatchIndex ? -1 : 1);
   }
-  // ⌘G / ⌘⇧G are one row of the table with two combinations; shortcutMatchIndex says which one fired.
   if (isShortcut(event, 'findNextPrev')) {
     event.preventDefault(); event.stopPropagation(); stepFileFind(shortcutMatchIndex ? -1 : 1); return true;
   }

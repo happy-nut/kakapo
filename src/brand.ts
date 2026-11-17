@@ -4,9 +4,6 @@ import { fileURLToPath } from "node:url";
 
 let iconDataUri = "";
 
-// The UI uses the isolated Kakapo glyph from the app artwork, without the macOS squircle behind it.
-// gen-icon.mjs creates the compact derivative alongside icon.png/icon.icns, so settings, status, and
-// every wait state reuse one crisp symbol while Finder and the Dock retain the full application tile.
 export function kakapoIconDataUri(): string {
   if (iconDataUri) return iconDataUri;
   const path = join(dirname(fileURLToPath(import.meta.url)), "..", "assets", "icon-ui.png");

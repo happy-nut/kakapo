@@ -1,13 +1,3 @@
-// Find Usages: what each usage IS (⌥F7's groups), and this file's occurrences of it (⌘F7, ⌘⌥↓/⌘⌥↑).
-//
-// Two layers, both in the page, so both are exercised through the viewer rather than through dist/: the
-// classifier is a pure function over a line of text, and the grouped view is what the page does with an
-// analyzer answer. The analysis bridge is stubbed — the boundary being guarded is the page's side of it.
-//
-// What these tests CANNOT see, and scripts/navigation-smoke.mjs can: a painted range. jsdom implements no
-// CSS Custom Highlight API, so `CSS.highlights.set` is swallowed by the try/catch it is written inside and
-// every assertion here would pass against a highlight that draws nothing. The marks and the row classes
-// are asserted here; whether anything appears on screen is asserted in the real app.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { makeReviewHtml, cleanupFixtures } from "./helpers/fixture.mjs";
@@ -16,19 +6,19 @@ import { loadViewer } from "./helpers/dom.mjs";
 const FILE = "src/store.ts";
 const PY_FILE = "app/thing.py";
 const SOURCE = [
-  "import { Store } from './store';",              // 0  import
-  "",                                               // 1
-  "let count = 0;",                                 // 2  declaration of count
-  "",                                               // 3
-  "export class Cache extends Store {",             // 4  extends
-  "  make(): Store {",                              // 5  return type
-  "    count = count + 1;",                         // 6  write, then read
-  "    return new Store();",                        // 7  new
-  "  }",                                            // 8
-  "  // Store is cached here",                      // 9  comment
-  "  label = 'Store failed';",                      // 10 string constant
-  "  take(s: Store) { return s; }",                 // 11 parameter declaration
-  "}",                                              // 12
+  "import { Store } from './store';",
+  "",
+  "let count = 0;",
+  "",
+  "export class Cache extends Store {",
+  "  make(): Store {",
+  "    count = count + 1;",
+  "    return new Store();",
+  "  }",
+  "  // Store is cached here",
+  "  label = 'Store failed';",
+  "  take(s: Store) { return s; }",
+  "}",
 ].join("\n");
 
 let html;
@@ -41,7 +31,6 @@ before(async () => {
 });
 after(cleanupFixtures);
 
-/** A viewer with the analysis bridge stubbed; `references` answers with whatever the test hands it. */
 async function openSource(references = []) {
   const v = await loadViewer(html);
   const asked = [];
@@ -70,20 +59,15 @@ const F7 = { code: "F7", key: "F7" };
 const DOWN = { code: "ArrowDown", key: "ArrowDown" };
 const UP = { code: "ArrowUp", key: "ArrowUp" };
 
-/** One usage location, as an analyzer answers it: the line's text and the column the name starts at. */
 function at(path, lineIndex, text, name) {
   return { path, lineIndex, column: text.indexOf(name), text, name };
 }
 const groups = (host) => host.v.$all("#quick-open-results .usage-group")
   .map((row) => row.textContent.trim());
-// Only the usage-TYPE headers. The list is nested now (17-find-usages.js groups by file as well, which is
-// IntelliJ's default), so "which headers are there" has to name the rank it is asking about.
 const typeGroups = (host) => host.v.$all('#quick-open-results .usage-group[data-usage-group="type"]')
   .map((row) => row.querySelector(".usage-group-name").textContent.trim());
 const rows = (host) => host.v.$all("#quick-open-results .usage-result")
   .map((row) => row.dataset.usageType);
-
-// ---- the classifier ------------------------------------------------------------------------------
 
 test("a usage is classified from the line it is on, with IntelliJ's own type names", async () => {
   const host = await openSource();
@@ -117,8 +101,6 @@ test("a usage is classified from the line it is on, with IntelliJ's own type nam
   assert.equal(classify("count++;", "count"), "write");
   assert.equal(classify("if (count === 1) {", "count"), "read", "=== is a comparison, not a write");
   assert.equal(classify("  return count + 1;", "count"), "read");
-  // A call site has no usage type of its own in IntelliJ either — it shows as Unclassified rather than as
-  // a "Value read", which is what a call is not.
   assert.equal(classify("  load(Store);", "load"), "unclassified");
   assert.equal(classify("  items.map(count => count * 2);", "count"), "read",
     "`=>` is an arrow, not an assignment — the parameter is not a write");
@@ -133,8 +115,6 @@ test("a comment and a string are told apart from code, per language", async () =
 
   assert.equal(classify("  // Store is cached here", "Store", FILE), "comment");
   assert.equal(classify("  label = 'Store failed';", "Store", FILE), "string.constant");
-  // The case a `line.indexOf('//')` gets wrong: the slashes are inside a string, so what follows them is
-  // not a comment. This is why the zone scan walks the line with a quote state.
   assert.equal(classify('  fetch("http://api/Store");', "Store", FILE), "string.constant");
   assert.equal(classify('  const u = "http://api" + Store;', "Store", FILE), "read",
     "…and after the string closes, code again");
@@ -151,8 +131,6 @@ test("`#` is a comment in Python and not in TypeScript, and `//` the other way r
   host.v.close();
 });
 
-// ---- ⌥F7: the grouped view -----------------------------------------------------------------------
-
 test("⌥F7 groups the usages by what they are, non-code usages last", async () => {
   const host = await openSource([
     at(FILE, 0, "import { Store } from './store';", "Store"),
@@ -162,14 +140,13 @@ test("⌥F7 groups the usages by what they are, non-code usages last", async () 
     at(FILE, 10, "  label = 'Store failed';", "Store"),
     at("src/store.test.ts", 0, "import { Store } from './store';", "Store"),
   ]);
-  host.v.window.setSourceCursor(FILE, 5, 10, true, -1); // on `Store` in make()'s return type
+  host.v.window.setSourceCursor(FILE, 5, 10, true, -1);
   await press(host, { ...F7, altKey: true });
 
   assert.deepEqual(rows(host), ["import", "import", "extends", "new", "string.constant", "comment"],
     "the code groups in IntelliJ's order, then the two that are not code");
   const headers = groups(host);
   assert.match(headers.join("|"), /Non-code usages/, "with the non-code divider between them");
-  // The header is a tree node now: twisty, name, and the count after it the way IntelliJ writes it.
   const firstHeader = host.v.$("#quick-open-results .usage-group");
   assert.equal(firstHeader.querySelector(".usage-group-name").textContent, "Usage in import");
   assert.equal(firstHeader.querySelector(".usage-group-count").textContent, "(2 usages)",
@@ -213,7 +190,7 @@ test("the declaration the caret is on is not one of its own usages", async () =>
     at(FILE, 2, "let count = 0;", "count"),
     at(FILE, 6, "    count = count + 1;", "count"),
   ]);
-  host.v.window.setSourceCursor(FILE, 2, 4, true, -1); // on `count` in `let count = 0;`
+  host.v.window.setSourceCursor(FILE, 2, 4, true, -1);
   await press(host, { ...F7, altKey: true });
   assert.deepEqual(rows(host), ["write"], "the line the caret is already on is dropped");
   host.v.close();
@@ -260,15 +237,11 @@ test("nothing found says so, with the reason the analyzer gave", async () => {
   v.close();
 });
 
-// ---- ⌘F7 and ⌘⌥↓/⌘⌥↑: this file's occurrences ----------------------------------------------------
-
 test("⌘F7 marks this file's occurrences, writes apart from reads, comments and strings left out", async () => {
   const host = await openSource();
-  host.v.window.setSourceCursor(FILE, 6, 4, true, -1); // on `count`
+  host.v.window.setSourceCursor(FILE, 6, 4, true, -1);
   await press(host, { ...F7, metaKey: true });
 
-  // Array.from, not .map: an array read off the jsdom window has that realm's prototype, and
-  // deepEqual compares prototypes — see test/README or reference_jsdom_cross_realm_assert.
   const marks = Array.from(host.v.window.usageMarks, (mark) => [mark.lineIndex, mark.write]);
   assert.deepEqual(marks, [[2, true], [6, true], [6, false]],
     "the declaration, the assignment and the read — and the write flag on the two assignments");
@@ -281,7 +254,7 @@ test("⌘F7 marks this file's occurrences, writes apart from reads, comments and
 
 test("a name inside a comment or a string is not an occurrence", async () => {
   const host = await openSource();
-  host.v.window.setSourceCursor(FILE, 4, 27, true, -1); // on `Store`
+  host.v.window.setSourceCursor(FILE, 4, 27, true, -1);
   await press(host, { ...F7, metaKey: true });
   const lines = Array.from(host.v.window.usageMarks, (mark) => mark.lineIndex);
   assert.ok(!lines.includes(9), "line 9 is a comment mentioning Store");
@@ -292,7 +265,7 @@ test("a name inside a comment or a string is not an occurrence", async () => {
 
 test("⌘⌥↓ and ⌘⌥↑ walk the occurrences and wrap, without the highlight being up first", async () => {
   const host = await openSource();
-  host.v.window.setSourceCursor(FILE, 0, 9, true, -1); // on `Store` in the import
+  host.v.window.setSourceCursor(FILE, 0, 9, true, -1);
   await press(host, { ...DOWN, metaKey: true, altKey: true });
   assert.equal(host.v.window.caretLocation(), `${FILE}:5`, "the next one, with no ⌘F7 first");
   await press(host, { ...DOWN, metaKey: true, altKey: true });
@@ -300,7 +273,7 @@ test("⌘⌥↓ and ⌘⌥↑ walk the occurrences and wrap, without the highlig
   await press(host, { ...UP, metaKey: true, altKey: true });
   assert.equal(host.v.window.caretLocation(), `${FILE}:5`, "and back");
 
-  host.v.window.setSourceCursor(FILE, 11, 11, true, -1); // the last occurrence
+  host.v.window.setSourceCursor(FILE, 11, 11, true, -1);
   await press(host, { ...DOWN, metaKey: true, altKey: true });
   assert.equal(host.v.window.caretLocation(), `${FILE}:1`, "past the last one it wraps, as IntelliJ does");
   host.v.close();
@@ -319,18 +292,12 @@ test("Escape takes the highlight down, and nothing else", async () => {
 
 test("⌘F7 with the caret on nothing declines the key instead of swallowing it", async () => {
   const host = await openSource();
-  host.v.window.setSourceCursor(FILE, 3, 0, true, -1); // an empty line
+  host.v.window.setSourceCursor(FILE, 3, 0, true, -1);
   await press(host, { ...F7, metaKey: true });
   assert.equal(host.v.window.usageMarks.length, 0);
   host.v.close();
 });
 
-// ---- the same four keys, in the diff -----------------------------------------------------------------
-// They used to start with `if (!isSourceViewerVisible()) return false` and so said nothing at all in the
-// view a reviewer spends the time in, while the table advertised them as `where: "code"` — both surfaces —
-// and the READMEs advertised them flat. The marks here come from the rendered ROWS, not from the file:
-// the base pane shows a version that is not in sourceByPath at all, and half of what is worth highlighting
-// is on that side.
 async function openDiff(path = FILE) {
   const v = await loadViewer(html);
   v.window.kakapoAnalysis = {
@@ -339,12 +306,11 @@ async function openDiff(path = FILE) {
     diagnostics: () => Promise.resolve({ ok: true, diagnostics: [] }),
     onStatus: () => {},
   };
-  v.window.revealDiffFile(path); // loadViewer opens the source view; these four keys are about the other one
+  v.window.revealDiffFile(path);
   await v.settle(60);
   return { v };
 }
 
-/** Put the diff caret on the first new-side row whose text contains `word`, at that word. */
 function parkDiffCaret(v, path, word) {
   const w = v.window;
   const wrapper = w.diffWrapperByPath(path);
@@ -368,13 +334,10 @@ test("⌘F7 marks the diff's occurrences, in both panes, addressed by row and no
   await press(host, { ...F7, metaKey: true });
   assert.ok(w.usageMarks.length > 0, "⌘F7 answers in the diff");
   assert.equal(w.usageMarkSurface, "diff", "the marks know which surface they came from");
-  // A mark must be an ADDRESS, not a live node: a watch refresh replaces the wrappers, and a held <tr>
-  // would leave the next ⌘⌥↓ painting detached DOM and moving the caret by a stale row index.
   for (const mark of w.usageMarks) {
     assert.equal(mark.row, undefined, "no mark holds a DOM node");
     assert.ok(typeof mark.rowIndex === "number" && (mark.side === "old" || mark.side === "new"));
   }
-  // Collected pane by pane but ordered by row, so the paint budget cannot be spent entirely on the base.
   const rowIndexes = Array.from(w.usageMarks, (m) => m.rowIndex);
   assert.deepEqual(rowIndexes, [...rowIndexes].sort((a, b) => a - b), "marks are in row order");
   host.v.close();
@@ -388,7 +351,6 @@ test("⌘F7's count is the caret's pane, so it and ⌘⌥↓ cannot disagree", a
   const counted = w.usageMarksInCaretPane().length;
   assert.ok(counted > 0);
   assert.ok(counted <= w.usageMarks.length, "one pane is a subset of both");
-  // ⌘⌥↓ reports "i of n" over the same set.
   await press(host, { ...DOWN, metaKey: true, altKey: true });
   const hint = host.v.$(".mc-caret-hint");
   assert.match(hint.textContent, new RegExp(`of ${counted}\\b`),
@@ -404,9 +366,6 @@ test("⌘F7 on the same name in another file is a first press, not a toggle-off"
   assert.ok(w.usageMarks.length > 0, "highlighted in the first file");
   assert.equal(w.usageMarkPath, FILE);
 
-  // F7 crosses files all day in the diff. The toggle used to compare only the NAME, so the first press
-  // after crossing to another file holding the same name cleared instead of highlighting — a key that
-  // looked dead every other time you used it.
   w.revealDiffFile(PY_FILE);
   await host.v.settle(40);
   assert.ok(parkDiffCaret(host.v, PY_FILE, "Store"), "the same name, in the other file");
@@ -414,7 +373,6 @@ test("⌘F7 on the same name in another file is a first press, not a toggle-off"
   assert.ok(w.usageMarks.length > 0, "a first press in a new file highlights");
   assert.equal(w.usageMarkPath, PY_FILE);
 
-  // ...and the same symbol in the same file still toggles off, which is what the guard is for.
   await press(host, { ...F7, metaKey: true });
   assert.equal(w.usageMarks.length, 0);
   host.v.close();

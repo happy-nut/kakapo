@@ -1,19 +1,4 @@
 #!/usr/bin/env node
-// Measure the Kakapo GPU helper honestly.
-//
-// Two mistakes were already made measuring this by hand, and both are guarded here rather than remembered:
-//
-//   1. UNITS. `footprint` prints "7761 KB" and "1062 MB" in the same column. Reading the number without its
-//      unit turned a 7.6 MB network service into a claimed 7.8 GB.
-//   2. THE WRONG PROCESS. `pgrep -f gpu-process` matches every Electron app on the machine. A reading of
-//      "1187 MB / 185 tiles" was Slack's.
-//
-// A third is guarded because it is the same shape: `vmmap` prints IOSurface twice — once per mapped surface
-// (with an address range) and once as a region-type TOTAL (without one). Counting both together turned a
-// 631 MB total into a claimed single 606 MB surface.
-//
-// `selftest` exercises all three against fixtures, including positive controls, so an absence proved here is
-// a real absence.
 
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -21,11 +6,8 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 const APP = "/Applications/Kakapo.app";
 const APP_BIN_MARK = "Kakapo.app/Contents/Frameworks/Kakapo Helper";
 
-// ---------------------------------------------------------------- units
-
 const UNIT = { B: 1, K: 1024, KB: 1024, M: 1024 ** 2, MB: 1024 ** 2, G: 1024 ** 3, GB: 1024 ** 3 };
 
-/** "941 MB" / "7761 KB" / "1.2G" / "7344K" -> bytes. Returns null when there is no unit to trust. */
 export function parseSize(text) {
   if (typeof text !== "string") return null;
   const m = text.trim().match(/^([\d.]+)\s*(B|KB|K|MB|M|GB|G)$/i);
@@ -38,8 +20,6 @@ export function parseSize(text) {
 
 const mb = (bytes) => (bytes == null ? null : +(bytes / 1024 ** 2).toFixed(1));
 
-// ---------------------------------------------------------------- process selection
-
 function psLines() {
   return execFileSync("ps", ["-Ao", "pid=,args="], { encoding: "utf8", maxBuffer: 32 * 1024 * 1024 })
     .split("\n")
@@ -47,7 +27,6 @@ function psLines() {
     .filter(Boolean);
 }
 
-/** Only helpers living inside THIS app bundle. A bare "gpu-process" match is every Electron app on the Mac. */
 export function selectKakapoHelpers(lines) {
   const out = [];
   for (const line of lines) {
@@ -85,14 +64,10 @@ function gpuPid() {
   return { pid: gpu[0].pid, count: 1 };
 }
 
-// ---------------------------------------------------------------- footprint
-
-/** Parse `footprint -p <pid>`: the header total plus the per-category dirty column, all unit-aware. */
 export function parseFootprint(text) {
   const total = parseSize(text.match(/Footprint:\s*([\d.]+\s*[KMGB]+)/)?.[1] ?? "");
   const categories = {};
   for (const line of text.split("\n")) {
-    // "  490 MB        0 B          0 B        225    Owned physical footprint (unmapped) (graphics)"
     const m = line.match(/^\s*([\d.]+\s*[KMGB]+)\s+[\d.]+\s*[KMGB]+\s+[\d.]+\s*[KMGB]+\s+(\d+)\s{2,}(\S.*?)\s*$/);
     if (!m) continue;
     const bytes = parseSize(m[1]);
@@ -110,8 +85,6 @@ function footprintOf(pid) {
   }
 }
 
-// ---------------------------------------------------------------- vmmap surfaces
-
 /**
  * Individual mapped IOSurfaces only. A detail line carries an address range and (usually) a SurfaceID; the
  * region-type summary line at the end of vmmap carries neither, and adding it to the details double-counts
@@ -121,7 +94,7 @@ export function parseSurfaces(text) {
   const surfaces = [];
   for (const line of text.split("\n")) {
     if (!/^IOSurface\b/.test(line)) continue;
-    if (!/\b[0-9a-f]{6,}-[0-9a-f]{6,}\b/.test(line)) continue; // summary row: no address range
+    if (!/\b[0-9a-f]{6,}-[0-9a-f]{6,}\b/.test(line)) continue;
     const bytes = parseSize(line.match(/\[\s*([\d.]+\s*[KMGB]+)/)?.[1] ?? "");
     const dim = line.match(/(\d+)x(\d+)\s*\(([A-Za-z0-9]+)\)/);
     surfaces.push({
@@ -141,8 +114,6 @@ function surfacesOf(pid) {
     return [];
   }
 }
-
-// ---------------------------------------------------------------- sampling
 
 function sampleOnce() {
   const lines = psLines();
@@ -221,8 +192,6 @@ function snapshot(outPath) {
   }
 }
 
-// ---------------------------------------------------------------- gate oracles
-
 function readJson(p) {
   if (!existsSync(p)) fail(`missing ${p}`);
   return JSON.parse(readFileSync(p, "utf8"));
@@ -250,7 +219,6 @@ function verifyInstall() {
     ["is-dim", style, "dim variant of the overlay"],
   ];
   const missing = required.filter(([needle, hay]) => !hay.includes(needle)).map(([n]) => n);
-  // The reverted GPU release must NOT be there — this is the blank-pane regression.
   const forbidden = ["releasePaneWebgl", "restorePaneWebgl", "webglReleased"].filter((n) => js.includes(n));
 
   console.log(`HEAD ${head}, src dirty: ${dirty ? "yes" : "no"}`);
@@ -277,7 +245,6 @@ function seriesCheck(p) {
 function marginal(p) {
   const { samples } = readJson(p);
   const good = samples.filter((s) => s.gpuPid && s.gpuFootprint != null);
-  // Median footprint at each renderer count, so a mid-paint spike cannot set the slope.
   const byCount = new Map();
   for (const s of good) {
     if (!byCount.has(s.renderers)) byCount.set(s.renderers, []);
@@ -314,8 +281,6 @@ function marginal(p) {
 function attribute(p) {
   const a = readJson(p);
   if (!a.footprintTotal) fail("no footprint total captured");
-  // "TOTAL" is the footprint table's own sum row, not a consumer. Leaving it in made a gate about attribution
-  // pass by naming the total as the dominant category, which answers nothing.
   const cats = Object.entries(a.categories)
     .filter(([name]) => name !== "TOTAL")
     .map(([name, v]) => ({ name, ...v }))
@@ -325,8 +290,6 @@ function attribute(p) {
   if (cats.some((c) => c.name === "TOTAL")) fail("the table's TOTAL row leaked into the categories");
   const io = a.categories.IOSurface?.bytes ?? 0;
   if (!io) fail("no IOSurface category in the footprint output");
-  // The reconciliation that catches the summary-vs-detail double count: individually mapped surfaces must
-  // account for the category, not exceed it and not fall far short of it.
   const ratio = a.surfaceBytes / io;
   console.log(`IOSurface category ${mb(io)}MB vs ${a.surfaceCount} mapped surfaces totalling ${mb(a.surfaceBytes)}MB (ratio ${ratio.toFixed(2)})`);
   if (!(ratio > 0.6 && ratio < 1.4)) fail(`surfaces do not reconcile with the category (ratio ${ratio.toFixed(2)}) — parsing is wrong`);
@@ -359,13 +322,6 @@ function trend(p) {
   console.log("TREND_OK");
 }
 
-
-// ---------------------------------------------------------------- interaction experiment
-//
-// Renderer count turned out not to be controllable (see the abandoned G3), and at a fixed count the footprint
-// is flat. So vary what the app DOES. Each action runs against a settled baseline and is followed by a settle
-// window, so what is attributed to an action is what survived it rather than a mid-paint spike.
-
 function settledFootprint(samples = 6, gapMs = 1200) {
   const seen = [];
   for (let i = 0; i < samples; i++) {
@@ -375,7 +331,7 @@ function settledFootprint(samples = 6, gapMs = 1200) {
   }
   const usable = seen.filter(Boolean).sort((a, b) => a - b);
   if (!usable.length) return null;
-  return usable[Math.floor(usable.length / 2)]; // median: a repaint spike must not become the reading
+  return usable[Math.floor(usable.length / 2)];
 }
 
 async function cdp(expression) {
@@ -403,7 +359,6 @@ async function cdp(expression) {
   return r.result?.value;
 }
 
-// Run `inner` (a JS string) in every review renderer that has one, from the main process.
 const inVisibleReview = (inner) => `(async () => {
   const { BrowserWindow } = require('electron');
   const w = BrowserWindow.getAllWindows()[0];
@@ -413,7 +368,6 @@ const inVisibleReview = (inner) => `(async () => {
 })()`;
 
 const ACTIONS = {
-  // Scroll the review's diff column end to end. This is the one that rasterises new tiles for a tall layer.
   scrollDiff: inVisibleReview(`(async function(){
     var el = document.querySelector('.content') || document.scrollingElement;
     if (!el) return 'none';
@@ -423,7 +377,6 @@ const ACTIONS = {
     el.scrollTop = 0;
     return 'scrolled:' + h;
   })()`),
-  // Switch the active workspace around the rail and back — every switch re-composites a full-window view.
   switchWorkspaces: `(async () => {
     const { BrowserWindow } = require('electron');
     const w = BrowserWindow.getAllWindows()[0];
@@ -457,7 +410,6 @@ async function experiment(outPath) {
     console.log(`  ${name.padEnd(18)} ${String(mb(prev)).padStart(7)} -> ${String(mb(after)).padStart(7)} MB  (${mb(delta) > 0 ? "+" : ""}${mb(delta)})  ${String(result).slice(0, 60)}`);
     prev = after ?? prev;
   }
-  // Wait it out: a tile cache that Chromium will evict and a permanent gain read the same at one sample.
   const decay = [];
   for (let i = 0; i < 5; i++) {
     execFileSync("sleep", ["30"]);
@@ -490,13 +442,10 @@ function experimentCheck(p) {
   console.log("EXPERIMENT_OK");
 }
 
-// ---------------------------------------------------------------- selftest
-
 function selftest() {
   const checks = [];
   const eq = (name, got, want) => checks.push({ name, ok: JSON.stringify(got) === JSON.stringify(want), got, want });
 
-  // 1. units — the 7761 KB / 7.8 GB mistake
   eq("KB stays KB", parseSize("7761 KB"), 7761 * 1024);
   eq("MB is MB", parseSize("1062 MB"), 1062 * 1024 ** 2);
   eq("K suffix", parseSize("7344K"), 7344 * 1024);
@@ -504,7 +453,6 @@ function selftest() {
   eq("no unit is not a number", parseSize("7761"), null);
   checks.push({ name: "KB is not read as MB", ok: parseSize("7761 KB") < parseSize("8 MB"), got: parseSize("7761 KB"), want: "< 8MB" });
 
-  // 2. process selection — the Slack mistake. Positive control included, so the rejection is meaningful.
   const psFixture = [
     "1179 /Applications/Slack.app/Contents/Frameworks/Slack Helper.app/Contents/MacOS/Slack Helper --type=gpu-process",
     "31532 /Applications/Kakapo.app/Contents/Frameworks/Kakapo Helper.app/Contents/MacOS/Kakapo Helper --type=gpu-process --x",
@@ -519,7 +467,6 @@ function selftest() {
   eq("main found", selectKakapoMain(psFixture).map((m) => m.pid), [94405]);
   eq("language server is not the main process", selectKakapoMain(psFixture).filter((m) => m.pid === 18496).length, 0);
 
-  // 3. vmmap summary vs detail — the "single 606 MB surface" mistake
   const vmFixture = [
     "IOSurface                   13e980000-13f0ac000    [ 7344K  7344K  7344K     0K] rw-/rw- SM=SHM PURGE=N  SurfaceID: 0x206  3456x544 (BGRA) 7344K  'Electron Framework'",
     "IOSurface                   1350bc000-1357e8000    [ 7216K  7216K  7216K     0K] rw-/rw- SM=SHM PURGE=N  SurfaceID: 0x217  3392x544 (BGRA) 7208K  'Electron Framework'",
@@ -536,7 +483,6 @@ function selftest() {
     want: "< 606.3M",
   });
 
-  // 4. footprint parsing, header and categories
   const fpFixture = [
     "======================================================================",
     "Kakapo Helper [31532]: 64-bit    Footprint: 1062 MB (16384 bytes per page)",
@@ -563,8 +509,6 @@ function selftest() {
   console.log(`${checks.length} checks passed`);
   console.log("SELFTEST_OK");
 }
-
-// ---------------------------------------------------------------- cli
 
 const [cmd, ...rest] = process.argv.slice(2);
 switch (cmd) {

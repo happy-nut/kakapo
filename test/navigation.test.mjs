@@ -1,9 +1,3 @@
-// Navigating by structure: what a file's symbols are, and where a type is declared.
-//
-// Two layers are guarded here, and the split is deliberate. Normalizing the language server's answer is a
-// pure function over two different wire shapes, so it is tested as one. Everything above it — which engine
-// answered, what happens without a server, what a revision does — goes through ProjectAnalysis, because
-// that is where "the popup was empty" would actually come from.
 import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -71,8 +65,6 @@ test("a hierarchical documentSymbol answer flattens in reading order, with depth
 });
 
 test("the flat SymbolInformation shape gets its nesting and order derived", () => {
-  // Shaped like what typescript-language-server actually answers with: no children, no detail, a
-  // containerName string, every symbol at the top level, and NOT in line order.
   const symbols = normalizeDocumentSymbols([
     { name: "makeStore", kind: 12, location: { range: { start: { line: 15, character: 16 }, end: { line: 17, character: 1 } } } },
     { name: "Store", kind: 5, location: { range: { start: { line: 2, character: 13 }, end: { line: 13, character: 1 } } } },
@@ -179,12 +171,6 @@ test("Go to Type Declaration falls back to the declarations the index knows", as
   assert.equal(type.engine, "index", "with no server it is the name index answering, graded heuristic");
 });
 
-// ---- the two hierarchies ---------------------------------------------------------------------------
-// Without a language server these are read off declaration TEXT, which is a heuristic and says so. What
-// is guarded here is that the heuristic answers at all for the languages whose syntax carries the
-// relationship on the line, and that the one direction it cannot do declines by name instead of
-// answering "nothing".
-
 test("supertypes and subtypes are read off the declaration line when no server can answer", async () => {
   const root = tempProject();
   const files = [
@@ -237,10 +223,6 @@ test("callers fall back to references; callees decline by name rather than answe
     "an empty list with no reason is how a reader concludes the function calls nothing");
 });
 
-// ---- shapes real servers actually send --------------------------------------------------------------
-// Each of these was measured against the bundled server named in it, and each one is a bug this suite
-// did not catch until the server was asked (scripts/navigation-smoke.mjs and the probe behind it).
-
 test("a server that reports NAME-only ranges still gets nesting, from containerName", () => {
   // Eclipse JDT LS: every symbol's location.range covers its name, not its body, so containment finds
   // nothing and a Java class and its methods looked like siblings.
@@ -253,8 +235,6 @@ test("a server that reports NAME-only ranges still gets nesting, from containerN
 });
 
 test("containerName is only a fallback: it never overrides what the ranges say", () => {
-  // A container in another file (which containerName may name) must not nest anything when the ranges
-  // in THIS file already describe the structure.
   const symbols = normalizeDocumentSymbols([
     { name: "Outer", kind: 5, range: { start: { line: 0, character: 6 }, end: { line: 9, character: 1 } }, selectionRange: { start: { line: 0, character: 6 } } },
     { name: "inner", kind: 6, containerName: "SomethingElse", range: { start: { line: 2, character: 2 }, end: { line: 4, character: 3 } }, selectionRange: { start: { line: 2, character: 2 } } },
@@ -284,7 +264,6 @@ test("Rust types are indexed, and `impl Trait for Type` is read as the relations
   write(root, files[0].path, files[0].content);
   const analysis = new ProjectAnalysis(root, { files, resolveServer: () => undefined });
 
-  // `pub` was missing from the index's modifier list, so neither of these was indexed at all.
   const definition = await analysis.query({ kind: "definition", path: "src/lib.rs", line: 6, column: 22, symbol: "Store" });
   assert.deepEqual(definition.locations.map((item) => item.lineIndex), [4], "`pub struct Store` is a declaration");
 

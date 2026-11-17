@@ -1,22 +1,11 @@
 import type { WebSocketSendRequest, WebSocketSendResult, WebSocketTranscriptEntry } from "./types.js";
 import { errorMessage } from "./util.js";
 
-// `WEBSOCKET ws://…` from a .http file, run as the script it is: send the messages the file lists, in
-// order, waiting for the server where the file says to, and hand back the transcript.
-//
-// No dependency: Node 22 ships a WebSocket client, which is the whole reason this is portable at all —
-// kakapo's CLI carries no runtime dependencies it does not have a review reason for (AGENTS.md), and a
-// protocol stack would be exactly that. (gRPC stays out for the same reason: it needs protobuf.)
-//
-// What this is NOT is IntelliJ's interactive console, where you keep typing messages into a live socket.
-// A request in a reviewed file is a script with an end, and the end is what a reviewer reads.
-
 const DEFAULT_IDLE_MS = 3_000;
 const DEFAULT_TOTAL_MS = 30_000;
 const MAX_TRANSCRIPT = 500;
 const MAX_MESSAGE_CHARS = 64 * 1024;
 
-/** Only ws(s) — a .http file's WEBSOCKET line names a socket, and anything else is a different request. */
 function socketUrl(value: string): URL | undefined {
   let url: URL;
   try { url = new URL(value); } catch { return undefined; }
@@ -47,9 +36,6 @@ export async function performWebSocketRequest(request: WebSocketSendRequest): Pr
   return await new Promise<WebSocketSendResult>((resolve) => {
     let socket: WebSocket;
     try {
-      // Headers cannot be set on a browser-shaped WebSocket; the subprotocol can, and that is what a .http
-      // file's `Sec-WebSocket-Protocol` is for. Anything else it lists is reported as not sent rather than
-      // dropped silently.
       socket = new WebSocket(url.href, request.protocols ?? []);
     } catch (error) {
       resolve({ ok: false, transcript, durationMs: Date.now() - startedAt, error: errorMessage(error) });
@@ -63,13 +49,11 @@ export async function performWebSocketRequest(request: WebSocketSendRequest): Pr
       settled = true;
       if (idleTimer) clearTimeout(idleTimer);
       clearTimeout(totalTimer);
-      try { socket.close(); } catch { /* already closing */ }
+      try { socket.close(); } catch { }
       resolve({ ok: !error, transcript, durationMs: Date.now() - startedAt, error });
     };
     const totalTimer = setTimeout(() => finish(`timed out after ${totalMs} ms`), totalMs);
     totalTimer.unref?.();
-    // Nothing more arriving is how a request-shaped WebSocket exchange ends: the file has sent everything
-    // it had to send, and the server has gone quiet.
     const restartIdle = (): void => {
       if (idleTimer) clearTimeout(idleTimer);
       idleTimer = setTimeout(() => finish(), idleMs);
@@ -95,8 +79,6 @@ export async function performWebSocketRequest(request: WebSocketSendRequest): Pr
         for (const message of request.messages ?? []) {
           if (settled) return;
           if (message.waitForServer) {
-            // `=== wait-for-server`: hold here until the server says something (or the whole request
-            // times out), so a protocol with a handshake can be written down in the order it happens.
             await new Promise<void>((continueAfterServer) => { waitingForServer = continueAfterServer; });
             if (settled) return;
           }

@@ -38,8 +38,6 @@ test("macOS app icon keeps a restrained inset and softened system-style corners"
 });
 
 test("visible product labels and wait states reuse the real Kakapo icon", async () => {
-  // The welcome screen is the only standalone screen left: a folder without git no longer gets a
-  // "not a git repository" page, it gets a review whose diff is empty.
   const { renderWelcomeHtml } = await import("../dist/render.js");
   const welcome = renderWelcomeHtml(false);
   assert.match(welcome, /class="brand-mark"[^>]*role="img"[^>]*aria-label="Kakapo"/, "standalone screens show the icon as the accessible brand");
@@ -50,7 +48,6 @@ test("visible product labels and wait states reuse the real Kakapo icon", async 
   ], { app: true });
   assert.match(html, /id="boot-overlay"[^>]*>.*kakapo-loader-boot.*kakapo-mark/s, "review boot uses the animated parrot");
   assert.match(html, /class="settings-nav-brand"[^>]*>.*kakapo-mark/s, "settings nav header reuses the same icon");
-  // In the app the version lives in Settings' About card; the static export puts it in the sidebar header.
   assert.match(html, /class="settings-row-label">Kakapo v/, "the app states its version in Settings");
   const exported = (await makeReviewHtml([
     { path: "src/app.ts", before: "export const value = 1;\n", after: "export const value = 2;\n" },
@@ -65,17 +62,12 @@ test("visible product labels and wait states reuse the real Kakapo icon", async 
   assert.match(css, /@keyframes kakapo-peck/, "the parrot has one shared activity animation");
   assert.match(css, /\.app-version \.kakapo-mark\s*\{\s*width:\s*16px;\s*height:\s*16px;/, "the export's header mark stays legible");
   assert.match(css, /\.settings-nav-brand \.kakapo-mark\s*\{\s*width:\s*28px;\s*height:\s*28px;/, "panel branding does not collapse to an indistinct glyph");
-  // The review's boot overlay paints on EVERY workspace window, so it is the compact mark; the full-size
-  // parrot belongs to opening the app, and lives in the native first-paint screen (asserted below).
   assert.match(css, /\.kakapo-loader-boot \.kakapo-mark\s*\{\s*width:\s*34px;\s*height:\s*34px;/, "the per-window boot mark is the compact one");
   assert.match(main, /width:\$\{glyph\}px/, "the native first-paint mark is sized per window (full for the first, half after)");
   assert.match(css, /prefers-reduced-motion:\s*reduce[\s\S]*kakapo-breathe/, "loading remains accessible with reduced motion");
   assert.doesNotMatch(css, /\.boot-spinner|\.mc-spinner|@keyframes boot-spin/, "generic ring spinners are fully retired");
   assert.match(viewer, /function loadingStateHtml[\s\S]*kakapoLoaderHtml/, "dynamic loading surfaces share the parrot helper");
   assert.match(css, /data-context-loading="1"[\s\S]{0,300}var\(--kakapo-ui-icon\)/, "diff context hydration uses the same loading vocabulary");
-  // Was the English literal. The label is now read from the catalogue (i18n `app.loading`) so the splash a
-  // Korean user sees before any window exists is not in English — so the assertion follows it there: the
-  // screen must still name itself, and the key must still have a value in both locales.
   assert.match(main, /aria-label="\$\{escapeAttr\(tr\(\)\("app\.loading"\)\)\}"/, "the native first-paint screen exposes an accessible loading label");
   assert.match(readFileSync(join(root, "src", "i18n.ts"), "utf8"), /"app\.loading":\s*"[^"]+"[\s\S]*"app\.loading":\s*"[^"]+"/, "both locales name the loading screen");
 });

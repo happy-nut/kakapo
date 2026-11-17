@@ -28,6 +28,3 @@ test("window surface recovery coalesces resize and maximize repaint requests", a
   assert.equal(window.invalidations, 1, "teardown cancels a pending repaint");
 });
 
-// The expanded workspace rail is a transient peek that a click back into the review dismisses. Main used to
-// infer that click from the view's `focus` event — but the terminal panel lives INSIDE the review view, so
-// clicking into a shell (which SHOULD take focus) also closed the rail the user had just opened. The click

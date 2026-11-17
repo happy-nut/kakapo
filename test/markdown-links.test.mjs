@@ -1,8 +1,3 @@
-// A link to a file in this repository is not an external link, and treating it as one was the same as
-// deleting it: every rendered Markdown link carried target="_blank", which on a relative href produces a
-// file:// URL, which the window-open handler denies (it passes http(s) only). The click did nothing — no
-// navigation, no file, no message — while the link stayed styled and underlined like a live one. Measured
-// on this project's own README, 2 of its 5 links are in-repo documents.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { makeReviewHtml, cleanupFixtures } from "./helpers/fixture.mjs";
@@ -49,7 +44,6 @@ test("in-repo links are followable and external ones still leave", async () => {
     assert.equal(web.getAttribute("target"), "_blank", "a real URL still opens outside");
     assert.equal(web.getAttribute("rel"), "noopener noreferrer", "and keeps its rel");
 
-    // A bare fragment is the browser's business, not a file to open.
     const anchor = links.find((a) => (a.getAttribute("href") || "") === "#guide");
     assert.ok(anchor && !anchor.hasAttribute("data-md-link"), "an in-page anchor is left alone");
   } finally {
@@ -57,8 +51,6 @@ test("in-repo links are followable and external ones still leave", async () => {
   }
 });
 
-// The resolution is relative to the document the link was written in, which is the part that goes wrong
-// quietly: `../` from docs/ and a leading `/` mean different things and both look like "a path".
 test("a link resolves against the document it was written in", async () => {
   const v = await loadViewer(html);
   try {

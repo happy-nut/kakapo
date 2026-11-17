@@ -1,11 +1,3 @@
-// Build a real standalone review HTML from a throwaway git repo, exactly as `kakapo` ships it.
-//
-// We intentionally drive the *real* pipeline (git diff -> buildDiffReview) instead of hand-writing
-// HTML: the regression we guard (comment save reading the wrong textarea) lived in the interaction
-// between the server-rendered markup and the client script, so a fixture that skips either half
-// would not catch it. buildDiffReview reads process.cwd(), so we chdir into the temp repo for the
-// single synchronous call and always restore — node --test runs each file in its own process, but
-// we still keep cwd clean so multiple fixtures in one file don't leak into each other.
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -28,16 +20,6 @@ async function loadBuilder() {
 
 const createdDirs = [];
 
-/**
- * @param {Array<{path: string, before?: string, after?: string, renamedFrom?: string}>} files
- *   before === undefined -> file is created in the change (untracked/new)
- *   after  === undefined -> file is deleted in the change
- *   renamedFrom          -> the path it had at the baseline; the change `git mv`s it to `path`.
- *     Staged, because that is how a rename reaches git: a delete plus an untracked file is not one, and
- *     rename detection would pair them only by accident.
- * @param {object} [opts] forwarded onto buildDiffReview (title, context, ignoreWhitespace, ...)
- * @returns {Promise<{dir: string, html: string, build: object}>}
- */
 export async function makeReviewHtml(files, opts = {}) {
   const buildDiffReview = await loadBuilder();
   const dir = mkdtempSync(join(tmpdir(), "kakapo-test-"));
@@ -48,8 +30,6 @@ export async function makeReviewHtml(files, opts = {}) {
   git(["config", "user.name", "kakapo test"]);
   git(["config", "commit.gpgsign", "false"]);
 
-  // Baseline commit: every file that has a `before` (i.e. exists prior to the change under review).
-  // A renamed file is committed under the path it HAD.
   const baseline = files.filter((f) => f.before !== undefined);
   for (const f of baseline) writeFile(dir, f.renamedFrom || f.path, f.before);
   if (baseline.length) {
@@ -62,7 +42,6 @@ export async function makeReviewHtml(files, opts = {}) {
     git(["commit", "-qm", "baseline"]);
   }
 
-  // Apply the change under review.
   for (const f of files) {
     if (f.renamedFrom) {
       mkdirSync(dirname(join(dir, f.path)), { recursive: true });
@@ -84,8 +63,8 @@ export async function makeReviewHtml(files, opts = {}) {
       includeUntracked: true,
       context: 12,
       title: "test",
-      lazyLoad: false, // embed source so the standalone HTML is self-contained for jsdom
-      app: false, // Electron-only review affordances are unnecessary in jsdom
+      lazyLoad: false,
+      app: false,
       ...opts,
     });
   } finally {
@@ -105,14 +84,12 @@ function writeFile(dir, relPath, content) {
   writeFileSync(abs, content);
 }
 
-/** Remove every temp repo created in this process. Call from an after() hook. */
 export function cleanupFixtures() {
   while (createdDirs.length) {
     const dir = createdDirs.pop();
     try {
       rmSync(dir, { recursive: true, force: true });
     } catch {
-      /* best effort */
     }
   }
 }

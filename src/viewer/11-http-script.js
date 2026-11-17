@@ -1,20 +1,4 @@
-// Pre-request and response-handler scripts: `< {% … %}` before a request, `> {% … %}` or `> ./handler.js`
-// after it, running against IntelliJ's HTTP Response Handler API (client / request / response / crypto /
-// jsonPath / xpath).
-//
-// WHERE this runs is the whole security design. The script is JavaScript that came with the repository under
-// review, so it runs in the RENDERER — which Electron gives us sandboxed, with contextIsolation and no node
-// integration (app-main.ts). There is no `require`, no `fs`, no `process`: the only thing reachable from
-// inside is the kakapoHttp bridge, and a script only runs at all because the reviewer pressed Run on a
-// request whose text they can read. Running these in main instead would hand a reviewed repo the filesystem.
-//
-// What is NOT ported, and is reported rather than silently ignored: `={% import … %}` shared modules (they
-// need a module loader and a second file to resolve), and `$exampleServer` (IntelliJ bundles a server).
 
-// ---- digests ----------------------------------------------------------------------------------------
-// IntelliJ's crypto API is synchronous (crypto.sha256().updateWithText(x).digest().toHex()), and
-// window.crypto.subtle is promise-based, so these are implemented rather than delegated. MD5 is here
-// because the API offers it, not because anything should choose it.
 
 function httpUtf8Bytes(text) {
   return new TextEncoder().encode(String(text == null ? '' : text));
@@ -53,8 +37,6 @@ function httpConcatBytes(a, b) {
   return out;
 }
 
-// Big-endian length-padded message blocks, shared by SHA-1 and SHA-256 (MD5 pads little-endian and does
-// its own).
 function httpShaPad(bytes) {
   const bitLength = bytes.length * 8;
   const padded = new Uint8Array((((bytes.length + 8) >> 6) + 1) << 6);
@@ -232,9 +214,6 @@ function httpCryptoApi() {
   };
 }
 
-// ---- the script API ---------------------------------------------------------------------------------
-
-/** XPath over an XML response, using the browser's own parser — the one dependency-free way to do it. */
 function httpXPath(xml, expression) {
   try {
     const document_ = new DOMParser().parseFromString(String(xml || ''), 'application/xml');
@@ -251,10 +230,6 @@ function httpXPath(xml, expression) {
 
 var HTTP_SCRIPT_EXIT = 'kakapo-http-script-exit';
 
-/**
- * Builds the `client` object. `log` and `tests` are the script's visible output: the response panel renders
- * them, because a handler that quietly asserts nothing is indistinguishable from one that passed.
- */
 function httpClientApi(log) {
   return {
     global: {
@@ -265,8 +240,6 @@ function httpClientApi(log) {
       get: function (name) { return httpGlobals[String(name)]; },
       isEmpty: function () { return Object.keys(httpGlobals).length === 0; },
       clear: function (name) { delete httpGlobals[String(name)]; persistSave(httpGlobalsKey, httpGlobals); },
-      // Emptied in place, not reassigned: a scope built for an earlier request holds this same object,
-      // and swapping it out would leave that request reading variables a script had just cleared.
       clearAll: function () {
         Object.keys(httpGlobals).forEach(function (name) { delete httpGlobals[name]; });
         persistSave(httpGlobalsKey, httpGlobals);
@@ -275,8 +248,6 @@ function httpClientApi(log) {
     test: function (name, body) {
       const entry = { name: String(name), ok: true, error: '' };
       try {
-        // Called, not type-checked first: client.test() is always given a function, and if it is not, the
-        // TypeError is exactly the failure this entry should report.
         body();
       } catch (error) {
         if (error && error.kakapoExit) throw error;
@@ -302,7 +273,6 @@ function httpClientApi(log) {
   };
 }
 
-/** Builds the `request` object a pre-request or handler script reads (and writes variables through). */
 function httpRequestApi(request, scope, key) {
   const substituted = function (value) { return applyHttpVars(value, scope, 0); };
   const named = function (name) {
@@ -346,8 +316,6 @@ function httpRequestApi(request, scope, key) {
       },
       get: function (name) { return (httpRequestVars.get(key) || {})[String(name)]; },
     },
-    // Where in a collection this send is. A request whose variable holds a JSON array is sent once per
-    // element (runHttpCollection), and a handler that writes per-element results needs to know which.
     iteration: function () { return Number(scope && scope.iteration) || 0; },
     templateValue: function (index) {
       const at = index === undefined ? (Number(scope && scope.iteration) || 0) : Number(index) || 0;
@@ -357,7 +325,6 @@ function httpRequestApi(request, scope, key) {
   };
 }
 
-/** Builds the `response` object from a send result. */
 function httpResponseApi(result) {
   const headers = result.headers || {};
   const contentType = headers['content-type'] || headers['Content-Type'] || '';
@@ -366,7 +333,7 @@ function httpResponseApi(result) {
   const text = result.body == null ? '' : String(result.body);
   let body = text;
   if (/json/i.test(contentType) || /^[[{]/.test(text.trim())) {
-    try { body = JSON.parse(text); } catch (error) { /* not JSON: the script gets the text, as IntelliJ does */ }
+    try { body = JSON.parse(text); } catch (error) { }
   }
   return {
     status: Number(result.status) || 0,
@@ -386,21 +353,6 @@ function httpResponseApi(result) {
   };
 }
 
-/**
- * Runs one script. Async, so `await sleep(…)` works as it does in IntelliJ, and every failure comes back as
- * a value — a handler that throws must not take the response panel down with it.
- */
-/**
- * Resolves a handler's `import` lines into values it can close over.
- *
- * ES module syntax cannot be evaluated inside a Function body, so the imports are LIFTED: each named file
- * is read, run in the same sandbox, and whatever it declares with `export` is captured. The importing
- * script then sees those names as ordinary parameters, which is the same thing the module system would
- * have given it.
- *
- * The depth limit is a module that imports itself; the sandbox is the one every handler runs in, so an
- * imported file has no more reach than the file importing it.
- */
 async function loadHttpScriptModules(text, fromPath, depth) {
   const bindings = {};
   const pattern = /^[ \t]*import\s+(?:(\*\s+as\s+[\w$]+|\{[^}]*\}|[\w$]+)\s+from\s+)?['"]([^'"]+)['"][ \t]*;?[ \t]*$/gm;
@@ -414,8 +366,6 @@ async function loadHttpScriptModules(text, fromPath, depth) {
     if (!file.ok) return { error: 'cannot read the script module ' + entry.from };
     const exported = await runHttpScriptModule(file.text, resolved, depth + 1);
     if (exported.error) return exported;
-    // `import x from …` is the default export; `import * as ns` is the whole namespace; the braced form
-    // takes names, with `as` renaming them.
     const clause = entry.clause.trim();
     if (!clause) continue;
     if (clause.charAt(0) === '{') {
@@ -434,18 +384,10 @@ async function loadHttpScriptModules(text, fromPath, depth) {
   return { bindings: bindings, strip: seen.length > 0 };
 }
 
-/** Runs one module file and returns what it exported. */
 async function runHttpScriptModule(text, path, depth) {
   const nested = await loadHttpScriptModules(text, path, depth);
   if (nested.error) return nested;
-  // `export` is removed and the names it marked are collected — the one transformation that turns module
-  // syntax into something a Function body accepts, without pretending to be a bundler.
   const names = [];
-  // Whether the module HAS a default is known right here, where the rewrite either matched or did not —
-  // so the generated body does not need to ask itself at run time. It used to, with a typeof check on
-  // the generated name inside the generated string, which test/viewer-slices.test.mjs reads as a guard on
-  // a name no slice declares (it cannot see that the code is a string). The flag is both the simpler code
-  // and the honest answer to that check.
   let hasDefault = false;
   let body = String(text).replace(/^[ \t]*import\s+[^\n]*$/gm, '');
   body = body.replace(/^[ \t]*export\s+default\s+/gm, function () { hasDefault = true; return 'var __default__ = '; });
@@ -482,7 +424,6 @@ async function runHttpScript(source, api) {
   const modules = await loadHttpScriptModules(text, api.path || '', 0);
   if (modules.error) return { ok: false, error: modules.error };
   const moduleNames = Object.keys(modules.bindings);
-  // The import lines themselves are removed: their values arrive as parameters instead.
   const source_ = modules.strip ? text.replace(/^[ \t]*import\s+[^\n]*$/gm, '') : text;
   try {
     const body = new AsyncFunction(

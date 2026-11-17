@@ -1,7 +1,3 @@
-// Shared string/format utilities for the viewer. These are used by ~16 slices but had historically lived in
-// 11-render-http.js (the HTTP-client slice), which made "view a source file" span slices 10 and 11 and hid a
-// general helper inside a feature module. They're plain hoisted function declarations, so moving them here is
-// location-only in the concatenated global scope — every caller still resolves them by name.
 
 function escapeHtml(value) {
   return String(value)
@@ -19,20 +15,12 @@ function formatBytes(bytes) {
   return (kib / 1024).toFixed(1) + ' MiB';
 }
 
-// Text the user has selected right now, '' when nothing is. Both code views paint a FAKE caret — a span
-// spliced into the line's text nodes — and repainting it re-splits those nodes, which destroys any live
-// selection anchored in them. A drag ends with a click, so the click handler that places the caret was
-// wiping the selection the drag had just made, in the diff and in the source view alike. A click that
-// arrives on top of a range selection is the tail of a drag, not a request to move the caret.
 function selectedText() {
   var sel = window.getSelection && window.getSelection();
   if (!sel || !sel.rangeCount || sel.isCollapsed) return '';
   return String(sel);
 }
 
-// The client's twin of leafNameHtml() in render-tree.ts. The virtual source tree builds the same row the
-// server builds, so a name split in only one of them would read differently depending on whether you had
-// scrolled far enough for virtualization to take over. Keep the two in agreement.
 function leafNameHtml(name) {
   var dot = String(name).indexOf('.', 1);
   if (dot <= 0 || dot === name.length - 1) return '<span class="path-head">' + escapeHtml(name) + '</span>';
@@ -40,34 +28,11 @@ function leafNameHtml(name) {
     + '<span class="path-tail">' + escapeHtml(name.slice(dot)) + '</span>';
 }
 
-// Keep Tab inside a modal surface.
-//
-// Four of this app's surfaces declare aria-modal="true" and none of them held the key that makes that
-// claim true: Tab walked straight out of the dock and out of Settings into the sidebar behind the dim
-// backdrop — which is click-blocked, so what you reached could be seen, announced and focused, but not
-// used. (That is also a one-way trip: the way back in is a mouse.)
-//
-// Returns true when it handled the key, so a caller can stop there.
 function tabbablesWithin(root) {
   var sel = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]),'
     + ' textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
   return Array.prototype.slice.call(root.querySelectorAll(sel)).filter(function (el) {
-    // Hidden the way this app hides things: a `.hidden` class on the element or an ancestor (USER_FLOWS
-    // calls this out — view visibility is class-based here). Asking the layout instead (offsetParent)
-    // would have been the obvious spelling and the wrong one: it is null for EVERYTHING under jsdom, so
-    // the trap would have quietly degraded to "no tabbables" in every test that covers it, which is the
-    // same blindness that let a dialog render 0x0 for several releases.
     if (el.closest('.hidden') || el.hasAttribute('disabled')) return false;
-    // ...and hidden the way the REST of the app hides things, which the class test alone does not see. Quick
-    // Open holds the controls of every mode it can show — the find-in-files filters, the usage chips — and
-    // the modes it is not in are switched off by a `display:none` that carries no `.hidden` class. Counting
-    // them made the dialog look 22 tabbables deep when exactly one was real, so the search box was never the
-    // LAST item and the boundary below never fired: Tab walked straight out of an aria-modal dialog into the
-    // file tree behind its own scrim, and ⇧Tab could not come back.
-    //
-    // checkVisibility is the question the browser answers for itself. jsdom does not implement it (29.1.1
-    // has no layout at all, which is why offsetParent was rejected above), so under test this falls back to
-    // the class test and nothing changes; in the app it is the whole answer.
     if (typeof el.checkVisibility === 'function' && !el.checkVisibility({ checkVisibilityCSS: true })) return false;
     return true;
   });
@@ -76,7 +41,6 @@ function trapTabWithin(root, event) {
   if (!root || event.key !== 'Tab' || event.metaKey || event.ctrlKey || event.altKey) return false;
   var items = tabbablesWithin(root);
   if (!items.length) {
-    // Nothing to land on, but the surface still owns the key — otherwise Tab leaves and cannot come back.
     event.preventDefault();
     if (root.focus) root.focus();
     return true;
@@ -84,18 +48,12 @@ function trapTabWithin(root, event) {
   var first = items[0];
   var last = items[items.length - 1];
   var at = items.indexOf(document.activeElement);
-  // -1 covers both "focus is outside" and "focus is on something inside that is not itself tabbable" —
-  // a comment card is tabindex -1, and Tab from one used to leave the panel entirely.
   if (at < 0) { event.preventDefault(); (event.shiftKey ? last : first).focus(); return true; }
   if (!event.shiftKey && at === items.length - 1) { event.preventDefault(); first.focus(); return true; }
   if (event.shiftKey && at === 0) { event.preventDefault(); last.focus(); return true; }
   return false;
 }
 
-// `jrt:/…!/java.base/java/time/Instant.class` -> `java.base/java/time/Instant.class`. The twin of
-// externalLocationLabel in src/lsp.ts: the renderer names these targets without the main process's help,
-// and what is in front of the `!` is where the archive sits on this machine, which says nothing about the
-// symbol. Kept in step by test/app-boundaries.test.mjs.
 function externalLocationLabel(uri) {
   var text = String(uri || '');
   var bang = text.indexOf('!/');
@@ -105,25 +63,12 @@ function externalLocationLabel(uri) {
   return /\.(jar|zip)$/i.test(archive) ? archive + ' / ' + inner : inner;
 }
 
-// The branch chip, split so the end of the name survives the squeeze.
-//
-// The sidebar band holds the project name, this chip and the files/changes switch in 300px, so a real
-// branch name is always cut. Cut at the END — which is what one ellipsised span does — it loses exactly
-// the part that distinguishes the branch: "feature/KAKAPO-4821-rewo…" could be any of a dozen branches.
-//
-// Same shape as the file tree's leaf names: a head that gives up its width first and a tail that is
-// protected. The split is the last "/", so the prefix everyone shares ("feature/", "fix/") is what
-// disappears and the segment that names the work is what stays. The full name is on the title either way.
 function applyBranchChip(element, branch) {
   if (!element) return;
   var name = String(branch || '');
   element.title = name;
   element.textContent = '';
   var cut = name.lastIndexOf('/');
-  // A branch with no "/" has no prefix to give up — but it still has to fit. Left as a bare text node it
-  // had nothing for the ellipsis rule to apply to (.brand-branch-name is a flex box, and text-overflow
-  // does not reach an anonymous flex item), so `bounty-2026-11-05` simply painted straight across the
-  // compare pill beside it. One .branch-tail with the whole name in it: the same rule, the same ellipsis.
   if (cut < 0 || cut === name.length - 1) {
     var only = document.createElement('span');
     only.className = 'branch-tail';
@@ -141,62 +86,21 @@ function applyBranchChip(element, branch) {
   element.appendChild(tail);
 }
 
-// Is this page still there to be written to?
-//
-// Every analysis request is a round trip, and a window can be closed inside one. In the browser the
-// callback simply stops mattering; under jsdom the globals are torn out from under it and `document`
-// becomes undefined, so a callback that reads the DOM throws into an unhandled rejection with no test
-// around it any more. Asked FIRST in any async continuation that touches the page — before even reading
-// the analysis generation, which is itself read off an element.
 function pageAlive() {
   return typeof document !== 'undefined' && !!document && typeof document.getElementById === 'function';
 }
 
-// ============================================================================================================
-// Giving the keyboard back.
-//
-// An overlay that takes focus has to hand it somewhere when it closes, and Chromium's own answer is <body>:
-// focus leaves an element that becomes display:none and does not go anywhere in particular. From <body> the
-// next Tab starts at the top of the document and an assistive technology's cursor goes with it, so a reader
-// who opened a palette over line 400 is returned to the page header.
-//
-// Three overlays had already solved this one at a time — the semantic peek, the compare menu, Quick Doc —
-// each with its own four lines and its own comment explaining the same thing. Four others had not: Quick
-// Open blurred without restoring, and History, the image lightbox and the usages panel just hid. That split
-// is the argument for a shared pair: an overlay added next week gets this by calling two functions, rather
-// than by its author happening to know.
-//
-// One slot, not a stack. These overlays are mutually exclusive in practice, and a stack whose pops can be
-// skipped (an overlay closed by a click outside, a re-render, a view switch) drifts out of step with the
-// page and starts returning focus to elements that are no longer there.
 var overlayFocusReturn = null;
 
-// Call when an overlay opens, BEFORE moving focus into it. An element inside the overlay is not a caller —
-// re-opening a panel from one of its own controls must not make that control the thing to return to.
-//
-// Nor is <body>. An overlay that blurs on the way in (Quick Open's speed-search modes do) leaves focus
-// there, so a mode switch while it is open came back through here with activeElement === body and wiped
-// the slot — the reader's origin, lost to an action that never left the dialog. Already-open is the
-// clean test for that: the slot belongs to this showing of the overlay, and only the first open sets it.
 function rememberOverlayFocus(overlay) {
-  if (overlay && overlay.classList && !overlay.classList.contains('hidden')) return; // already up; slot stands
+  if (overlay && overlay.classList && !overlay.classList.contains('hidden')) return;
   var active = typeof document !== 'undefined' && document ? document.activeElement : null;
   if (!active || active === document.body) { overlayFocusReturn = null; return; }
   if (overlay && overlay.contains && overlay.contains(active)) return;
   overlayFocusReturn = active;
 }
 
-// The surfaces a reader is actually reading, in the order they can be the current one. Also the fallback
-// when whatever opened the overlay is gone — a sidebar row that a re-render replaced, say.
 function focusReadingSurface() {
-  // tabIndex FIRST. These are plain <div>s: focus() on an element with no tabindex does nothing at all,
-  // in Chromium as in the spec, so every version of this that skipped the stamp reported a successful
-  // restore while focus fell to <body> — which is the bug the slot exists to prevent. Measured in the
-  // running app: #diff2html-container takes focus with the attribute and refuses it without.
-  // Try, then check — no offsetParent test. "Is it on screen" is a layout question, and layout is the one
-  // thing a test environment does not have: guarding on offsetParent disabled this whole function under
-  // jsdom while reading as correct, so the negative controls for every caller came back green. Focusing
-  // a hidden element is a no-op anyway, which is exactly what the landed check detects.
   var tryFocus = function (el) {
     if (!el || typeof el.focus !== 'function') return false;
     el.tabIndex = -1;
@@ -207,17 +111,6 @@ function focusReadingSurface() {
   return tryFocus(document.getElementById('diff2html-container'));
 }
 
-// Call when an overlay closes, AFTER hiding it.
-//
-// The second argument is "was this overlay actually up", NOT "does it have focus right now". Asking about
-// focus looks equivalent and is not: by the time a close runs, focus has usually already left. A click
-// outside blurs on mousedown; Quick Open's recent/symbol modes blur on the way IN by design; following a
-// result closes the panel before navigating. In every one of those the overlay plainly held the keyboard a
-// moment ago, `contains(activeElement)` said no, and the restore was skipped — so Escape returned the
-// reader to where they came from while an outside click dropped them on <body>, for the same dismissal.
-//
-// "Was it up" still screens the case this guard exists for: a close() called defensively on something that
-// was never open, which is the view switch and the re-render.
 function restoreOverlayFocus(overlay, wasOpen) {
   var held = typeof wasOpen === 'boolean'
     ? wasOpen
@@ -225,13 +118,6 @@ function restoreOverlayFocus(overlay, wasOpen) {
   var target = overlayFocusReturn;
   overlayFocusReturn = null;
   if (!held) return false;
-  // Ask, do not predict. isConnected is necessary and not sufficient — a row the sidebar re-rendered is
-  // still a live object, and so is a control inside an overlay that is now display:none; focus() on
-  // either silently does nothing, which reads exactly like the bug this replaces. Every predicate for
-  // "is it really focusable" is a guess about layout, and the one tried here first (offsetParent) is
-  // null for everything in jsdom, so it disabled the restore wholesale under test while looking
-  // correct. Calling focus() and then checking where focus actually went needs no predicate and is
-  // right in both places.
   if (target && target.isConnected && typeof target.focus === 'function'
       && !(overlay && overlay.contains && overlay.contains(target))) {
     try { target.focus({ preventScroll: true }); } catch (e) { try { target.focus(); } catch (ignore) {} }

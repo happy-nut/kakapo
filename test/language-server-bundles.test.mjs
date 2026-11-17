@@ -24,20 +24,9 @@ function write(root, path, content) {
   writeFileSync(absolute, content);
 }
 
-// `prewarm` gets a server past `initialize`; it does not get it past INDEXING. A cold JDT LS on a Maven
-// project, or rust-analyzer on a fresh cargo tree, can still be building its model when the first definition
-// request arrives, and the client's 8s request timeout then rejects — correctly, because interactively that
-// is exactly what should happen: fail fast and show the regex index rather than freeze the navigation.
-//
-// The budget is deliberately below every test's own timeout below, so a bundle that really is broken fails
-// with the reason the server gave rather than with a bare "test timed out", which says nothing.
 const WARM_BUDGET_MS = 90_000;
 const BUNDLE_TEST_TIMEOUT_MS = 150_000;
 
-// So the first answer being "index" does not mean the bundle is broken, and asserting on it made this suite
-// fail on whichever runner happened to be slowest that day (Java, on a release that had passed
-// the identical job on the PR — and it took the release down with it). Ask again until the server is warm,
-// inside the test's own budget. A bundle that never answers still fails, with the last reason it gave.
 async function queryUntilWarm(analysis, request, family, budgetMs = WARM_BUDGET_MS) {
   const deadline = Date.now() + budgetMs;
   let result = await analysis.query(request);
@@ -120,7 +109,7 @@ test("bundled gopls reports a staticcheck finding, so the pulled settings really
     "package sample",
     "",
     "func Check(ok bool) bool {",
-    "\tif ok == true {", // S1002: should omit comparison to bool constant
+    "\tif ok == true {",
     "\t\treturn true",
     "\t}",
     "\treturn false",
@@ -148,15 +137,6 @@ test("bundled gopls reports a staticcheck finding, so the pulled settings really
   }
 });
 
-// Rust diagnostics end to end through the real product, and deliberately on the FIRST call: the viewer asks
-// once per file and caches the answer, so an assertion that polls would pass on a build where the first read
-// returns empty — which is exactly the bug this covers. rust-analyzer publishes an empty set for the open
-// document before it has compiled anything (measured at 1.6s, with the real findings at 3.7s), so the read
-// has to wait for the `cargo check` it announces as work-done progress.
-// The decorations half of the same road the staticcheck test guards: gopls registers providers for all
-// three of these and then answers an empty array until its settings arrive. Measured on this fixture,
-// before the settings existed: 0 semantic tokens and 0 inlay hints, so every Go file in the app was read
-// with the hand-written tokenizer and nothing said why.
 test("bundled gopls answers semantic tokens and inlay hints, which it does only when configured", {
   timeout: BUNDLE_TEST_TIMEOUT_MS,
   skip: !bundled.go || !existsSync(bundled.go),
@@ -167,7 +147,7 @@ test("bundled gopls answers semantic tokens and inlay hints, which it does only 
     "package sample",
     "",
     "func Total(sides []float64) float64 {",
-    "\tvar sum float64",           // assignVariableTypes / rangeVariableTypes land here
+    "\tvar sum float64",
     "\tfor _, side := range sides {",
     "\t\tsum += side",
     "\t}",
@@ -217,9 +197,9 @@ test("bundled rust-analyzer reports rustc findings on the first read, not an emp
   write(root, "Cargo.toml", "[package]\nname = \"sample\"\nversion = \"0.1.0\"\nedition = \"2021\"\n");
   write(root, "src/main.rs", [
     "fn main() {",
-    "    let unused_local = 5;", // unused_variables: a warning rustc finds, not rust-analyzer
+    "    let unused_local = 5;",
     "    return;",
-    "    println!(\"unreachable\");", // unreachable_code
+    "    println!(\"unreachable\");",
     "}",
     "",
   ].join("\n"));
@@ -231,8 +211,6 @@ test("bundled rust-analyzer reports rustc findings on the first read, not an emp
       `the first read of a Rust file with two rustc warnings reported nothing; it answered: `
       + JSON.stringify([answer.available, answer.engine, (answer.diagnostics ?? []).map((d) => [d.source, d.severity, d.message])]));
     assert.ok(rustc.some((d) => d.severity === "warning"), "rustc warnings land on the warning tier");
-    // The hint half of rustc's pair ("prefix it with an underscore") is severity 4 on the wire; it is what
-    // the weak tier exists for, and its presence here is the proof that Rust reaches all three tiers.
     assert.ok(rustc.some((d) => d.severity === "weak"), "and its suggestions land on the weak tier");
   } finally {
     analysis.dispose();
@@ -276,11 +254,6 @@ test("bundled JDT LS and JRE resolve a Java definition", {
 
 test("bundled official Kotlin LSP resolves a Gradle project definition", {
   timeout: BUNDLE_TEST_TIMEOUT_MS,
-  // The bundled Kotlin intellij-server intermittently failed to register on a cold release runner (resolving
-  // to the regex index instead of the LSP) even though the runner image, the checksum-pinned Kotlin artifact,
-  // and this code were identical to releases where it passed. KAKAPO_SKIP_KOTLIN_GRADLE_SMOKE=1 keeps this one
-  // heavy integration test from gating a release; it still runs anywhere the env var isn't set — which now
-  // means locally, since the macOS release job skips the runtime lsp:smoke gate entirely.
   skip: !bundled.kotlin || !existsSync(bundled.kotlin) || process.env.KAKAPO_SKIP_KOTLIN_GRADLE_SMOKE === "1",
 }, async () => expectSemanticDefinition({
   family: "kotlin", path: "src/main/kotlin/demo/App.kt", line: 1, column: 14, symbol: "Target", expectedPath: "src/main/kotlin/demo/Target.kt", server: "kotlin-lsp",
@@ -303,7 +276,7 @@ test("bundled Sorbet answers an in-file highlight, which it refuses without its 
   write(root, "main.rb", "# typed: true\nclass Box\n  def area = 4\nend\nbox = Box.new\nputs box.area\n");
   const analysis = new ProjectAnalysis(root);
   try {
-    const answer = await analysis.query({ kind: "documentHighlight", path: "main.rb", line: 4, column: 0 }); // `box`
+    const answer = await analysis.query({ kind: "documentHighlight", path: "main.rb", line: 4, column: 0 });
     assert.equal(answer.engine, "lsp",
       `the highlight fell back to the index instead of being answered: ${answer.fallbackReason ?? ""}`);
     assert.ok((answer.highlights ?? []).length >= 2, "both occurrences of the local came back");

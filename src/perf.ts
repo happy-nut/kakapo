@@ -20,10 +20,6 @@ export type PerformanceSnapshot = {
   events: PerformanceEvent[];
 };
 
-// A deliberately small, inspectable performance trace. It captures user-visible milestones rather than
-// profiler internals and writes plain JSON under the workspace's application-data mirror, so regressions
-// can be compared without a hosted telemetry service or modifying the reviewed repository. The bounded
-// event list prevents a long-running watch session from growing the artifact forever.
 export class ReviewPerformanceTrace {
   private readonly clockStarted = performance.now();
   private readonly startedAt = new Date().toISOString();
@@ -63,7 +59,6 @@ export class ReviewPerformanceTrace {
       writeFileSync(temporary, JSON.stringify(this.snapshot(), null, 2) + "\n");
       renameSync(temporary, target);
     } catch {
-      // Performance evidence must never prevent the review itself from opening.
     }
   }
 }

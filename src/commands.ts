@@ -10,9 +10,6 @@ import { applicationsBundlePath, installApp, uninstallApp } from "./install-app.
 
 const nodeRequire = createRequire(import.meta.url);
 
-// Kakapo is a single command: open the desktop review app for the current repository. `--cwd <path>`
-// reviews another repo (used by `npm run dev -- --cwd <path>`); `--no-watch` / `--foreground` are
-// development/internal knobs. `--help` prints help, `--version` the version.
 export function main(): void {
   const rawArgs = process.argv.slice(2);
   try {
@@ -20,9 +17,6 @@ export function main(): void {
       printHelp();
       return;
     }
-    // An unknown flag opens the review app rather than complaining, which is right for a command whose
-    // whole job is "open this repo" — but it made `kakapo --version` launch the app instead of answering,
-    // the one question you ask when you are checking what you just installed.
     if (rawArgs.includes("--version") || rawArgs.includes("-v")) {
       console.log(packageVersion());
       return;
@@ -58,15 +52,10 @@ function runUninstallApp(): void {
   process.stdout.write(uninstallApp(path) ? `Removed ${path}\n` : `Nothing to remove at ${path}\n`);
 }
 
-// Keep the initial diff DOM compact. Omitted ranges can be expanded in-place from the reviewed revisions,
-// so shipping whole files up front only makes startup and caret navigation slower on large changes.
 export const DEFAULT_DIFF_CONTEXT = 12;
 
-// Options whose value is the NEXT argument. A positional path has to skip over those values, or
-// `kakapo --base main` would read `main` as the thing to open.
 const VALUE_OPTIONS = new Set(["--cwd", "--base", "--context"]);
 
-/** The first bare argument: the file or folder to open. `kakapo <path>` is the short form of `--cwd <path>`. */
 function positionalPath(args: string[]): string | undefined {
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
@@ -78,11 +67,6 @@ function positionalPath(args: string[]): string | undefined {
 }
 
 function launchReviewApp(args: string[]): void {
-  // What to open: `--cwd <path>`, a bare path, or the current directory. A FILE is legal — kakapo opens the
-  // folder around it and lands on the file, which is how you read a design note that lives outside any repo
-  // (`kakapo ~/.claude/projects/…/PLAN.md`). chdir up front so the launched app resolves to one place.
-  // Where to open. A path argument or --cwd names one outright; otherwise it is the directory this was
-  // typed in, which names one just as well — see the --opened push below.
   const named = readOption(args, "--cwd") ?? positionalPath(args);
   const requested = resolve(named ?? process.cwd());
   if (!existsSync(requested)) {
@@ -92,14 +76,7 @@ function launchReviewApp(args: string[]): void {
   const targetCwd = openFile ? dirname(openFile) : requested;
   process.chdir(targetCwd);
 
-  // Check the review flags HERE, where the person who typed them is standing.
-  //
-  // The app checks them too — parseArgs runs the same two functions — but it runs DETACHED with its stdio
-  // discarded, so a typo went like this: `kakapo --base mian` printed "Opened kakapo review app.", exited 0,
-  // and no window ever appeared. The one message that would have explained it ("--base mian is not a commit
-  // in this repository") was written to a pipe pointed at nothing. Same checks, one process earlier: the
-  // error reaches the terminal and the exit code says the launch failed.
-  parseReviewArgs(args); // --staged with --base, and a --context that is not a positive integer
+  parseReviewArgs(args);
   const requestedBase = readOption(args, "--base");
   if (requestedBase !== undefined && isGitRepository(process.cwd())) {
     validateReviewBase(process.cwd(), requestedBase);
@@ -109,24 +86,10 @@ function launchReviewApp(args: string[]): void {
     appMainPath(),
     "--cwd",
     process.cwd(),
-    "--include-untracked", // new AI-created files are visible by default
+    "--include-untracked",
   ];
-  // Every launch that reaches this file was told where to go, so the marker always goes with it.
-  //
-  // It exists to keep a GUI launch — Launchpad, Spotlight, the Applications icon — from reading the "/" it
-  // inherits as a deliberate choice and indexing the whole filesystem instead of showing the picker. But a
-  // GUI launch does not come through here at all: package.json's `main` is dist/app-main.js and `bin` is
-  // this CLI, so the icon starts the app directly and sends neither --cwd nor --opened. What was being
-  // separated instead was two TERMINAL launches from each other: `kakapo /some/path` counted as naming a
-  // place and a bare `kakapo` did not — so typing it inside a folder that is not a git repository opened
-  // the folder picker rather than the folder the reader was standing in, which is as clear a statement of
-  // where to go as a path argument is. (A git repository was unaffected: bootWindow's welcome test needs
-  // BOTH no marker and no repository.)
   appArgs.push("--opened");
   if (openFile) appArgs.push("--open", openFile);
-  // Forward the review flags. They used to stop here: `--help` and the README documented --base/--staged/
-  // --ignore-whitespace, and the app never saw any of them — only --cwd and the default context were passed
-  // on, so `kakapo --base main` silently reviewed the working tree instead.
   const base = readOption(args, "--base");
   if (base !== undefined) appArgs.push("--base", base);
   const context = readOption(args, "--context");
@@ -139,8 +102,6 @@ function launchReviewApp(args: string[]): void {
 
   ensureElectronRuntimeBranded();
   const electronBinary = resolveElectronBinary();
-  // In dev only (`npm run dev` sets KAKAPO_DEV=1) announce which build is launching, so a local checkout
-  // is distinguishable from the installed package. Normal `kakapo` runs stay silent.
   if (process.env.KAKAPO_DEV === "1") {
     console.error(`kakapo: launching ${appMainPath()}`);
   }
@@ -181,13 +142,10 @@ export function ensureElectronRuntimeBranded(deps: ElectronBrandDeps = {}): void
       stdio: "ignore",
     });
   } catch {
-    // Best effort: postinstall covers normal installs. Never retry after Electron starts because changing
-    // a live macOS app bundle can crash Chromium during didFinishLaunching.
   }
 }
 
 function resolveElectronBinary(): string {
-  // The npm install asks the electron package where its binary is.
   let electronModule: unknown;
   try { electronModule = nodeRequire("electron"); } catch { electronModule = undefined; }
   if (typeof electronModule === "string") {
@@ -199,10 +157,6 @@ function resolveElectronBinary(): string {
       return value;
     }
   }
-  // The packaged app has no node_modules/electron to ask — pack:mac leaves it out, because the bundle IS
-  // Electron. A CLI running out of that bundle is that same binary hosted as node, so its own executable is
-  // the runtime to launch the window with. Without this, `kakapo .` from a .dmg install (and so from the
-  // Homebrew cask) could print its help and nothing else.
   if (process.versions.electron) {
     return process.execPath;
   }

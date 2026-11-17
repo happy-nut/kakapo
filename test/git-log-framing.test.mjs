@@ -1,13 +1,3 @@
-// The history panel's records used to be framed on 0x1e, chosen because "git output can't contain it".
-// Git output can: a commit message is arbitrary bytes, `git commit -m` passes 0x1e straight through, and
-// `git fsck` only warns about far worse. One commit in a reviewed repository could therefore draw extra
-// ROWS in the log — hash, author, email, date and subject all of its author's choosing — while the real
-// commit it hid in showed a subject truncated at the injection point. For a tool whose job is to tell a
-// reviewer what happened, a forged row is the worst kind of bug: it reads as evidence.
-//
-// `-z` would not have helped (a NUL in a message is emitted verbatim too). A newline is the one separator
-// git normalises away: %s is the first paragraph with its line breaks turned into spaces, and a newline in
-// an ident makes git print %an/%ae empty instead of leaking it.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -48,8 +38,6 @@ test("a commit message cannot add a row to the history panel", () => {
     assert.equal(rows.length, 2, "two commits exist, so two rows");
     assert.deepEqual(rows.map((row) => row.author), ["Test", "Test"], "no row has an author nobody committed as");
     assert.ok(!rows.some((row) => /^0+$/.test(row.hash)), "and none has a hash the forger chose");
-    // The whole message is the real commit's subject, separator bytes and all — nothing was truncated to
-    // make the framing work.
     assert.ok(rows[0].subject.includes("Merge: audited and approved"), "the forged text stays inside the subject it was written in");
   } finally { r.cleanup(); }
 });
@@ -72,9 +60,6 @@ test("a subject carrying the field separator shifts nothing", () => {
   } finally { r.cleanup(); }
 });
 
-// The patch-set selector reads the same kind of record, and a forged one there is worse than a forged
-// history row: the sha of the row the reviewer picks becomes the diff's BASE, so an invented entry with a
-// plausible subject makes them read a change set nobody wrote.
 test("a commit message cannot add an entry to the patch-set selector", () => {
   const r = repo();
   try {

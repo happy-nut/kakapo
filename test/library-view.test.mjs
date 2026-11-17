@@ -1,5 +1,3 @@
-// The renderer half of library navigation: a definition that lands outside the project index opens as a
-// read-only tab. main's half (which paths it will serve at all) is pinned in library-source.test.mjs.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { makeReviewHtml, cleanupFixtures } from "./helpers/fixture.mjs";
@@ -15,8 +13,6 @@ before(async () => {
 
 after(cleanupFixtures);
 
-// Stands in for the main process: it answers for the one library path a language server reported, and for
-// nothing else — the same contract librarySource() enforces in app-review-ipc.ts.
 function installLibraryBridge(v) {
   const asked = [];
   v.window.kakapoFile = {
@@ -56,8 +52,6 @@ test("a library file opens in the source view and says what it is", async () => 
       v.$("#source-tabs").querySelector(`.source-tab[data-tab-path="${LIBRARY_PATH}"]`),
       "it gets an ordinary tab, so it can be closed like any other",
     );
-    // Its absolute path is not a tree inside this project. Split into crumbs it read as one —
-    // `opt › ts › lib › lib.es2022.d.ts` — which invents a structure the reviewer does not have.
     const crumbs = v.$("#source-title");
     assert.ok(crumbs.querySelector(".crumb-library"), "the breadcrumb says the file is from outside the review");
     assert.equal(
@@ -131,9 +125,6 @@ test("a path main refuses to serve does not open a blank tab", async () => {
   }
 });
 
-// Three different things reach the same miss, and only one of them is a failure. Before this, all three
-// said "could not be opened" — which made two known limits look like bugs and sent one real answer
-// (Sorbet publishes its stdlib RBIs on github.com and ships no file) nowhere at all.
 const hintText = (v) => (v.$(".mc-caret-hint")?.textContent || "").trim();
 const filled = (v, key, label) => v.window.t(key).replace("{file}", () => label);
 
@@ -162,9 +153,6 @@ test("a target inside an archive or a JDK image says that, and does not open a b
     installLibraryBridge(v);
     const opened = [];
     v.window.open = (url) => { opened.push(url); return null; };
-    // What the Kotlin server answers for java.time.Instant: an entry in the JDK's jimage, which needs a
-    // decompiler this app does not ship. A `$` in the name is the other half of this test — `$&` in a
-    // replacement STRING is a pattern, and a Java inner class is spelled `Map$Entry`.
     v.window.openSourceFile("/opt/kotlin/jbr/Contents/Home!/java.base/java/util/Map$Entry.class");
     await settle();
 
@@ -183,7 +171,6 @@ test("a server-named file that simply would not read keeps the plain message", a
     await settle();
 
     assert.equal(hintText(v), filled(v, "source.libraryUnavailable", "gone.d.ts"));
-    // The control: the three messages really are different, so the two above cannot be passing by accident.
     assert.notEqual(v.window.t("source.libraryUnavailable"), v.window.t("source.libraryOnWeb"));
     assert.notEqual(v.window.t("source.libraryUnavailable"), v.window.t("source.libraryInArchive"));
   } finally {
@@ -191,22 +178,9 @@ test("a server-named file that simply would not read keeps the plain message", a
   }
 });
 
-// ---------------------------------------------------------------------------------------------------
-// The hang: a library file opened BEFORE the project index has landed.
-//
-// sourceByPath holds the project's files and the library records loadLibrarySourceFile() adds, and a
-// library file joins no index — so it is in no project-index payload. Both rebuild sites used to build the
-// map from the payload alone and evicted the file the reader had open, while libraryLoadPromises went on
-// answering with the evicted record: openSourceFile's retry then recursed on it without end. Measured at
-// 41 re-entries and climbing, with main and renderer at gigabytes, when a `node_modules` file was the
-// first file opened — the index lands moments later — or when a watch refresh arrived while one was open.
 const INDEX_FILE = { path: "src/app.ts", name: "app.ts", language: "typescript", content: "", size: 20,
   changed: true, embedded: true, changedLines: [1], signature: "s1" };
 
-// Count calls INTO openSourceFile, including the function's own retries: the viewer is one concatenated
-// script, so its top-level declaration is a global property and replacing it intercepts the recursion.
-// Over the cap the wrapper stops calling through, so a runaway fails the assertion instead of hanging the
-// suite the way it hangs the app.
 function countSourceOpens(v, cap) {
   const real = v.window.openSourceFile;
   let calls = 0;
@@ -243,10 +217,8 @@ test("a library tab outlives the project index that lands after it", async () =>
     await settle();
     assert.match(v.$("#source-body").textContent, /at\(index: number\)/, "the library file paints first");
 
-    // Any of the Files tree, Quick Open, or the boot-time comment prune pulls the index.
     await v.window.ensureProjectIndex();
 
-    // ...and then a repaint reopens the tab, as the caret restore, a blame refresh or a watch tick does.
     const opens = countSourceOpens(v, 30);
     v.window.openSourceFile(LIBRARY_PATH);
     await settle(150);
@@ -260,9 +232,6 @@ test("a library tab outlives the project index that lands after it", async () =>
 });
 
 test("an indexed file main has no answer for stops, instead of retrying for ever", async () => {
-  // The sibling caller of the same retry: a file the index holds but main will not serve, because it was
-  // deleted from disk between the index and this open. loadSourceFile's reject arm always marked such a
-  // file loaded; its "resolved with nothing" arm did not, so the retry had no way to make progress.
   const v = await lazyViewer(() => ({ getSource: () => Promise.resolve(null) }));
   try {
     const opens = countSourceOpens(v, 30);

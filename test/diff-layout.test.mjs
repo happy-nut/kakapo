@@ -7,15 +7,6 @@ import { readFileSync } from "node:fs";
 
 const require = createRequire(import.meta.url);
 
-// The sidebar's project header and the content pane's first toolbar are the same band, and they meet at
-// one seam across the sidebar/content divider — the CSS says so in a comment and nothing checked it. It
-// cannot be checked without a browser: jsdom reports every one of these heights as 0, so the band could
-// drift to three different values and the rest of the suite would stay green.
-//
-// What stood here instead was a test of the `native-app` layout, which reserved room for an integrated
-// title bar. The app stopped emitting that class, so the test only passed because its own fixture added
-// it by hand: with the class gone, the traffic-light reservation it asserted computes to 0 and every
-// "title starts past the controls" bound collapses to "past 8px". It was defending deleted CSS.
 test("real Chromium lands the sidebar header and the content toolbar on one seam", {
   skip: process.platform !== "darwin" ? "macOS header-band layout regression" : false,
   timeout: 30_000,
@@ -41,14 +32,12 @@ test("real Chromium lands the sidebar header and the content toolbar on one seam
   const layout = JSON.parse(marker.slice("KAKAPO_HEADER_BAND=".length));
 
   assert.ok(layout.band > 0, `the band is a real measured height (--header-band resolved to ${layout.band})`);
-  // Both panes are measured, because the diff view and the source view reach the band by different rules.
   for (const [name, surface] of Object.entries({ brand: layout.brand, diff: layout.diff, source: layout.source })) {
     assert.ok(surface.height > 0, `${name} has a measurable height`);
     assert.equal(surface.top, 0, `${name} sits flush at the top of the window`);
     assert.ok(Math.abs(surface.height - layout.band) <= 0.5,
       `${name} is ${surface.height}px tall, not the ${layout.band}px band`);
   }
-  // The seam itself: the sidebar header and whichever toolbar is showing end on the same pixel row.
   assert.ok(Math.abs(layout.brand.bottom - layout.diff.bottom) <= 0.5,
     `the sidebar header ends at ${layout.brand.bottom} and the diff toolbar at ${layout.diff.bottom}`);
   assert.ok(Math.abs(layout.brand.bottom - layout.source.bottom) <= 0.5,

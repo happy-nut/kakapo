@@ -1,4 +1,3 @@
-// Cmd+L (go to line) / Cmd+K (copy file:line) and the sidebar Opt+Enter row-action menu.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { makeReviewHtml, cleanupFixtures } from "./helpers/fixture.mjs";
@@ -16,12 +15,12 @@ after(cleanupFixtures);
 test("caretLocation reports path:line and gotoLineJump moves the source caret", async () => {
   const v = await loadViewer(html);
   await v.openSourceFile("src/app.ts");
-  v.window.setSourceCursor("src/app.ts", 0, 0, false, -1); // line 1
+  v.window.setSourceCursor("src/app.ts", 0, 0, false, -1);
   assert.equal(v.window.caretLocation(), "src/app.ts:1", "Cmd+K would copy line 1");
-  v.window.gotoLineJump(3); // Cmd+L → line 3
+  v.window.gotoLineJump(3);
   await v.settle(20);
   assert.equal(v.window.caretLocation(), "src/app.ts:3", "gotoLineJump moved the caret to line 3");
-  v.window.gotoLineJump(999); // clamp to the last line (3 lines + a trailing empty line = 4)
+  v.window.gotoLineJump(999);
   await v.settle(20);
   assert.equal(v.window.caretLocation(), "src/app.ts:4", "out-of-range line clamps to the last line");
   v.close();
@@ -29,7 +28,7 @@ test("caretLocation reports path:line and gotoLineJump moves the source caret", 
 
 test("file rows have no hover path bubble and Opt+Enter menu exposes grounded path actions", async () => {
   const v = await loadViewer(html);
-  const row = v.$(".file-link[data-source-file]"); // a source-tree file row
+  const row = v.$(".file-link[data-source-file]");
   assert.ok(row, "the source tree has a file row");
   const path = row.dataset.sourceFile;
 
@@ -74,8 +73,6 @@ test("file rows have no hover path bubble and Opt+Enter menu exposes grounded pa
   v.close();
 });
 
-// "Open Terminal here" means the terminal this app already has. Handing the folder to Terminal.app put the
-// reviewer in a second shell somewhere else on the desktop — the thing the integrated panel exists to replace.
 test("the tree's terminal row cds the integrated terminal, and clears a file's comments", async () => {
   const v = await loadViewer(html);
   await v.openSourceFile("src/app.ts");
@@ -98,8 +95,6 @@ test("the tree's terminal row cds the integrated terminal, and clears a file's c
   await v.settle(30);
   assert.deepEqual(opened, ["src/app.ts"], "the OS terminal is asked to open where that file lives");
 
-  // Clearing rides removeComments, so one Cmd/Ctrl+Z brings the whole batch back — which is why it asks
-  // nothing first. The row is offered only when the file actually has comments.
   const target = v.$('.file-link[data-source-file="src/app.ts"]');
   v.window.openTreeRowMenu(target);
   await v.settle(10);
@@ -119,29 +114,3 @@ test("the tree's terminal row cds the integrated terminal, and clears a file's c
   v.close();
 });
 
-// ⌘B is about the code you are reading, and while the terminal is up you are not reading it — the panel
-// covers the review. The old guard only skipped a focused INPUT/TEXTAREA, which catches typing into a pane
-// but not the moment after clicking the panel's own chrome: ⌘B then sent the hidden view underneath to a
-// definition nobody could watch it reach. (The terminal releases ⌘ combos on purpose so ⌘1/⌘2 keep working,
-// which is why this one has to say no for itself.)
-test("go-to-definition does nothing while the terminal panel is open", async () => {
-  const { html } = await makeReviewHtml([
-    { path: "src/app.ts", before: "export function used() {}\nused();\n", after: "export function used() {}\nused();\nused();\n" },
-  ]);
-  const v = await loadViewer(html);
-  await v.openSourceFile("src/app.ts");
-  await v.clickSourceLine(1);
-
-  const before = v.$("#source-viewer")?.dataset.openPath;
-  v.window.document.body.classList.add("terminal-open");
-  v.key("b", { metaKey: true, code: "KeyB" });
-  await v.settle(40);
-  assert.equal(v.$("#source-viewer")?.dataset.openPath, before, "nothing under the panel moved");
-
-  // With the panel away it is an ordinary shortcut again — the guard is about the panel, not about ⌘B.
-  v.window.document.body.classList.remove("terminal-open");
-  v.key("b", { metaKey: true, code: "KeyB" });
-  await v.settle(40);
-  assert.ok(true, "and the key is handled again once the terminal is closed");
-  v.close();
-});

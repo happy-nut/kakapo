@@ -1,6 +1,3 @@
-// Unit coverage for the two seams split out of collectSourceFiles (the ProjectIndex/ChangeSet foundation for
-// a future partial rebuild): computeChangeSet (pure, from the diff) and enumerateProjectPaths (the tree walk).
-// Pinning these directly means the eventual "reindex only changed files" work can be verified in isolation.
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { computeChangeSet, enumerateProjectPaths } from "../dist/diff.js";
@@ -22,8 +19,8 @@ test("computeChangeSet: changed paths + added line numbers, /dev/null excluded",
 
 test("enumerateProjectPaths: tracked + untracked source candidates, sorted, includes changed paths", async () => {
   const { dir } = await makeReviewHtml([
-    { path: "src/keep.ts", before: "const a = 1;\n", after: "const a = 2;\n" }, // changed candidate
-    { path: "lib/other.ts", before: "const b = 1;\n", after: "const b = 1;\n" }, // unchanged candidate
+    { path: "src/keep.ts", before: "const a = 1;\n", after: "const a = 2;\n" },
+    { path: "lib/other.ts", before: "const b = 1;\n", after: "const b = 1;\n" },
   ], { lazyLoad: true, app: true });
 
   const paths = enumerateProjectPaths(dir, new Set(["src/keep.ts"]));

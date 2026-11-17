@@ -1,8 +1,3 @@
-// A server whose diagnostics come from a compiler subprocess publishes an empty set first and the real
-// findings later. Measured on rust-analyzer: empty publish at 1.6s, quiescent at 3.3s, the four findings at
-// 3.7s — so "the first publish arrived" and "the server is quiescent" both land before the file has been
-// compiled, and a Rust review was answered with a confident empty list every time. These are wire tests for
-// the two halves of the fix: waiting for the check, and telling the server there is something to check.
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync, utimesSync } from "node:fs";
@@ -13,11 +8,6 @@ import { LspClient } from "../dist/lsp.js";
 const roots = [];
 after(() => { for (const root of roots) { try { rmSync(root, { recursive: true, force: true }); } catch {} } });
 
-/**
- * A server that behaves like rust-analyzer's flycheck: nothing to report until it is told the file is
- * saved, and then an announced run that publishes after a delay. It reports which save it is answering,
- * so a test can tell a fresh check apart from the one that finished before the file changed.
- */
 function flycheckServer(root, { publishDelayMs = 0 } = {}) {
   const fake = join(root, "fake-flycheck.mjs");
   writeFileSync(fake, `
@@ -84,8 +74,6 @@ test("the empty publish that arrives before the check is not taken for the answe
   const lsp = client(root, { publishDelayMs: 150 });
   try {
     const diagnostics = await lsp.diagnosticsFor("src/main.rs");
-    // Before this fix the read resolved on the didOpen publish — an empty array, reported to the reader as
-    // "no problems" — and the compiler's findings landed in a map nobody asked again.
     assert.equal(diagnostics.length, 1, "the read waited for the check that the empty publish preceded");
     assert.equal(diagnostics[0].message, "check 1", "and the findings are the ones the save ran");
     assert.equal(diagnostics[0].severity, "warning");
@@ -96,7 +84,6 @@ test("the empty publish that arrives before the check is not taken for the answe
 
 test("a file that changed waits for its own check, not the one that finished before the edit", async () => {
   const root = rustProject("fn main() {}\n");
-  // Longer than the 2s first-publish budget, so a read that does not wait for the new check answers empty.
   const lsp = client(root, { publishDelayMs: 2_500 });
   try {
     const first = await lsp.diagnosticsFor("src/main.rs");
@@ -104,7 +91,7 @@ test("a file that changed waits for its own check, not the one that finished bef
     const file = join(root, "src", "main.rs");
     writeFileSync(file, "fn main() { let x = 1; }\n");
     const future = new Date(Date.now() + 2_000);
-    utimesSync(file, future, future); // the mtime is what tells the client the document changed
+    utimesSync(file, future, future);
     const second = await lsp.diagnosticsFor("src/main.rs");
     assert.equal(second[0]?.message, "check 2",
       "the second read waited for the save it caused, instead of returning on the completed first run");

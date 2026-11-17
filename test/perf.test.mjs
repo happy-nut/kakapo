@@ -30,11 +30,6 @@ test("performance trace preserves bounded, inspectable local evidence", () => {
   assert.equal(existsSync(join(root, ".kakapo")), false, "performance evidence never creates project-local state");
 });
 
-// Body HTML is about 17x the diff text it comes from, and main used to keep one for every file ever opened,
-// per workspace, until the next rebuild. On a 1,352-file review that is ~1.8 GB — measured 2.1 GB of main
-// heap for a single such workspace, and V8 aborting the app ("JavaScript heap out of memory") once a second
-// one was activated. The cache is a budget now; re-rendering an evicted body costs one render of the file the
-// reader just asked for.
 test("the per-workspace diff-body cache is bounded, not a Map that only grows", async () => {
   const { ByteBudgetCache } = await import("../dist/util.js");
   const appMain = readFileSync(new URL("../src/app-main.ts", import.meta.url), "utf8");
@@ -42,7 +37,6 @@ test("the per-workspace diff-body cache is bounded, not a Map that only grows", 
   assert.match(appMain, /BODY_CACHE_BYTES = \d[\d_]*/, "with a named budget");
   assert.doesNotMatch(appMain, /bodyCache: new Map\(\)/, "and no unbounded Map is left behind");
 
-  // The budget evicts the OLDEST first and keeps what was just stored.
   const cache = new ByteBudgetCache(10, (value) => value.length);
   cache.set("a", "12345");
   cache.set("b", "12345");
@@ -54,10 +48,6 @@ test("the per-workspace diff-body cache is bounded, not a Map that only grows", 
   assert.equal(cache.stats().bytes, 0, "a rebuild can still empty it");
 });
 
-// The per-file diffs are the biggest thing a build makes — 106 MB of text for a 1,352-file compare — and main
-// used to hold every byte, per open workspace, cloned across the worker boundary to get there. That is what
-// put its heap in gigabyte territory and left GC storming through everything else. The build writes them down
-// beside the review instead; main keeps a [start, length] index and reads one slice when a body is asked for.
 test("a build's diff bodies live on disk, and main keeps only an index of them", async () => {
   const { writeReviewWorkspace, readReviewBody, reviewBodyCount, allReviewBodies } = await import("../dist/review-workspace.js");
   const dir = mkdtempSync(join(tmpdir(), "kakapo-bodies-"));

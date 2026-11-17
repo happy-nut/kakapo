@@ -2,22 +2,14 @@ import type { DiffFile, DiffTreeNode, SourceFile, SourceTreeNode } from "./types
 import type { ProjectModule } from "./project-layout.js";
 import { escapeAttr, escapeHtml, languageForPath, moduleEntryFor } from "./util.js";
 
-// The two-state (closed/open) folder glyph shared by the Changes and Files trees. CSS toggles which SVG
-// shows based on the parent <details>[open] state, so both are always emitted.
 const FOLDER_ICON =
   '<span class="folder-icon"><svg class="folder-ic fi-closed" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg><svg class="folder-ic fi-open" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 14 1.45-2.9A2 2 0 0 1 9.24 10H21a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></svg></span>';
 
-// Navigation rendering is kept separate from the review-document shell so tree semantics
-// and file presentation can evolve without expanding the HTML composition root.
 export function sourceFileMetadata(file: SourceFile): SourceFile {
   return { ...file, content: "", image: "" };
 }
 
-// Changed files are sufficient for the initial diff/source transition. A clean tree gets one inexpensive
-// default record so it can still open a README/source immediately; everything else arrives on demand.
 export function initialReviewSources(diffFiles: DiffFile[], sourceFiles: SourceFile[], openPath?: string): SourceFile[] {
-  // `kakapo <file>` named one. It leads the set whatever else is in the review: on the lazy path this is the
-  // only content the first paint receives, so a file left out of it opens empty.
   if (openPath) {
     const requested = sourceFiles.find((file) => file.path === openPath);
     if (requested) return [requested, ...sourceFiles.filter((file) => file !== requested).filter((file) => file.changed)];
@@ -30,10 +22,6 @@ export function initialReviewSources(diffFiles: DiffFile[], sourceFiles: SourceF
   }
   const changed = sourceFiles.filter((file) => file.changed || changedPaths.has(file.path));
   if (changed.length) return changed;
-  // A clean tree opens straight to a README, so pick the project-root one — breadth-first (fewest path
-  // segments), not the lexicographically-first match. `sourceFiles` is sorted by localeCompare, so a deep
-  // `pkg/a/b/README.md` sorts before the root `README.md` and would otherwise hijack the initial open. This
-  // is the ONLY README the client receives in the lazy-load path, so the depth choice must happen here.
   const readmes = sourceFiles.filter((file) => file.embedded && /^readme(?:\.|$)/i.test(file.name));
   const depth = (file: SourceFile) => file.path.split("/").length;
   const rootReadme = readmes.reduce<SourceFile | undefined>(
@@ -46,14 +34,6 @@ export function initialReviewSources(diffFiles: DiffFile[], sourceFiles: SourceF
   return fallback ? [fallback] : [];
 }
 
-// IntelliJ's Project window makes the module the top node and hangs the content root's files under it, so
-// a reviewer reads "which module changed" before "which folder". Both tries below are built from paths, so
-// grouping is one substitution at insert time: start at the module's node and insert what is left of the
-// path under it, with the folder paths still absolute so data-dir keeps naming a real directory.
-//
-// The node carries the module's NAME, which is not the folder's — "@acme/ui" lives in packages/ui — and
-// that is the whole point of the grouping: a monorepo's modules read as a flat list of what they are called
-// instead of a packages/ folder you have to open first.
 function moduleEntry<N extends { name: string; path: string; children: Map<string, N>; module?: string }>(
   root: N,
   path: string,
@@ -70,9 +50,6 @@ function moduleEntry<N extends { name: string; path: string; children: Map<strin
   return { node: group, base: entry.root, rest: entry.rest };
 }
 
-// The changed-files navigation mirrors renderSourceTree's folder hierarchy so a reviewer can see where
-// changes cluster and collapse whole directories, instead of scanning one flat list. Leaves keep the same
-// href/data-hunk/data-file contract the diff caret and click handler rely on.
 export function renderDiffTree(
   files: DiffFile[],
   collisions: Map<string, "conflict" | "diverged"> = new Map(),
@@ -118,13 +95,6 @@ export function renderDiffTree(
   return `<nav class="tree changes-tree">${renderDiffChildren(root, 0, collisions)}</nav>`;
 }
 
-/**
- * The lowest file index anywhere under `node` — its place in the order the diff body is in.
- *
- * Memoized on the node, because this is called from inside a comparator: a subtree would otherwise be
- * re-walked once per comparison at every level above it, which on a wide diff is the render path paying
- * O(depth x n log n x subtree) for an answer that cannot change.
- */
 const firstIndexMemo = new WeakMap<DiffTreeNode, number>();
 function firstFileIndex(node: DiffTreeNode): number {
   if (node.fileIndex !== undefined) return node.fileIndex;
@@ -146,17 +116,6 @@ function renderDiffChildren(
 ): string {
   return Array.from(node.children.values())
     .sort((a, b) => {
-      // The order the diff body is in, which is the order F7 walks and the order the file is reached by
-      // scrolling. This used to be modules first, then folders before files, then by name — how a PROJECT
-      // tree is laid out — and in a tree of CHANGES it meant the sidebar's first row was the body's
-      // seventh file: `src/viewer/…` at the top because it is a folder, `README.md` at the bottom because
-      // it is not, while F7 started at README.md. Two orders for one list of files, and nothing on screen
-      // said which one you were in.
-      //
-      // A node takes the place of its first changed file, so the two agree row for row. That covers a
-      // module as well: a module is still a node of its own, named for the module rather than the folder,
-      // which is what the grouping is FOR — it simply no longer jumps the queue, because a group pinned
-      // to the top of a list whose order is the navigation order is the same bug one level up.
       return firstFileIndex(a) - firstFileIndex(b) || a.name.localeCompare(b.name);
     })
     .map((child) => renderDiffNode(child, depth, collisions))
@@ -170,19 +129,9 @@ function renderDiffNode(
 ): string {
   if (node.file) {
     const file = node.file;
-    // The change type rides on the ROW, because that is what colours the name: IntelliJ says green for added,
-    // blue for modified, grey for deleted, and nothing else needs saying. The working-tree state (vcs-*) used
-    // to colour it instead, which put "staged" green on a DELETED file — a row that read as added and deleted
-    // at the same time. Staging still colours the Files tree, where there is no change type to show.
     const classes = ["file-link", "change-row", "tree-file", "ch-" + (file.status || "modified")].join(" ");
-    // Counted here and carried on the row, because the row exists for every changed file and is already the
-    // client's per-file record (data-file/data-hunk). The diff BODY is materialized on demand, so counting
-    // rendered +/- rows in the DOM would report nothing for any file nobody has scrolled to yet.
     const { added, deleted } = diffLineTotals(file);
     const trivial = trivialChange(file);
-    // The path this file had at the BASE. Carried on the row for the same reason the counts are: the row is
-    // the client's per-file record, and the diff pane headers need it to stop naming the new path on both
-    // sides of a rename — at the base revision that path does not exist.
     const renamedFrom = file.status === "renamed" && file.oldPath && file.oldPath !== file.displayPath
       ? file.oldPath
       : "";
@@ -191,25 +140,13 @@ function renderDiffNode(
       viewedBox(),
       fileTypeIcon(file.displayPath),
       `<span class="change-name"><span class="path" title="${escapeAttr(node.name)}">${leafNameHtml(node.name)}</span></span>`,
-      // How big this change is, on the row you decide from. The counts were already attached to this element
-      // for the breadcrumb to read (data-added/data-deleted) and never shown, so scanning the list told you
-      // WHICH files changed and nothing about how much — a one-character constant and a rewritten module
-      // looked identical, and the only way to tell was to open both.
       changeStat(added, deleted),
-      // Why this row arrived already ticked. Without it a pre-viewed file reads as a bug — the reviewer is
-      // sure they never marked it — and the box they would untick is the same box, right there.
       trivial ? `<span class="change-trivial" data-i18n="trivial.${trivial}">${trivial}</span>` : "",
-      // Something has landed on the base in this same file. "conflict" means it is in the same lines, which
-      // is what git will refuse to merge; "diverged" means elsewhere in the file, which merges but is still
-      // worth knowing before reading the change as if nothing else had happened.
       collisionBadge(collisions.get(file.displayPath)),
       "</a>",
     ].join("");
   }
 
-  // Collapse single-child directory chains ("a/b/c") into one summary row, exactly as renderSourceNode does,
-  // so a lone nested folder does not cost a click to expand. A module node never starts a chain: its label
-  // is the module's name, and folding the folder below it in would print "@acme/ui/src" as the module.
   let labelNode: DiffTreeNode = node;
   const names = [node.name];
   if (!node.module) {
@@ -221,8 +158,6 @@ function renderDiffNode(
     }
   }
 
-  // Changed-file folders default to open — a review wants every change visible up front; 04-source-tree.js
-  // restores any folder the reviewer chose to collapse.
   return [
     `<details class="tree-dir changes-dir${node.module ? " tree-module-node" : ""}" data-dir="${escapeAttr(labelNode.path)}"${node.module ? ` data-module="${escapeAttr(node.module)}"` : ""} style="--depth:${depth}" open>`,
     `<summary>${FOLDER_ICON}<span class="path">${escapeHtml(names.join("/"))}</span></summary>`,
@@ -231,10 +166,6 @@ function renderDiffNode(
   ].join("");
 }
 
-// Added and deleted LINES for one file. Kakapo has never carried a diffstat: the Changes tree deliberately
-// omits it (one number per row, on a list where every row already means "changed", is noise), but the diff
-// toolbar shows exactly one file at a time and the size of that file's change is the thing you are about to
-// read.
 function diffLineTotals(file: DiffFile): { added: number; deleted: number } {
   let added = 0, deleted = 0;
   for (const hunk of file.hunks) {
@@ -246,42 +177,9 @@ function diffLineTotals(file: DiffFile): { added: number; deleted: number } {
   return { added, deleted };
 }
 
-// A change that is not about the code. In a forty-file review one of these costs the same attention as the
-// two files the change is actually about, which is the whole problem with them — so kakapo says so on the
-// row and the viewer folds it out of the queue the way a reviewer would by hand (autoViewTrivial,
-// 04-source-tree.js).
-//
-// Two rules, both mechanical, because the cost here is asymmetric: a miss shows the reviewer one extra file,
-// a false positive HIDES A REAL CHANGE behind a tick they never made. Nothing is asked of a model.
-//
-//   "spacing" — every added line pairs, in order, with a removed line whose text is the same once the
-//     whitespace either side is gone. This is re-indentation and trailing-space cleanup.
-//   "format"  — the file's added and removed text are the same character sequence once ALL whitespace is
-//     removed. Strictly wider than the first: it also catches a formatter REFLOWING lines, where one
-//     statement becomes three or three become one, so no line pairs with any other line at all. That is what
-//     a prettier/gofmt sweep actually looks like, and the line rule never saw it.
-//
-// The pairing in "spacing" is in order, not as a set. A reformat emits `-a -b +a' +b'` and pairs up; two
-// statements swapped emits `-a -b +b +a` — the same set, a completely different change — and pairs wrong,
-// which is the answer wanted. "format" gets that for free: a swap changes the character sequence.
-//
-// INDENTATION-SENSITIVE LANGUAGES ARE EXCLUDED FROM BOTH, and this is not caution for its own sake. In
-// Python a statement moved out of an `if` block has identical trimmed text and is a completely different
-// program; in YAML and Markdown the leading space IS the structure. Whitespace only means nothing where the
-// language says it means nothing.
-//
-// Not attempted: quote-style sweeps and import reordering. Normalising quotes to compare them is a guess
-// about escaping, and reordering is not distinguishable from moving a line that mattered. Those still show.
 export type TrivialChange = "spacing" | "format" | "moved";
 const INDENT_SENSITIVE = new Set(["python", "yaml", "markdown"]);
 
-// A filename is two pieces of information and tail-ellipsis destroys the second of them. The base name
-// says WHICH file; the extension chain says what KIND, and `navigation-failure.te…` answers neither —
-// it is not the name and it is not the type. Emitting the two separately lets only the base name shrink,
-// so a narrow column degrades to `navigation-fail….test.mjs`: still the type, still enough of the name.
-// Split at the FIRST interior dot so a compound extension (.test.mjs, .d.ts) survives whole. A leading
-// dot is part of the base name (.gitignore is not an extension), hence indexOf from 1.
-// 00-util.js carries the client's twin of this for the virtual source tree; app-boundaries keeps them equal.
 function leafNameHtml(name: string): string {
   const dot = name.indexOf(".", 1);
   if (dot <= 0 || dot === name.length - 1) return `<span class="path-head">${escapeHtml(name)}</span>`;
@@ -289,13 +187,6 @@ function leafNameHtml(name: string): string {
     + `<span class="path-tail">${escapeHtml(name.slice(dot))}</span>`;
 }
 
-// The same magnitude, for the row's accessible name — the visible chip is aria-hidden so it is not read
-// twice, but "which of these is the big one" should not be a visual-only answer.
-// The status word a screen reader hears on a changed-file row. IntelliJ's own, so the tree says the same
-// thing this app's vocabulary says everywhere else: PlatformEditorBundle `file.status.name.added|deleted|
-// modified` and GitBundle `git.status.renamed`. The viewer re-composes this label in the reader's language
-// on every locale switch (paintTreeRowAriaLabels, 04-source-tree.js); this is the pre-script fallback and
-// what a static export ships with.
 const CHANGE_STATUS_NAMES: Record<string, string> = {
   modified: "Modified",
   added: "Added",
@@ -308,8 +199,6 @@ function statLabel(added: number, deleted: number): string {
   return `, +${added} \u2212${deleted}`;
 }
 
-// A file with no counted lines (a pure rename, a mode change, a binary) gets no stat rather than "+0 −0",
-// which would read as "nothing happened" for a change that did.
 function changeStat(added: number, deleted: number): string {
   if (!added && !deleted) return "";
   const parts = [
@@ -326,18 +215,14 @@ function collisionBadge(kind: "conflict" | "diverged" | undefined): string {
 }
 
 export function trivialChange(file: DiffFile): TrivialChange | undefined {
-  if (file.binary) return undefined; // nothing to compare, so nothing here can be called trivial
-  if (file.status === "added" || file.status === "deleted") return undefined; // a whole file is never trivial
-  // A 100%-similarity rename has no content to read: git reports it with no hunks at all. It used to be
-  // dropped from the diff outright, which is worse than trivial — the reviewer could not see that the file
-  // had moved. It belongs in the review, marked. A mode-only change (`chmod +x`) is deliberately NOT here:
-  // making a file executable is a real change even though it has no hunks.
+  if (file.binary) return undefined;
+  if (file.status === "added" || file.status === "deleted") return undefined;
   if (file.status === "renamed" && !file.hunks.length && !file.modeChanged) return "moved";
   if (INDENT_SENSITIVE.has(languageForPath(file.displayPath))) return undefined;
   const changed = file.hunks.flatMap((hunk) => hunk.lines).filter((line) => line.kind !== "context");
   const added = changed.filter((line) => line.kind === "add").map((line) => line.text);
   const removed = changed.filter((line) => line.kind === "delete").map((line) => line.text);
-  if (!added.length || !removed.length) return undefined; // a pure insertion or deletion is a real change
+  if (!added.length || !removed.length) return undefined;
   if (added.length === removed.length && added.every((text, index) => text.trim() === removed[index].trim())) {
     return "spacing";
   }
@@ -345,22 +230,7 @@ export function trivialChange(file: DiffFile): TrivialChange | undefined {
   return squeeze(added) === squeeze(removed) ? "format" : undefined;
 }
 
-// "Reviewed this one" is a thing you DO to a row, so the row shows the control you do it with — an empty box
-// on every changed file, not a mark that only exists once the state is already set. Left of the file icon,
-// where a checkbox goes and where the eye can run straight down the column to see what is left.
-// Drawn rather than an <input type=checkbox>: macOS paints the native control with the system chrome and
-// ignores the surrounding CSS (the same reason the New-workspace dialog has no <select>), and this one lives
-// inside the row's own <a>, where a real input would fight the anchor for the click.
-// It replaces the status chip that used to sit here: that element rendered nothing on a modified file and
-// existed, by its own comment, only to hold the viewed ✓ and to keep the filenames aligned. The box does
-// both. What CHANGED is still said by the colour of the name (.change-row.ch-* in viewer.css).
 function viewedBox(): string {
-  // Deliberately NOT focusable, which is a knowing deviation from ARIA: a checkbox is supposed to be the
-  // focus target for its own state. Giving it `tabindex` adds one Tab stop per FILE — hundreds on a real
-  // review — in front of the same keyboard users it would be for, to reach a control whose operation is
-  // already on the row that holds it. The row is an anchor and takes focus; Space there toggles this
-  // (05-keymap.js), and the label this carries says so: "이 파일 확인함 (Space)". So the state is
-  // announced, the key is named, and the walk stays one stop per row.
   return '<span class="viewed-box" role="checkbox" aria-checked="false" data-i18n-aria="tree.markViewed"></span>';
 }
 
@@ -400,8 +270,6 @@ export function renderSourceTree(files: SourceFile[], modules: ProjectModule[] =
 function renderSourceChildren(node: SourceTreeNode, depth: number): string {
   return Array.from(node.children.values())
     .sort((a, b) => {
-      // Modules are the top of the tree, not folders that happen to sort there: without this they would be
-      // interleaved with whatever else lives at the root by name.
       if (Boolean(a.module) !== Boolean(b.module)) {
         return a.module ? -1 : 1;
       }
@@ -433,7 +301,6 @@ function fileTypeColor(ext: string): string {
   return map[ext] || "#7f868d";
 }
 
-// Small file-type glyph (a tinted folded-corner document) for the Files tree, in place of a text badge.
 function fileTypeCategory(ext: string): string {
   const sets: Record<string, string[]> = {
     code: ["ts", "tsx", "mts", "cts", "js", "jsx", "mjs", "cjs", "go", "rs", "py", "rb", "java", "kt", "kts", "php", "c", "h", "cpp", "hpp", "cs", "swift", "sh", "bash", "zsh"],
@@ -449,7 +316,6 @@ function fileTypeCategory(ext: string): string {
   return "generic";
 }
 
-// A small, distinct glyph per file-type category, tinted with the language color, for the file lists.
 function fileTypeIcon(path: string): string {
   const base = (path.split("/").pop() || path);
   const dot = base.lastIndexOf(".");
@@ -458,25 +324,25 @@ function fileTypeIcon(path: string): string {
   const stroke = `fill="none" stroke="${c}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"`;
   let inner: string;
   switch (fileTypeCategory(ext)) {
-    case "code": // < >
+    case "code":
       inner = `<path d="M6 4.6 3 8l3 3.4M10 4.6 13 8l-3 3.4" ${stroke}/>`;
       break;
-    case "markup": // </>
+    case "markup":
       inner = `<path d="M5.6 4.6 2.8 8l2.8 3.4M10.4 4.6 13.2 8l-2.8 3.4M9.3 3.6 6.7 12.4" ${stroke}/>`;
       break;
-    case "data": // { }
+    case "data":
       inner = `<path d="M7.4 3.6C6.3 3.6 6.3 4.8 6.3 5.8 6.3 6.8 5.6 7.4 4.8 7.4 5.6 7.4 6.3 8 6.3 9 6.3 10 6.3 11.4 7.4 11.4M8.6 3.6C9.7 3.6 9.7 4.8 9.7 5.8 9.7 6.8 10.4 7.4 11.2 7.4 10.4 7.4 9.7 8 9.7 9 9.7 10 9.7 11.4 8.6 11.4" fill="none" stroke="${c}" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>`;
       break;
-    case "style": // #
+    case "style":
       inner = `<path d="M6.4 4 5.2 12M10.2 4 9 12M3.9 6.6 12 6.6M3.4 9.4 11.5 9.4" ${stroke}/>`;
       break;
-    case "doc": // page with text lines
+    case "doc":
       inner = `<path d="M4.5 2.5h4.4L11.5 5v8a1 1 0 0 1-1 1h-6a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1z" fill="${c}" fill-opacity="0.16" stroke="${c}" stroke-width="1.2" stroke-linejoin="round"/><path d="M8.8 2.6V5h2.6M5.8 8h4M5.8 10.2h2.7" fill="none" stroke="${c}" stroke-width="1.2" stroke-linecap="round"/>`;
       break;
-    case "image": // framed picture
+    case "image":
       inner = `<rect x="3" y="3.6" width="10" height="8.8" rx="1.4" fill="${c}" fill-opacity="0.14" stroke="${c}" stroke-width="1.2"/><circle cx="6" cy="6.4" r="1.05" fill="none" stroke="${c}" stroke-width="1.1"/><path d="M3.6 11.8 6.7 8.4l2 2.1 1.9-2.2 2.4 2.7" fill="none" stroke="${c}" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>`;
       break;
-    default: // folded-corner document
+    default:
       inner = `<path d="M4 2.25a1 1 0 0 1 1-1h4.3L12.5 4.7v9.05a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z" fill="${c}" fill-opacity="0.2" stroke="${c}" stroke-width="1.1" stroke-linejoin="round"/><path d="M9.2 1.4v2.8a1 1 0 0 0 1 1h2.6" fill="none" stroke="${c}" stroke-width="1.1" stroke-linejoin="round"/>`;
   }
   return `<svg class="ftype" viewBox="0 0 16 16" aria-hidden="true">${inner}</svg>`;
@@ -494,7 +360,6 @@ function renderSourceNode(node: SourceTreeNode, depth: number): string {
     ].join("");
   }
 
-  // See renderDiffNode: a module node is the module, so it never folds the folder below it into its label.
   let labelNode: SourceTreeNode = node;
   const names = [node.name];
   if (!node.module) {

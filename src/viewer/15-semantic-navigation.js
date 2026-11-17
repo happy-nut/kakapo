@@ -1,6 +1,3 @@
-// Semantic navigation controller. Source rendering owns caret state; this slice translates that state into
-// project-analysis requests and hands multiple results to the semantic presenter in 16-semantic-peek.js.
-// Standalone reviews retain a bounded in-memory fallback without coupling it back into source rendering.
 function wordAtCursor() {
   if (!viewerCursor) return null;
   const file = sourceByPath.get(viewerCursor.path);
@@ -19,25 +16,14 @@ function wordAtCursor() {
   return null;
 }
 
-// The symbol the caret is on, in whichever view is up.
 function symbolUnderCursor() {
   return isSourceViewerVisible() ? wordAtCursor() : symbolAtDiffCaret();
 }
-// ⌘B, ⌘↓ and ⌘-click: IntelliJ's Go to Declaration, which is one action with two outcomes rather than
-// two actions. On a reference it navigates to the declaration; standing on the declaration itself it
-// shows who uses it, because there is nowhere to go. The decompiled handler picks between them exactly
-// here — GtduKt.fromTargetData: a resolvable REFERENCE gives GTD (navigate), a DECLARATION gives SU
-// (show usages) — and several targets open the chooser instead of guessing.
-//
-// ⌘B was wired to the usages popup until this was read rather than assumed, so the key a reader reaches
-// for first never navigated at all.
 function goToDefinitionUnderCursor() {
   const symbol = symbolUnderCursor();
   if (symbol) goToDefOrUsages(symbol.name, symbol);
   else showSemanticNavigationFailure('symbol');
 }
-// ⌘⌥F7: IntelliJ's Show Usages — who uses this, always, asked for outright. Not ⌘B, which answers this
-// only when there is nowhere to go (above).
 function findUsagesUnderCursor() {
   const symbol = symbolUnderCursor();
   if (symbol) findUsagesOf(symbol.name, symbol);
@@ -46,9 +32,6 @@ function findUsagesUnderCursor() {
 async function findUsagesOf(name, explicitLoc) {
   if (!name) { showSemanticNavigationFailure('symbol'); return; }
   var loc = explicitLoc || caretSourceLoc();
-  // A cold language server answers its first question only after it has read the project — up to a minute
-  // for a Gradle/Kotlin workspace. Silence for that long reads as a dead key, so say what is happening as
-  // soon as the answer is not immediate. Anything that arrives later replaces the hint on its own.
   var pending = setTimeout(function () { showCaretHint(t('monaco.searching').replace('{symbol}', name), null, true); }, 250);
   var response = await queryProjectAnalysis('references', name, loc);
   clearTimeout(pending);
@@ -60,29 +43,15 @@ async function findUsagesOf(name, explicitLoc) {
     return !(loc && item && item.path === loc.path && Number(item.lineIndex) === Number(loc.lineIndex));
   });
   if (items.length) { openAnalysisUsages(name, items, response, 'references'); return; }
-  // Standalone HTML has no analyzer; the in-memory scan answers the same question over the embedded files.
   var def = findSymbolDefinition(name) || { path: (loc && loc.path) || '', lineIndex: -1 };
   openUsages(name, def, response);
 }
-// A dead end has to say WHICH dead end. "No definition" and "the language server has not finished reading
-// the project yet" are different situations, and only one of them is worth pressing the key again a second
-// later — a cold server is not hypothetical, it is slow enough on a big project to take a release down.
-// The analysis status chip already carries the reason, but the reviewer is looking at the caret, which is
-// where the key they pressed just failed.
-// True when the answer did NOT come from a language server although one is being brought up: during the
-// indexing window the regex index answers instead, and that is a different quality of answer.
 function isPartialAnalysisAnswer(response) {
   if (!response || response.engine === 'lsp') return false;
-  // A revision answer always carries a fallbackReason (no server can read a revision), which would make
-  // every one of them read as "still indexing" — telling the reviewer to wait for an answer that will
-  // never improve. It gets its own label below instead.
   if (response.revision) return false;
   var phase = (document.getElementById('analysis-status') || { dataset: {} }).dataset.phase;
   return phase === 'indexing' || phase === 'starting' || Boolean(response.fallbackReason);
 }
-// Said at most once every few seconds. Every analyzer-backed surface funnels through
-// queryProjectAnalysis, so without a throttle one ⌘6 (which asks about every file in the review) would
-// stack a dozen identical notices.
 var ANALYSIS_PARTIAL_NOTICE_MS = 4000;
 var analysisPartialNoticeAt = 0;
 
@@ -91,24 +60,6 @@ function showPartialAnalysisHint(name) {
   showCaretHint(t('monaco.analysisPartial').replace('{symbol}', String(name || '')));
 }
 
-/**
- * "This came from the text index; the language server is still coming up."
- *
- * Said HERE, in the one funnel every surface asks its question through, because it used to be said by
- * ⌘B alone: press ⌥F7, ⌘⌥B, ⌥O or ⌘6 in the same window and the index answered silently, which reads as
- * the project having no usages rather than as an answer that is not final yet. A notice per surface was
- * a notice per surface to forget — the next one added would have forgotten it too.
- */
-// Questions nobody pressed a key to ask: the file's structure, where it folds, and where a symbol occurs
-// inside it. All three are asked on file open or on caret movement, by the structure popup, the fold
-// gutter, sticky lines, focus mode and the in-file highlight — and none of them is an answer a reader is
-// waiting on.
-//
-// That matters because `noteProvisionalAnalysis` is RATE-LIMITED: it shows "the index answered, a server
-// is still coming" at most once every ANALYSIS_PARTIAL_NOTICE_MS. A background request that goes through
-// it spends that window, and the next ⌘B — the one the reader actually pressed — gets no notice at all
-// and silently looks like a complete answer. Folding ranges are asked for on every file open, so this was
-// not a rare race; it was the normal case.
 var BACKGROUND_ANALYSIS_KINDS = {
   documentSymbol: true,
   foldingRange: true,
@@ -119,33 +70,21 @@ var BACKGROUND_ANALYSIS_KINDS = {
 };
 function noteProvisionalAnalysis(response, symbol) {
   if (!isPartialAnalysisAnswer(response)) return;
-  if (!analysisStillArriving()) return; // no server coming: the index IS the answer, and says so elsewhere
+  if (!analysisStillArriving()) return;
   if (Date.now() - analysisPartialNoticeAt < ANALYSIS_PARTIAL_NOTICE_MS) return;
-  // After the caller has had its turn, for two reasons. Every caller clears the "Searching…" hint the
-  // moment its answer lands (hideCaretHint), which would take this down with it; and a caller that has
-  // something more specific to say — "the definition is outside this review", "no usages of X" — should
-  // say it instead. `caretHintSeq` moves only when a hint is actually put up, so this stays quiet exactly
-  // when it has been superseded.
   var seq = caretHintSeq;
   setTimeout(function () {
     if (caretHintSeq !== seq) return;
     showPartialAnalysisHint(symbol);
   }, 0);
 }
-// True while a language server is coming up and has not answered yet — so a better answer than the regex
-// index's is still on its way. Narrower than isPartialAnalysisAnswer on purpose: that one also counts
-// "there is no server at all", where the index IS the final answer and should behave like one.
 function analysisStillArriving() {
   var phase = (document.getElementById('analysis-status') || { dataset: {} }).dataset.phase;
   return phase === 'starting' || phase === 'indexing';
 }
-// The analyzer declined because the canvas is showing a revision and it only knows the working tree.
-// Checked wherever an answer is consumed, and checked BEFORE the standalone in-memory scan: that scan
-// reads the rendered DOM and would happily answer, which is the same wrong jump by another route.
 function revisionDecline(response) {
   return response && response.declined === 'revision' ? String(response.revision || '') : null;
 }
-// An answer that DID come back, about a revision. Name-matched by construction, and permanently so.
 function revisionAnswer(response) {
   return response && !response.declined && response.revision ? String(response.revision) : null;
 }
@@ -160,8 +99,6 @@ function showRevisionDecline(revision, name) {
     .replace('{revision}', revision || '—')
     .replace('{symbol}', String(name || '')));
 }
-// One line per call site, so every surface that asks the analyzer a question stops at the same boundary.
-// Returns true when the caller should go no further — including past its own local fallback.
 function declinedForRevision(response, name) {
   var revision = revisionDecline(response);
   if (revision === null) return false;
@@ -171,44 +108,21 @@ function declinedForRevision(response, name) {
 function showSemanticNavigationFailure(kind, name, response) {
   var revision = revisionDecline(response);
   if (revision !== null) { showRevisionDecline(revision, name); return; }
-  // `fallbackReason` is only set when the semantic answer could not be obtained, so this is "could not
-  // ask", not "asked and there is nothing". Standalone HTML has no server at all and no reason either.
-  // "Not yet" rather than "not there": a server that has not finished starting has not answered, and
-  // reporting "no definition found" for it is a wrong answer the reviewer has no way to question.
-  //
-  // `unsupported` is the third case and it used to be read as the first. The server WAS asked and
-  // answered that it does not do this — tsserver offers no type hierarchy, so ⌘U, ⌘⌥B and ⌘⇧B on any
-  // TypeScript file said "try again in a moment" on every press, forever, about a question that will
-  // never have a different answer. "Later" is the one thing that is not true about it.
   if (response && response.unsupported) {
     closeSemanticPeek();
     showCaretHint(t('monaco.notOffered').replace('{symbol}', String(name || '')));
     return;
   }
-  // Nothing covers this file's language — a .md, a .css. There is no later attempt that could differ, so
-  // "try again in a moment" is the one thing it must not say, and that is exactly what it said: the three
-  // states the comment below describes were being rendered as two messages.
   if (response && response.noServer) {
     closeSemanticPeek();
     showCaretHint(t('monaco.noServer'));
     return;
   }
-  // The caret is on a base-pane line that exists only there, so the server was never asked and the index
-  // answered by name and found nothing. Permanent in the same way `noServer` is — waiting changes nothing,
-  // stepping to the new side does — so it gets that shape of sentence and names the key that does it.
   if (response && response.baseSide) {
     closeSemanticPeek();
     showCaretHint(t('monaco.baseSide').replace('{symbol}', String(name || '')));
     return;
   }
-  // Three cases, and this used to collapse them into two. The analyzer still starting is one, and it
-  // answers for itself. The server being unreachable — no server for this file, a timeout, a crash — is
-  // the second, and "no definition found" there is a claim nobody made: the guard for it is
-  // test/navigation-failure.test.mjs. The third is the server replying with nothing, which IS an answer
-  // and was being reported as "try again in a moment", forever, beside a status bar reading "ready".
-  //
-  // `serverAnswered` separates the second from the third at the boundary that knows, rather than here out
-  // of a reason string written in English.
   var couldNotAsk = Boolean(response && response.engine !== 'lsp' && response.fallbackReason
     && response.serverAnswered !== true);
   var pending = analysisStillArriving() || couldNotAsk;
@@ -222,61 +136,27 @@ function showSemanticNavigationFailure(kind, name, response) {
   closeSemanticPeek();
   showCaretHint(message);
 }
-// Cmd+B: on a declaration, show its usages (navigate if there's only one); elsewhere, go to the definition.
 async function goToDefOrUsages(name, explicitLoc) {
   if (!name) { showSemanticNavigationFailure('symbol'); return; }
   var loc = explicitLoc || caretSourceLoc();
   var pending = setTimeout(function () { showCaretHint(t('monaco.searching').replace('{symbol}', name), null, true); }, 250);
   var response = await queryProjectAnalysis('definition', name, loc);
   clearTimeout(pending);
-  hideCaretHint(); // the wait is over, whatever the answer is; failures put their own message up below
-  // Before the `ok` branch AND before the standalone scan below it: a decline is neither an answer nor a
-  // failure to find one, and the local scan would read the rendered DOM and jump anyway.
+  hideCaretHint();
   if (declinedForRevision(response, name)) return;
   if (response && response.ok) {
     var defs = response.locations || [];
-    // An answer from the regex index while a language server exists is a guess at what the server would
-    // have said. It is worth having — it is usually right, and it is immediate — but the reviewer should
-    // know they are looking at the partial version, not conclude the project has only one definition of
-    // this name. Said here, where they pressed the key, because the status chip is not where they looked.
     var answeredFor = revisionAnswer(response);
-    // The partial-answer notice is the funnel's (noteProvisionalAnalysis); saying it again here would
-    // double it on the one key that used to be the only one saying it at all.
     if (defs.length && answeredFor) showRevisionAnswerHint(name, answeredFor);
-    // A guess must not MOVE the reviewer.
-    //
-    // While the server is still reading the project the regex index answers instead, and it matches on the
-    // NAME alone — no types, no receiver. In a project with several same-named declarations (every Kotlin
-    // codebase with more than one `greet`, `name`, `value`) that lands somewhere unrelated, and the
-    // reviewer has lost their place to a guess the server was about to answer properly a moment later.
-    // Reported from use: Cmd+Down in the diff view during the indexing window, "goes somewhere random".
-    //
-    // So during that window a single heuristic hit is OFFERED rather than taken — the peek list shows it,
-    // labelled partial by the hint above, and the same key jumps for real once the server is ready. With
-    // no server at all the index is the final word and still navigates, which is why this asks about the
-    // phase rather than reusing isPartialAnalysisAnswer.
     var guessing = response.engine !== 'lsp' && analysisStillArriving();
     if (defs.length > 1 || (defs.length === 1 && guessing)) {
       openSemanticPeek(name, defs, response, 'definition');
       return;
     }
     var def = defs[0];
-    // A compiled target — a JDK class, a class inside a dependency jar — is a real answer that is not a
-    // file. It used to end here, at a one-line "it is in rt.jar": the location had been mangled into a
-    // path that exists nowhere, and before that every stdlib and dependency symbol in Kotlin and Java
-    // reported "definition not found" while the server had answered correctly.
-    //
-    // It no longer has to end here. The server that named the URI can also produce its text — the
-    // library's own source when it attached a sources jar, a decompilation when it did not, which is
-    // IntelliJ's pair of answers to the same question — so ask for it and open it read-only like any other
-    // library file. The old message stays as the honest fallback for the servers and schemes that cannot:
-    // "somewhere in rt.jar" beats an empty editor.
     if (def && def.external) {
       var external = await loadLibrarySourceFile(def.path);
       if (!external || !String(external.content || '')) {
-        // Not every unopenable target is compiled. Sorbet names a github.com URL for its stdlib RBIs, and
-        // calling that "compiled, with no source to open" was wrong twice over — it is not compiled and the
-        // source is one click away.
         if (openLibraryOnWeb(def.path)) return;
         showCaretHint(t('monaco.definitionExternal')
           .replace('{symbol}', String(name || ''))
@@ -286,10 +166,6 @@ async function goToDefOrUsages(name, explicitLoc) {
       openSourceAt(def.path, def.lineIndex, def.column);
       return;
     }
-    // The same question alreadyAtLocation answers, and it has to be asked the same way: comparing only the
-    // LINE said "you are on the declaration" for a caret on `export` or on `function`, and then offered the
-    // keyword's usages. Tightening the one predicate and leaving its two siblings on the old comparison is
-    // how that defect survived the fix for it.
     if (def && alreadyAtLocation(loc, def)) {
       var refs = await queryProjectAnalysis('references', name, loc);
       openAnalysisUsages(name, refs && refs.locations || [], refs, 'references');
@@ -297,7 +173,6 @@ async function goToDefOrUsages(name, explicitLoc) {
     }
     if (def) { openSourceAt(def.path, def.lineIndex, def.column); return; }
   }
-  // Standalone HTML has no main-process analyzer. Keep a small in-memory scan for that mode only.
   var def = findSymbolDefinition(name);
   if (def && alreadyAtLocation(loc, def)) {
     openUsages(name, def);
@@ -321,34 +196,11 @@ async function goToImplementation() {
   }
   openAnalysisUsages(name, items, response, 'implementation');
 }
-/**
- * Is this the place the caret is already standing?
- *
- * ⌘⌥B and ⌘⇧B on a declaration answer with that declaration — one location, the caret's own — and
- * `openSourceAt` then "navigates" to where the caret is: no panel, no hint, nothing moves, which is
- * indistinguishable from a key that does not work. (⌘B has its own answer for the same situation: on a
- * declaration it shows the usages instead. These two have no such alternative, so they say it.)
- */
 function alreadyAtLocation(loc, item) {
   if (!loc || !item) return false;
-  // Only ever about the working tree. A caret in the diff's BASE pane carries an old-file line number
-  // (caretSourceLoc reads the row's own side), and the server's answer is a new-file line — so line 120
-  // on the left and line 120 on the right are two different places, and comparing them would suppress a
-  // real jump with "this IS the declaration", which is both false and a dead end.
   if (loc.side === 'old') return false;
   if (String(item.path || '') !== String(loc.path || '')) return false;
   if (Number(item.lineIndex) !== Number(loc.lineIndex)) return false;
-  // The same line is not the same PLACE. A server resolves a position to the declaration that position is
-  // part of, so a caret on `async` in `async function goToTypeDeclaration() {` got that function's
-  // declaration back — same path, same line — and the page answered "This IS the declaration of “async” —
-  // there is nowhere else to go": a confident sentence about a keyword, said on the first press after any
-  // jump, because F7, ⌥↓ and the file step all park the caret at column 0. Comparing the column as well
-  // also tells two declarations on ONE line apart, which this could not do either.
-  //
-  // The answer has to land in the token the caret is actually on, not merely at the caret: ⌘B pressed in
-  // the MIDDLE of a declaration's own name must still read as "already there" and show the usages, which
-  // is the whole point of the branch. Where the token cannot be read, the line is all that is known and
-  // the older, looser comparison stands rather than a new silence.
   var token = symbolUnderCursor();
   if (!token || Number(token.lineIndex) !== Number(loc.lineIndex)) return true;
   var column = Number(item.column);
@@ -365,8 +217,6 @@ function queryProjectAnalysis(kind, symbol, loc, extra) {
     path: loc && loc.path,
     line: loc && loc.lineIndex,
     column: loc && loc.column,
-    // Which pane the line number came from. Without it the analyzer cannot tell a working-tree position
-    // from a base-pane one, and a position-resolving server answers truthfully about the wrong line.
     side: loc && loc.side,
   }, extra || {});
   return Promise.resolve(window.kakapoAnalysis.query(request)).then(function (response) {
@@ -375,20 +225,6 @@ function queryProjectAnalysis(kind, symbol, loc, extra) {
     return response;
   }).catch(function () { return null; });
 }
-// A diff caret's line number, named at a position a language server can actually read.
-//
-// An OLD line number names a line of the BASE, and the only text on disk is the new file — so a server that
-// resolves by position answers about whatever now sits at that number (⌘⌥B on a deleted `openSourceAt(…)`
-// call landed in lib.es5.d.ts's String.replace, because that number in the new file is a `.replace(…)`).
-// An UNCHANGED row is the same text on both sides, though, and its twin carries the working-tree number:
-// read the caret there and the base pane navigates exactly like the new one. The two texts are COMPARED
-// rather than the row's class read, because that equality is the whole claim being made — a modified row
-// pairs the old line with its REPLACEMENT at one rowIndex, so mapping across one would ask about the line
-// that replaced this one, which is worse than declining.
-//
-// Shared, because the two resolvers feed different keys: ⌘B and ⌘⌥B take their position from
-// symbolAtDiffCaret, ⌘↓ and the rest from caretSourceLoc. A mapping in one of them is a mapping half the
-// keyboard does not get, which is how the first attempt at this passed by hand and failed its test.
 function diffCaretOnWorkingTree(wrapper, row, line) {
   if (!diffCursor || diffCursor.side !== 'old') return { lineIndex: line - 1, side: diffCursor ? diffCursor.side : 'new' };
   var mate = wrapper ? diffRowAt(wrapper, 'new', diffCursor.rowIndex) : null;
@@ -396,8 +232,6 @@ function diffCaretOnWorkingTree(wrapper, row, line) {
   if (mateLine != null && diffLineText(mate) === diffLineText(row)) return { lineIndex: mateLine - 1, side: 'new' };
   return { lineIndex: line - 1, side: 'old' };
 }
-// Where the caret sits, mapped to a source (path, lineIndex). Both diff panes carry their own real line
-// number; callers that need the token itself use symbolAtDiffCaret so the old side can query by name too.
 function caretSourceLoc() {
   if (isSourceViewerVisible() && viewerCursor) return { path: viewerCursor.path, lineIndex: viewerCursor.lineIndex, column: viewerCursor.column };
   if (isDiffViewVisible() && diffCursor) {
@@ -410,7 +244,6 @@ function caretSourceLoc() {
   }
   return null;
 }
-// All word-boundary occurrences of name across embedded files, excluding the declaration line itself.
 function findUsages(name, defPath, defLine) {
   var re;
   try { re = new RegExp('(^|[^A-Za-z0-9_$])' + escapeRegExp(name) + '(?![A-Za-z0-9_$])'); } catch (e) { return []; }
@@ -434,9 +267,6 @@ function findUsages(name, defPath, defLine) {
 function openUsages(name, def, response) {
   var items = findUsages(name, def.path, def.lineIndex);
   if (items.length === 1) { openSourceAt(items[0].path, items[0].lineIndex, items[0].column); return; }
-  // `response` used to be read here as a free variable — there is no such binding in this scope, so the
-  // one line that explains a dead end threw a ReferenceError instead of explaining it, and the async
-  // caller swallowed it. The caller passes its own answer in now.
   if (!items.length) { showSemanticNavigationFailure('references', name, response); return; }
   usageItems = items;
   usageActive = 0;
@@ -458,24 +288,21 @@ function showUsages(name, count) {
   if (!box) return;
   if (box.classList.contains('hidden')) rememberOverlayFocus(box);
   usageName = String(name || '');
-  // Built in English in code — "3 usages of Store" — under a heading the rest of the app translates.
   if (title) title.textContent = t('peek.usages', { n: count }) + ' · ' + usageName;
   renderUsages();
   box.classList.remove('hidden');
   positionUsagesAtCaret();
 }
-// Anchor the usages popup just below (or above, if cramped) the live caret — source OR diff both render a
-// `.code-cursor` span. No caret on screen → leave the centered overlay fallback in place.
 function positionUsagesAtCaret() {
   var box = document.getElementById('usages');
   if (!box) return;
   var panel = box.querySelector('.quick-open-panel');
   if (!panel) return;
-  resetUsagesAnchor(box, panel); // measure from a clean slate
+  resetUsagesAnchor(box, panel);
   var caret = document.querySelector('#source-body .code-cursor') || document.querySelector('#diff2html-container .code-cursor');
   if (!caret) return;
   var rect = caret.getBoundingClientRect();
-  if (!rect.height && !rect.width && !rect.top) return; // detached / off-layout
+  if (!rect.height && !rect.width && !rect.top) return;
   var vw = window.innerWidth, vh = window.innerHeight, gap = 6, margin = 8;
   var pw = Math.min(560, vw - margin * 2);
   var left = Math.min(Math.max(margin, rect.left), vw - pw - margin);
@@ -500,9 +327,6 @@ function renderUsages() {
   var results = document.getElementById('usages-results');
   if (!results) return;
   if (!usageItems.length) {
-    // Hardcoded English under a translated heading, and — worse — "no usages" while the language server
-    // was still coming up, which is the one moment that answer is not true yet. Both fixed here: the
-    // sentence is translated, and while the analysis is still arriving it says so instead.
     var empty = analysisStillArriving()
       ? t('monaco.analysisPending').replace('{symbol}', usageName || '')
       : t('monaco.referencesNotFound').replace('{symbol}', usageName || '');
@@ -515,8 +339,6 @@ function renderUsages() {
     return '<button type="button" class="quick-open-item usage-item' + (isTest ? ' is-test' : '') + (index === usageActive ? ' active' : '') + '" data-index="' + index + '" title="' + escapeHtml(item.path + ':' + (item.lineIndex + 1)) + '">'
       + '<span class="usage-loc">' + escapeHtml(fname) + ':' + (item.lineIndex + 1) + '</span>'
       + '<span class="usage-code">' + semanticCodeHtml(item.path, item.text.replace(/^\s+/, '').slice(0, 160)) + '</span>'
-      // The module, where there is more than one — this popup's rows are `name:line` and in a workspace
-      // two of them can be the same file name in different modules.
       + projectRowTagsHtml(item.path, 'module')
       + '</button>';
   }).join('');
@@ -541,18 +363,16 @@ function handleUsagesKey(event) {
 }
 function openUsageItem(item) {
   if (!item) return;
-  closeUsages(true); // going somewhere, not coming back — the destination owns the keyboard
+  closeUsages(true);
   openSourceAt(item.path, item.lineIndex, item.column);
 }
-// `navigating` is the caller saying "I am about to move the view myself": the panel is being dismissed
-// on the way somewhere, so handing the keyboard back to whatever opened it would land it behind.
 function closeUsages(navigating) {
   var box = document.getElementById('usages');
   if (!box) return;
   var held = !navigating && !box.classList.contains('hidden');
   box.classList.add('hidden');
   var panel = box.querySelector('.quick-open-panel');
-  if (panel) resetUsagesAnchor(box, panel); // clear inline anchoring so the next open re-measures cleanly
+  if (panel) resetUsagesAnchor(box, panel);
   restoreOverlayFocus(box, held);
 }
 
@@ -560,11 +380,6 @@ function wordAtDiffCaret() {
   var symbol = symbolAtDiffCaret();
   return symbol ? symbol.name : null;
 }
-// Resolve the token and its real source coordinates from whichever diff pane owns the caret. The old/base
-// side is intentionally supported too, in two steps: an unchanged row is answered at its working-tree twin
-// (diffCaretOnWorkingTree), so a language server can resolve it by position like any other line, and a line
-// that exists only in the base keeps its side — the analyzer then declines the server for it by name and
-// resolves the explicit token through the index instead.
 function symbolAtDiffCaret() {
   if (!diffCursor) return null;
   var wrapper = diffWrapperByPath(diffCursor.path);
@@ -616,9 +431,6 @@ function definitionMatchers(name) {
   const escaped = escapeRegExp(name);
   const mod = '(?:(?:public|private|protected|internal|abstract|final|open|sealed|data|inner|enum|annotation|static|export|default|expect|actual|value)\\s+)*';
   const funMod = '(?:(?:public|private|protected|internal|abstract|final|open|override|suspend|inline|operator|static|async)\\s+)*';
-  // An enum entry declares itself by standing alone on a line — `DONE,` — which matches none of the shapes
-  // below, so Cmd+B on one used to dead-end ("Definition not found") even though its usages are right there.
-  // Only for SCREAMING_SNAKE names: in any other casing a bare `name(` line is far more likely to be a call.
   const enumEntry = /^[A-Z][A-Z0-9_$]*$/.test(name)
     ? [new RegExp('^\\s*' + escaped + '\\s*(?:[,;(]|\\{|$)')]
     : [];
@@ -637,20 +449,6 @@ function escapeRegExp(value) {
   return String(value).replace(/[|\\{}()[\]^$+*?.]/g, '\\$&');
 }
 
-// ===== Extend / Shrink Selection ==================================================================
-// IntelliJ's ⌥↑ and ⌥↓ (EditorSelectWord / EditorUnSelectWord on its own Mac keymap): grow the selection
-// to the next construct that encloses the caret — word, expression, statement, block, declaration — and
-// walk back down. The chain comes from `textDocument/selectionRange`, which is the request this app had
-// never sent: the plumbing to ask it existed, nothing asked.
-//
-// Server-only, and deliberately so. What encloses a position is a question about the grammar; a brace or
-// indentation heuristic would answer it most of the time, and the rest of the time it would select the
-// wrong thing — which is worse than the key doing nothing, because a reader would copy it.
-
-// The chain the caret is currently walking: where it was asked from, the ranges the server gave, and how
-// far out we are. `applied` is the caret this walk last left behind — the test for whether the walk is
-// still the reader's, because anything else that moves the caret (a click, an arrow, a jump) means the
-// next ⌥↑ is a new question rather than one more step along the old answer.
 var selectionChain = null;
 
 function selectionChainIsLive() {
@@ -661,37 +459,14 @@ function selectionChainIsLive() {
     && selectionChain.applied.column === viewerCursor.column);
 }
 
-/**
- * One step along the chain: set the selection to `ranges[index]`.
- *
- * The anchor goes to the range's start and the CARET to its end, because that is the pair
- * applySourceSelection() paints from — the app has one selection model and this is it, rather than a
- * second one that would have to be kept in agreement with ⇧-arrow.
- *
- * setSourceCursor does the work that makes a far end possible at all: it opens any fold the line is
- * inside and re-renders the window around the caret, so a range reaching past what is painted brings its
- * own rows with it. navSuppress is held across it because growing a selection is not navigation — without
- * it, ⌥↑ out to a declaration hundreds of lines up would leave a stop in ⌘[ / ⌘] history.
- */
 function applySelectionChainStep(index) {
   var range = selectionChain.ranges[index];
   selectionChain.index = index;
   selectionAnchor = { lineIndex: range.startLine, column: range.startCharacter };
-  // reveal=false ON PURPOSE, and then the scroll by hand. With reveal the caret repaint is deferred to a
-  // frame (scheduleSourceReveal), and the repaint is what re-splits the line's text nodes around the
-  // caret span — so a selection applied before it resolves its offsets against a DOM that is about to
-  // change underneath it, lands short, and silently falls back to selecting to the end of the line. The
-  // same ordering sits under ⇧-arrow and never showed, because a one-character step stays inside the
-  // text node the stale split left behind.
   navSuppress = true;
   try { setSourceCursor(selectionChain.path, range.endLine, range.endCharacter, false); }
   finally { navSuppress = false; }
   selectionChain.applied = { lineIndex: viewerCursor.lineIndex, column: viewerCursor.column };
-  // The far end may still be standing in a spacer on a file big enough to be painted progressively. That
-  // is rare — the window is 400 rows and the rest arrives 2,000 at a time — and it is also the one case
-  // where the selection would silently be shorter than it claims, so finish the file and paint again.
-  // Once, on a key the reader pressed, rather than for every file on open (which is what flushing used
-  // to do, and what made a large file cost a gigabyte).
   applySourceSelection();
   if (!sourceSelectionIsWhole(range)) {
     flushSourceRows();
@@ -700,9 +475,6 @@ function applySelectionChainStep(index) {
   scheduleScrollIntoView(document.querySelector('.source-row.cursor-line'), document.getElementById('source-body'), 0.15);
 }
 
-// Did the painted selection actually reach both ends of the range we asked for? The DOM is the only honest
-// witness: caretDomPosition answers null for a line that is still a spacer, and applySourceSelection
-// quietly draws nothing at all in that case.
 function sourceSelectionIsWhole(range) {
   return Boolean(caretDomPosition(range.startLine, range.startCharacter)
     && caretDomPosition(range.endLine, range.endCharacter));
@@ -712,17 +484,11 @@ function clearSelectionChain() {
   selectionChain = null;
 }
 
-/**
- * ⌥↑ / ⌥↓. `outward` true grows the selection, false shrinks it.
- *
- * Shrinking past the innermost construct clears the selection rather than stopping on the word: that is
- * where the walk started, so it is the state the reader came from.
- */
 function extendShrinkSelection(outward) {
   if (!isSourceViewerVisible() || !viewerCursor) return false;
   if (selectionChainIsLive()) {
     var next = selectionChain.index + (outward ? 1 : -1);
-    if (next >= selectionChain.ranges.length) return true; // nothing encloses this; the key is still ours
+    if (next >= selectionChain.ranges.length) return true;
     if (next < 0) {
       selectionAnchor = null;
       applySourceSelection();
@@ -732,14 +498,12 @@ function extendShrinkSelection(outward) {
     applySelectionChainStep(next);
     return true;
   }
-  if (!outward) return false; // nothing to shrink
+  if (!outward) return false;
   var loc = caretSourceLoc();
   if (!loc || !loc.path) return false;
   var origin = { lineIndex: viewerCursor.lineIndex, column: viewerCursor.column };
   queryProjectAnalysis('selectionRange', wordAtCursor(), loc).then(function (response) {
     var ranges = response && Array.isArray(response.selection) ? response.selection : [];
-    // A caret that moved while the server was thinking is a different question; drop the answer rather
-    // than select around where the reader no longer is.
     if (!viewerCursor || viewerCursor.path !== loc.path
       || viewerCursor.lineIndex !== origin.lineIndex || viewerCursor.column !== origin.column) return;
     if (!ranges.length) { showSemanticNavigationFailure('selectionRange', wordAtCursor(), response); return; }

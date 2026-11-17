@@ -1,8 +1,3 @@
-// The six reading switches ported from IntelliJ (RENDER_TOGGLES in 01-core.js): Show Whitespaces, Show
-// Indent Guides, Show Sticky Lines, Highlight Only Current Declaration, Essential Highlighting and Align
-// Changes In Side-by-Side Diff. None of them changes the review — each decides how it is drawn — so what
-// is asserted is the attribute on <html> the stylesheet reads, the persisted value, and, for the two that
-// are not pure paint, the mark they leave in the DOM.
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { cleanupFixtures, makeReviewHtml } from "./helpers/fixture.mjs";
@@ -37,8 +32,6 @@ const ATTR = {
 test("every switch starts at its documented default and the attribute says so", async () => {
   const v = await loadViewer(html);
   const root = v.window.document.documentElement;
-  // Three of them are off until asked for; sticky lines and alignment are how the app already read, and a
-  // toggle that changed behaviour on arrival would be a different change.
   assert.equal(root.getAttribute("data-show-whitespace"), "off");
   assert.equal(root.getAttribute("data-indent-guides"), "off");
   assert.equal(root.getAttribute("data-focus-mode"), "off");
@@ -79,9 +72,6 @@ test("a stored choice is what the next window opens with", async () => {
   v.window.close();
 });
 
-// markWhitespaceRuns is the one definition both halves of the app render through (src/util.ts): the diff is
-// built in main through highlight.ts, the source view in the viewer, and copy-viewer-assets.mjs emits this
-// exact function into the bundle so there is never a second copy to drift.
 test("the whitespace marker wraps the leading and trailing runs and nothing between them", async () => {
   const marked = markWhitespaceRuns("  const a = 1;  ");
   assert.match(marked, /^<span class="ws-lead" data-ws="spaces">  <\/span>/);
@@ -113,9 +103,6 @@ test("a line with no blanks at either end is returned untouched", async () => {
   assert.equal(markWhitespaceRuns(""), "");
 });
 
-// The case that broke the first version: a highlighter is free to put the indentation OUTSIDE the span it
-// opens for the code, so the leading run's first segment is blanks all the way through and the run has not
-// ended — reading only the first text segment with a regex silently marked nothing at all.
 test("a run that crosses a tag boundary is marked on both sides of it", async () => {
   const marked = markWhitespaceRuns('  <span class="hljs-keyword">  return</span>');
   assert.match(marked, /^<span class="ws-lead" data-ws="spaces">  <\/span>/, "the segment before the tag");

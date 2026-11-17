@@ -73,7 +73,7 @@ test("large app sources load on demand into the same Review renderer", async () 
 
   const v = await loadViewer(built.html, {
     lazySourceData: JSON.stringify(built.build.lazySourceFiles),
-    root: built.dir, // unchanged files ship as deferred metadata; main reads them back off disk on open
+    root: built.dir,
     monacoBridge: true,
     analysisBridge: (request) => responseFor(request),
   });
@@ -123,15 +123,12 @@ test("the caret-local semantic menu opens its selected source without a second e
   assert.equal(v.window.__monacoMock.editors.length, 0);
 
   v.key("1", { metaKey: true, code: "Digit1" });
-  await v.settle(20); // leave logical focus in the file tree — the semantic menu must still own Enter
+  await v.settle(20);
   v.window.openAnalysisUsages("target", responseFor({}, 8).locations, responseFor({}, 8), "references");
   await v.settle(50);
   assert.ok(!v.$("#semantic-peek").classList.contains("hidden"));
   assert.equal(v.$all("#semantic-peek-results .semantic-peek-item").length, 2);
   assert.match(v.$("#semantic-peek-meta").textContent, /typescript-language-server/);
-  // The meta names who answered and how long it took — the two things that tell a reader whether this is
-  // a real semantic answer or a fallback. It used to print the analysis index's revision ("g8") too, which
-  // is a number for whoever is debugging the index and was taking room from the symbol name beside it.
   assert.doesNotMatch(v.$("#semantic-peek-meta").textContent, /\bg\d+\b/,
     "the index's internal revision is not part of what a reader is shown");
   assert.match(v.$("#semantic-peek-meta").textContent, /\d+(\.\d+)?ms/, "how long it took stays");
@@ -151,8 +148,6 @@ test("the caret-local semantic menu opens its selected source without a second e
   v.close();
 });
 
-// The request a KEY made, not whichever was last: opening a file also asks for its folding ranges and its
-// structure in the background (BACKGROUND_ANALYSIS_KINDS), so `at(-1)` is whatever happened to settle last.
 const lastOfKind = (requests, kind) => requests.filter((r) => r.kind === kind).at(-1);
 
 test("the usages popup resolves the token at the active diff caret on both working and base panes", async () => {
@@ -178,9 +173,6 @@ test("the usages popup resolves the token at the active diff caret on both worki
   }
 
   const working = placeCaret("new", "target");
-  // ⌘⌥F7, IntelliJ's Show Usages. This read ⌘B until ⌘B became Go to Declaration, which is a different
-  // question — the subject here is the COORDINATES a diff caret supplies, and the usages popup is still
-  // the surface that asks for them from both panes.
   v.key("F7", { metaKey: true, altKey: true, code: "F7" });
   await v.settle(40);
   assert.deepEqual(
@@ -195,9 +187,6 @@ test("the usages popup resolves the token at the active diff caret on both worki
     },
     "the working-tree caret supplies its exact token and source coordinates",
   );
-  // The declaration the caret is sitting on is not one of its own usages, so the hit on this very line is
-  // dropped and a single usage is left. Cmd+B goes straight there: a dropdown holding one row would be a
-  // menu asking the reader to confirm the only answer.
   await v.settle(40);
   assert.ok(v.$("#semantic-peek").classList.contains("hidden"), "one remaining usage needs no dropdown");
   assert.equal(v.$("#source-viewer").dataset.openPath, "src/target.ts", "it lands on the one usage it found");
@@ -214,10 +203,6 @@ test("the usages popup resolves the token at the active diff caret on both worki
       path: "src/app.ts",
       line: v.window.diffLineNumber(base.row) - 1,
       column: base.column,
-      // Asserted rather than tolerated. `oldValue` is a DELETED line — this fixture replaces the file
-      // outright — so it exists only in the base, and the side is what tells the analyzer to decline the
-      // language server and answer from the name index instead: a position-resolving server handed an old
-      // line number answers truthfully about whatever now sits at that number in the working tree.
       side: "old",
     },
     "the base caret remains a valid semantic-navigation origin, and says which side it came from",
@@ -226,10 +211,6 @@ test("the usages popup resolves the token at the active diff caret on both worki
 });
 
 test("in the diff, ⌘B resolves the symbol and ⌘↓ opens the file", async () => {
-  // One row, two keys, two answers — which is what the table's `keys` list is for. ⌘B is IntelliJ's
-  // chord and means the same thing everywhere, so in a diff it still asks about the symbol under the
-  // caret; ⌘↓ is this app's own second key and keeps the answer it has always given here, which is to
-  // open the file the row belongs to. Collapsing them would have cost the diff its semantic navigation.
   const requests = [];
   const v = await loadViewer(html, {
     monacoBridge: true,
@@ -282,9 +263,6 @@ test("semantic results show compact white file labels, omit docs/comments, and d
   v.close();
 });
 
-// Cmd+B stopped being the definition key in c73a13a — it finds usages now, and when the analyzer returns
-// nothing it falls back to the in-memory scan rather than reporting a failure. The key that still asks for a
-// definition, and so still has a failure to report, is Cmd+Down.
 test("a failed definition lookup shows a short caret hint and does not open an empty result panel", async () => {
   const v = await loadViewer(html, {
     monacoBridge: true,
@@ -294,7 +272,7 @@ test("a failed definition lookup shows a short caret hint and does not open an e
     analysisStatus: { generation: 7, phase: "ready", updatedAt: new Date(0).toISOString() },
   });
   await v.openSourceFile("src/app.ts");
-  v.window.setSourceCursor("src/app.ts", 1, 26, false, -1); // `return`, which has no definition
+  v.window.setSourceCursor("src/app.ts", 1, 26, false, -1);
   v.key("ArrowDown", { metaKey: true });
   await v.settle(60);
 
@@ -303,10 +281,6 @@ test("a failed definition lookup shows a short caret hint and does not open an e
   assert.match(hint.textContent, /Definition not found.*return/);
   assert.ok(v.$("#semantic-peek").classList.contains("hidden"), "an empty dropdown is never shown");
 
-  // 2100 was this number for as long as every hint got a flat 2000ms. The lifetime is scaled to the
-  // message now — this one is a sentence naming a symbol, and a sentence takes longer to read than
-  // "gone" — so the wait is taken from the hint's own stated lifetime rather than from a constant that
-  // goes stale the next time that rule changes. The claim is unchanged: it dismisses itself.
   const life = v.window.caretHintLifetime(hint.textContent);
   assert.ok(life > 2000, `a sentence this long gets more than the old flat two seconds (${life}ms)`);
 
@@ -318,13 +292,6 @@ test("a failed definition lookup shows a short caret hint and does not open an e
   v.close();
 });
 
-// Semantic Peek opened in the window's top-left corner instead of beside the symbol, but only after the
-// reviewer had opened a file at least once. Its anchor lookup was source-biased at both stages: the caret
-// query read `#source-body .code-cursor` first, and the fallback below it read a `#source-body` ROW with no
-// view gate at all. Both views keep their rendered DOM, so once the source view had ever painted, that stale
-// hidden row answered for the diff — measured in the running app at 0,0,0,0 while the diff caret was at
-// 1070,228. This is the gate, which is a question about classes and needs no layout: with the source view's
-// caret and rows present in the document, the anchor the diff view hands back has to be the DIFF's.
 test("the caret anchor follows the visible view, not whichever view rendered first", async () => {
   const v = await loadViewer(html, {
     monacoBridge: true,
@@ -340,7 +307,6 @@ test("the caret anchor follows the visible view, not whichever view rendered fir
   v.window.showDiffView();
   await v.settle(40);
   assert.equal(v.window.isDiffViewVisible(), true, "the diff view is the one on screen");
-  // Still there, which is the whole trap: the fix cannot be "the source view is empty".
   assert.ok(v.$("#source-body .source-row"), "the source view's rows outlive the switch");
 
   const anchor = v.window.caretAnchorElement();
@@ -350,15 +316,6 @@ test("the caret anchor follows the visible view, not whichever view rendered fir
   v.close();
 });
 
-// While a language server is still reading the project, the regex index answers instead — and it matches
-// on the NAME alone, with no types and no receiver. In a codebase with several same-named declarations
-// that lands somewhere unrelated, and taking the jump costs the reviewer their place for a guess the
-// server was about to answer properly. Reported from use on Kotlin: Cmd+Down in the diff view during the
-// indexing window, "goes somewhere random".
-//
-// So during that window a lone heuristic hit is offered, not taken. With no server at all the index is the
-// final word and still navigates — that is the other half, and it is what makes this a window and not a
-// permanent downgrade.
 const INDEX_HIT = {
   ok: true,
   engine: "index",
@@ -393,7 +350,6 @@ test("the same lone index hit is navigated to when no server is coming", async (
   const v = await loadViewer(html, {
     monacoBridge: true,
     analysisBridge: (request) => ({ ...INDEX_HIT, kind: request.kind, fallbackReason: "No language server is available for src/app.ts" }),
-    // `fallback` is the phase for "there is no server": the index is the whole answer, so it behaves like one.
     analysisStatus: { generation: 7, phase: "fallback", updatedAt: new Date(0).toISOString() },
   });
   await v.openSourceFile("src/app.ts");
@@ -405,12 +361,6 @@ test("the same lone index hit is navigated to when no server is coming", async (
   v.close();
 });
 
-// A caret in the BASE pane carries an OLD line number, and the only text on disk is the new file — so a
-// position-resolving language server handed that number answers truthfully about a different line. ⌘⌥B on a
-// deleted `openSourceAt(…)` call came back with lib.es5.d.ts's String.replace, because that number in the
-// new file is a `.replace(…)`. An UNCHANGED row is the same text on both sides, though, and its twin
-// carries the working-tree number: reading the caret there is what lets the base pane navigate at all,
-// instead of being declined for a position it does genuinely have.
 test("a caret on an unchanged base row is read at its working-tree twin", async () => {
   const { html: ctx } = await makeReviewHtml([
     {
@@ -422,8 +372,6 @@ test("a caret on an unchanged base row is read at its working-tree twin", async 
   const requests = [];
   const v = await loadViewer(ctx, {
     monacoBridge: true,
-    // No locations: this is about the question asked, and an answer would navigate away from the caret
-    // the next half of the test places.
     analysisBridge(request) { requests.push(request); return { ...responseFor(request), locations: [] }; },
   });
   await v.openDiffFor("src/ctx.ts");
@@ -440,7 +388,6 @@ test("a caret on an unchanged base row is read at its working-tree twin", async 
   assert.equal(v.window.diffLineText(oldKeep.row), v.window.diffLineText(newKeep.row),
     "the premise this rests on: an unchanged row is the same text on both sides");
   v.window.setDiffCursor("src/ctx.ts", "old", oldKeep.index, 13, false);
-  // ⌘⌥F7, the usages popup: it asks the analyzer from wherever the caret is, which is what this is about.
   v.key("F7", { metaKey: true, altKey: true, code: "F7" });
   await v.settle(40);
   const mapped = lastOfKind(requests, "references");
@@ -449,10 +396,6 @@ test("a caret on an unchanged base row is read at its working-tree twin", async 
   assert.equal(mapped.line, v.window.diffLineNumber(newKeep.row) - 1,
     "at the NEW side's line number — the one the file on disk actually has");
 
-  // A line that exists only in the base has no twin to map onto, so it keeps its side and the analyzer
-  // declines the server for it. Mapping across a MODIFIED row would be worse than declining: that pairs
-  // the old line with its replacement at one rowIndex, so the question would be about the line that
-  // replaced this one.
   const gone = rowOf("old", "oldValue");
   v.window.setDiffCursor("src/ctx.ts", "old", gone.index, 13, false);
   v.key("F7", { metaKey: true, altKey: true, code: "F7" });

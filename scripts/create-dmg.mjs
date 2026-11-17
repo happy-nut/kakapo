@@ -34,9 +34,6 @@ export function createMacDmg({
   mkdirSync(dirname(dmgPath), { recursive: true });
   rmSync(dmgPath, { force: true });
 
-  // The bundle's own `kakapo` command. electron-packager copies bin/ verbatim, and a copy that lost its
-  // exec bit would be a Homebrew cask linking a file nobody can run — so set it here, where the bundle that
-  // actually ships is in hand, rather than trusting the copy.
   const bundledCli = join(resolve(appPath), "Contents", "Resources", "app", "bin", "kakapo-bundled.sh");
   if (existsSync(bundledCli)) chmodSync(bundledCli, 0o755);
 

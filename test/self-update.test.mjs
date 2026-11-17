@@ -160,9 +160,6 @@ test("self-update falls back to npm exec if the global kakapo bin fails to spawn
   ]);
 });
 
-// The packaged bundle and the global CLI are different installs with different update channels. `npm i -g`
-// is right for the command; it never touches /Applications/Kakapo.app, so pressing Update in the bundle
-// used to report success and leave the reviewer on the old version. The bundle's channel is the release DMG.
 test("the packaged updater picks the build for this machine, and only when it is newer", async () => {
   const { isNewerVersion, macDmgAsset, bundlePathFor, swapScript } = await import("../dist/app-update.js");
 
@@ -183,9 +180,6 @@ test("the packaged updater picks the build for this machine, and only when it is
   assert.equal(bundlePathFor("/usr/local/bin/node"), undefined, "a plain binary is not a bundle");
 });
 
-// A bundle cannot replace itself while it is running, so the swap is a detached script. What matters is that
-// a failed copy leaves the machine with an app: the old bundle is moved aside, not deleted, and restored if
-// the copy fails.
 test("the swap script waits for the app to exit and puts the old bundle back if the copy fails", async () => {
   const { swapScript } = await import("../dist/app-update.js");
   const script = swapScript({ pid: 4242, staged: "/tmp/new/Kakapo.app", installed: "/Applications/Kakapo.app", backup: "/Applications/Kakapo.app.old" });
@@ -198,9 +192,6 @@ test("the swap script waits for the app to exit and puts the old bundle back if 
   assert.match(script, /\/usr\/bin\/open -a "\/Applications\/Kakapo\.app"/, "and the app comes back up");
 });
 
-// A ~200MB image used to come down inside installPackagedUpdate as a synchronous curl, which froze the main
-// process for the whole transfer with nothing on screen moving — indistinguishable from a hang. The download
-// moved out to a streaming caller that reports bytes; what stays here is local disk work measured in seconds.
 test("the update installs from a DMG already on disk, and the download reports progress", () => {
   const update = readFileSync(new URL("../src/app-update.ts", import.meta.url), "utf8");
   assert.match(update, /installPackagedUpdate\(options: \{[\s\S]{0,400}dmgPath: string/,
@@ -216,12 +207,8 @@ test("the update installs from a DMG already on disk, and the download reports p
   assert.match(main, /if \(percent !== lastSent\)/, "one message per whole percent, not per chunk");
   assert.match(main, /downloadUpdateDmg\(asset\.url\)[\s\S]{0,600}installPackagedUpdate\(\{ dmgPath/,
     "download first, then install what it produced");
-
 });
 
-// One new version, one indicator. It used to be three — a titlebar chip, a sidebar-footer flag, and the
-// Settings line — all saying the same two words in the same window at the same time. Settings is the one
-// that survived the rail.
 test("an available update shows in exactly one place: the Settings panel", () => {
   const render = readFileSync(new URL("../src/render.ts", import.meta.url), "utf8");
   assert.match(render, /id="app-info-update"/, "Settings carries the Update & Restart action");

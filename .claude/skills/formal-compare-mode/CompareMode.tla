@@ -57,7 +57,7 @@ VARIABLES
     target,  \* options.target is set — an A->B compare
     scope,   \* state.compareScope is non-empty — a Cmd+9 range
     staged,  \* options.staged
-    tip      \* state.compareTip — persisted (COMPARE_TIP_KEY, app-main.ts:322)
+    tip      \* state.compareTip — persisted (COMPARE_TIP_KEY, app-main.ts:232)
 
 vars == <<base, label, target, scope, staged, tip>>
 
@@ -77,7 +77,7 @@ TypeOK ==
 (* build. It is a memory of which key was pressed, nothing more.           *)
 (*                                                                         *)
 (* That asymmetry is the point rather than a cheat. The flag exists        *)
-(* (app-main.ts:313-321) precisely BECAUSE the menu cannot tell "all" from *)
+(* (app-main.ts:229-233) precisely BECAUSE the menu cannot tell "all" from *)
 (* "tip" by looking at base/baseLabel. So the flag is the claim and this is *)
 (* the truth, and the invariant below asks whether the claim is kept up.   *)
 (***************************************************************************)
@@ -137,7 +137,7 @@ Init ==
     /\ tip = RestoredTip
 
 (***************************************************************************)
-(* kakapo:set-compare-mode — app-main.ts:550.                              *)
+(* kakapo:set-compare-mode — app-main.ts:406.                              *)
 (*                                                                         *)
 (* Every branch first clears scope/target/staged and WRITES compareTip     *)
 (* (:577-581), then sets base/baseLabel for its mode.                      *)
@@ -173,7 +173,7 @@ SetCompareModeSince ==
     /\ tip' = FALSE
 
 (***************************************************************************)
-(* kakapo:set-review-base — app-main.ts:399. The patch-set bar's numbers   *)
+(* kakapo:set-review-base — app-main.ts:285. The patch-set bar's numbers   *)
 (* and its "All" option, and Alt+] / Alt+[.                                *)
 (*                                                                         *)
 (* It clears baseLabel, staged and — because it REWRITES options.base, and  *)
@@ -195,7 +195,7 @@ SetReviewBaseCommit ==                                     \* a numbered patch s
     /\ UNCHANGED <<target, scope>>
 
 (***************************************************************************)
-(* kakapo:set-review-target — app-main.ts:423. The bar's right-hand group. *)
+(* kakapo:set-review-target — app-main.ts:306. The bar's right-hand group. *)
 (*                                                                         *)
 (* Note the asymmetry, which is in the handler: staged is cleared only on  *)
 (* the commit branch (:432), not when returning to the working tree.       *)
@@ -210,7 +210,7 @@ SetReviewTargetCommit ==                                   \* :431-432
     /\ UNCHANGED <<base, label, scope, tip>>
 
 (***************************************************************************)
-(* kakapo:set-review-compare — app-main.ts:466. Cmd+9 opening a range, and *)
+(* kakapo:set-review-compare — app-main.ts:342. Cmd+9 opening a range, and *)
 (* the bar's exit button (#patchset-reset sends "auto"/"worktree").        *)
 (***************************************************************************)
 SetReviewCompareRange ==                                   \* a Cmd+9 A..F range, :474-480
@@ -230,7 +230,7 @@ SetReviewCompareExit ==                                    \* the bar's reset bu
     /\ tip' = FALSE
 
 (***************************************************************************)
-(* kakapo:open-pull-request — app-main.ts:504. Lands as an A->B compare,   *)
+(* kakapo:open-pull-request — app-main.ts:367. Lands as an A->B compare,   *)
 (* and clears tip like every other writer of options.base.                 *)
 (***************************************************************************)
 OpenPullRequest ==

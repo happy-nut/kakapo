@@ -1,9 +1,3 @@
-// A server's settings reach it by two roads and most servers only walk one. typescript-language-server reads
-// the `settings` payload kakapo PUSHES with workspace/didChangeConfiguration; gopls, clangd and
-// rust-analyzer ignore that notification and PULL what they want with a workspace/configuration request.
-// That pull used to be answered with `{}` for every section, so gopls's inspections — staticcheck and the
-// analyses it leaves off by default — could not be turned on from this app at all: the setting sat in the
-// source looking enabled and never arrived. This is the wire test for the road that was dead.
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
@@ -22,7 +16,6 @@ function project(file, text) {
   return root;
 }
 
-/** A server that pulls the sections it cares about and reports what it was handed, as a diagnostic message. */
 function pullingServer(root, sections) {
   const fake = join(root, "fake-lsp.mjs");
   writeFileSync(fake, `
@@ -105,6 +98,5 @@ test("configurationSection resolves paths without a server in the loop", () => {
   assert.deepEqual(configurationSection(settings, "gopls.analyses.nope"), {});
   assert.deepEqual(configurationSection(settings, ""), settings, "no section means all of it");
   assert.deepEqual(configurationSection(settings, undefined), settings);
-  // A section naming a path THROUGH a non-object must not read a string's own properties.
   assert.deepEqual(configurationSection({ a: "text" }, "a.length"), {});
 });

@@ -1,8 +1,3 @@
-// The typed contract for the build -> viewer boundary: the `<script type="application/json">` "islands" the
-// review HTML embeds (render.ts) and the plain-JS viewer parses back by element id (viewer/01-core.js). The
-// viewer is untyped JS and can't import this, so render.ts emits ids from REVIEW_ISLAND and
-// test/viewer-contract.test.mjs asserts the viewer's literal ids still match — keeping producer and consumer
-// honest against one source of truth. Any perf work that reshapes these payloads changes them HERE first.
 import type { ProjectLayout } from "./project-layout.js";
 import type { ReviewFileState, SourceFile } from "./types.js";
 
@@ -18,7 +13,6 @@ export const REVIEW_ISLAND = {
 
 export type ReviewIslandId = (typeof REVIEW_ISLAND)[keyof typeof REVIEW_ISLAND];
 
-/** #review-meta carries flags on its dataset (its body is an empty `{}`); the viewer reads them as strings. */
 export type ReviewMetaDataset = {
   watch: "true" | "false";
   signature: string;
@@ -27,16 +21,7 @@ export type ReviewMetaDataset = {
   lazyLoad: "true" | "false";
 };
 
-/** #source-files-data: the file index. In lazyLoad mode content/image are stripped (see sourceFileMetadata). */
 export type SourceFilesIsland = SourceFile[];
-/** #file-state-data: per-file review state (viewed flags, comment counts, ...). */
 export type FileStatesIsland = ReviewFileState[];
-/** #http-env-data: HTTP-client environments — environment name -> (variable -> value). */
 export type HttpEnvIsland = Record<string, Record<string, string>>;
-/**
- * #project-layout-data: the reviewed repository's modules and test roots (project-layout.ts).
- *
- * One object rather than a field on every SourceFile, because the renderer classifies a path by prefix
- * and a per-file copy of the same few strings would be paid for once per file in the initial payload.
- */
 export type ProjectLayoutIsland = ProjectLayout;

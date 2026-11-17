@@ -1,55 +1,37 @@
-// ===== Bottom dock: the merged review-comments document, in a docked slot below the editor =====
-var dockHoldsMenu = false; // this slice's own hold, counted through holdMenuShortcuts
-// Cmd/Ctrl+Shift+' maximizes it over the editor area.
+var dockHoldsMenu = false;
 var dockMaximized = false;
-// Assigned once the settings panel is built (see below); read by the KEY_OWNERS table in 05-keymap.js,
-// which loads first and so tests it with `typeof`.
 var handleSettingsKey;
 function activeDockPanel() {
   return document.getElementById('mc-merged-panel');
 }
 function applyDockMaximized() {
-  if (!activeDockPanel()) dockMaximized = false; // nothing docked -> can't stay maximized
+  if (!activeDockPanel()) dockMaximized = false;
   document.body.classList.toggle('dock-maximized', dockMaximized);
 }
-/** True when it maximized something; false declines the key rather than swallowing it. */
 function toggleDockMaximized() {
-  // Maximize only the panel you're FOCUSED in. From the sidebar tree (treeFocusIndex >= 0) or the
-  // diff/source content there is nothing to maximize — which is the NORMAL press of this chord, and it
-  // used to be eaten in silence. Declining hands the key back; the panel one is worth a sentence.
   if (treeFocusIndex >= 0) return false;
   var ae = document.activeElement;
   if (!(ae && ae.closest && ae.closest('.dock-panel'))) {
     if (activeDockPanel()) { showCaretHint(t('dock.notFocused')); return true; }
     return false;
   }
-  if (!activeDockPanel()) return false; // nothing docked -> nothing to maximize
+  if (!activeDockPanel()) return false;
   dockMaximized = !dockMaximized;
   applyDockMaximized();
   return true;
 }
-// "The keys belong to a panel, not to the editor." While the dock holds focus the global shortcuts below
-// the keymap's focus guard stand down; the ones placed ABOVE it (Cmd+1/2/7/8/9, the dock toggles) still work.
 function isDockFocused() {
   var ae = document.activeElement;
   return !!(ae && ae.closest && ae.closest('.dock-panel'));
 }
-// How refreshComments() reaches the open dock. The dock builds its cards from a snapshot taken when it
-// opened (`blocks`), and nothing re-took that snapshot: a comment written, answered or pruned while the
-// panel was up did not appear in it, and copyAndArchiveMerged then copied and filed the stale snapshot.
-// That is not a cosmetic staleness — an agent answering through the thread file (USER_FLOWS Flow 7) writes
-// exactly while a reviewer has this open, so the hand-off could go out short, or the panel could say there
-// was nothing to hand over while the review held comments. Same shape as themeSelectRef below: the owner
-// publishes its renderer, the caller does not need to know who owns it.
 var mergedDockRefresh = null;
 function refreshMergedDock() {
   if (mergedDockRefresh) mergedDockRefresh();
 }
-// Close the merged dock.
 function closeMergedDock() {
   var m = document.getElementById('mc-merged-panel');
   var hadDock = !!m;
-  mergedDockRefresh = null; // before the refreshComments below, so it does not rebuild what we just removed
+  mergedDockRefresh = null;
   if (m) {
     try { if (typeof m.__kakapoBeforeClose === 'function') m.__kakapoBeforeClose(); } catch (e) {}
     m.remove();
@@ -58,19 +40,9 @@ function closeMergedDock() {
   document.body.classList.toggle('dock-open', !!activeDockPanel());
   document.body.classList.toggle('floating-dock', !!activeDockPanel());
   applyDockMaximized();
-  // The merged view reconciles/prunes comments while open; re-render the diff/source cards so the reviewer's
-  // comments are visible again the instant the dock closes and never appear to vanish behind it.
   if (hadDock) { try { refreshComments(); } catch (e) {} }
 }
 window.__kakapoCloseDocks = closeMergedDock;
-// The chord that shows the review comments has to be the chord that puts them away again.
-//
-// It used to only ever OPEN: pressing it with the panel already up ran openMergedView again, whose first act
-// is mountDock's closeMergedDock — so the panel was torn down and rebuilt in the same frame and the reader,
-// who had pressed the key to get rid of it, watched it flicker and stay. Three presses, three times open
-// (measured). The only ways out were Escape and the close button, which is why a panel nobody had asked to
-// keep read as one that was "always open". Everything else about the panel is unchanged: a locale switch
-// still re-opens it deliberately (applyLocale), because there it IS a rebuild.
 function toggleMergedView() {
   if (document.getElementById('mc-merged-panel')) { closeMergedDock(); return; }
   openMergedView();
@@ -86,23 +58,16 @@ function focusDockField(field, panelSel) {
   };
   if (!tryF()) { var iv = setInterval(function () { if (tryF() || ++tries > 12) clearInterval(iv); }, 25); }
 }
-// Build a docked panel shell (a bar with Maximize/Close, and a body) and mount it over the editor.
 function mountDock(id, titleText) {
-  // Full-screen surfaces switch, never stack: the dock floats above History (z78 vs 75), and closing the
-  // dock later must not drop the reviewer back into an overlay they left minutes ago.
   closeHistoryIfOpen();
   closeMergedDock();
   var panel = document.createElement('div');
   panel.id = id;
   panel.className = 'dock-panel';
   panel.tabIndex = -1;
-  // The other four modal surfaces declare these in render.ts (quick-open, usages, settings, history).
-  // This one is built in script, so it was the only dim-the-window, click-outside-to-dismiss panel that
-  // announced itself as a plain div — a screen reader was never told it had entered anything.
   panel.setAttribute('role', 'dialog');
   panel.setAttribute('aria-modal', 'true');
   panel.setAttribute('aria-label', titleText);
-  // The panel floats over the editor; a dim backdrop sits behind it (click to dismiss).
   var backdrop = document.createElement('div');
   backdrop.className = 'dock-backdrop';
   var bar = document.createElement('div');
@@ -113,14 +78,14 @@ function mountDock(id, titleText) {
   var maxBtn = document.createElement('button');
   maxBtn.type = 'button';
   maxBtn.className = 'dock-btn dock-max';
-  maxBtn.dataset.keyhintId = 'maximizePanel'; // the chord itself comes from the table (applyI18n)
+  maxBtn.dataset.keyhintId = 'maximizePanel';
   maxBtn.setAttribute('data-i18n-title', 'dock.maximize');
   maxBtn.title = t('dock.maximize');
-  maxBtn.textContent = '⤢'; // ⤢ maximize glyph
+  maxBtn.textContent = '⤢';
   var closeBtn = document.createElement('button');
   closeBtn.type = 'button';
   closeBtn.className = 'dock-btn dock-close';
-  closeBtn.dataset.keyhintId = 'closeDialog'; // from the table, like every other advertised chord
+  closeBtn.dataset.keyhintId = 'closeDialog';
   closeBtn.setAttribute('data-i18n', 'merged.close');
   closeBtn.textContent = t('merged.close');
   var body = document.createElement('div');
@@ -130,36 +95,25 @@ function mountDock(id, titleText) {
   bar.appendChild(closeBtn);
   panel.appendChild(bar);
   panel.appendChild(body);
-  // aria-modal is a promise about Tab, and this panel was not keeping it.
   panel.addEventListener('keydown', function (event) { trapTabWithin(panel, event); });
-  // These buttons were born after the document was translated, so nothing had ever filled in their chords.
   applyKeyHints(panel);
   document.body.appendChild(backdrop);
   document.body.appendChild(panel);
   function close() { closeMergedDock(); }
   maxBtn.addEventListener('click', function () { toggleDockMaximized(); });
   closeBtn.addEventListener('click', close);
-  backdrop.addEventListener('click', close); // click the dim behind the panel to dismiss
-  // Esc closes the dock when focus is inside it; the editor keeps its own handlers otherwise.
+  backdrop.addEventListener('click', close);
   panel.addEventListener('keydown', function (e) {
     if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
   });
   document.body.classList.add('dock-open');
-  document.body.classList.add('floating-dock'); // scopes the maximize CSS so it doesn't hide the diff
+  document.body.classList.add('floating-dock');
   applyDockMaximized();
   return { panel: panel, body: body, bar: bar, close: close };
 }
 
 function openMergedView() {
   if (pruneCommentsForMissingFiles()) refreshComments();
-  // Claim Cmd+A/Cmd+C from the app menu's native accelerators (role: "editMenu" in app-main.ts) for as long
-  // as this dock is open, so only this panel's own keydown handling responds — see handleMergedKeydown and
-  // the setIgnoreMenuShortcuts IPC handler in app-main.ts for why the native accelerator otherwise races it.
-  // Counted (holdMenuShortcuts, 01-core.js) so an overlapping owner cannot release this one's hold.
-  // AFTER mountDock, not before. mountDock closes any dock already up, and that close path releases this
-  // same hold — so re-opening (the chord pressed twice, or a locale switch, which re-opens it) took the
-  // hold, then had it released out from under the new panel. ⌘A inside the dock then went back to the
-  // menu's selectAll and selected the whole review behind it: the bug the hold exists to prevent.
   var dock = mountDock('mc-merged-panel', t('merged.title'));
   if (!dockHoldsMenu) { dockHoldsMenu = true; holdMenuShortcuts(true); }
   var mergedBody = document.createElement('div');
@@ -170,11 +124,9 @@ function openMergedView() {
   mergedBody.appendChild(host);
   dock.body.appendChild(mergedBody);
   var validatingCommentFiles = true;
-  var blocks = [];   // mergedBlocks() snapshot captured once, at build time
+  var blocks = [];
   var selectedCard = null;
 
-  // The top-level children of `host`: one non-editable card per comment, in document order. Arrow-key
-  // handoff walks this list, not reviewComments directly, so behavior always matches what is on screen.
   function regionNodes() { return Array.prototype.slice.call(host.children); }
   function siblingRegion(node, dir) {
     var kids = regionNodes();
@@ -196,16 +148,10 @@ function openMergedView() {
     if (shouldFocus) { card.focus(); card.scrollIntoView({ block: 'nearest' }); }
   }
   function clearSelectAll() { host.classList.remove('mc-merged-select-all'); }
-  // Set for one turn of the event loop by whichever of the two Cmd+C paths files first.
   var copyArchivePending = false;
-  // Land on the next card. Every region in this panel is a card now, so there is nothing else to land on.
   function focusRegion(node) {
     if (node && node.classList.contains('mc-merged-card')) selectCard(node, true);
   }
-  // Assemble the CURRENT text: the reviewer's own comments and nothing else. No instructions are prepended
-  // — what leaves this panel is the review, and what to do with it is the reader's to say wherever they
-  // paste it. Mirrors buildMergedText's exact line structure.
-  // The same assembly as currentMergedText, for an arbitrary subset.
   function mergedTextFor(items) {
     var nl = String.fromCharCode(10);
     var lines = [];
@@ -220,16 +166,6 @@ function openMergedView() {
     });
     return lines.join(nl);
   }
-  // The button is copy AND clear. A review that has been handed to an agent is spent: leaving it behind
-  // means the next hand-off carries it again, and the reviewer has to remember which cards they already
-  // sent. So what goes into the clipboard leaves the thread with it.
-  //
-  // Whole threads, not just the cards that were in the document: archiving a card without its replies
-  // would leave answers to a question nobody can read, which is the same reason deleting a card takes its
-  // subtree (commentSubtreeSeqs). Nothing is archived unless the clipboard write actually succeeded —
-  // filing away a review that was never captured is the same loss as deleting it, one step slower. It
-  // shares the undo stack, so Cmd+Z brings the whole batch back into the review.
-  // Every item the panel is showing, in panel order.
   function allMergedItems() {
     var items = [];
     blocks.forEach(function (block) {
@@ -237,7 +173,6 @@ function openMergedView() {
     });
     return items;
   }
-  // The item one card stands for.
   function itemForCard(card) {
     var seq = card && card.dataset ? parseInt(card.dataset.commentSeq, 10) : NaN;
     if (!(seq >= 0)) return null;
@@ -245,17 +180,11 @@ function openMergedView() {
     allMergedItems().forEach(function (item) { if (item.seq === seq) found = item; });
     return found;
   }
-  // Copy these items and file them away. `items` is what the reviewer actually copied — the whole panel
-  // for select-all, one card otherwise — because copying IS the hand-off here, at whatever size it was
-  // done. Taking one comment out and leaving it in the review means the next hand-off carries it again.
   function copyAndArchiveMerged(items) {
     var picked = items && items.length ? items : allMergedItems();
-    // Same assembly either way: over every item this is currentMergedText by construction.
     if (!copyTextToClipboard(mergedTextFor(picked))) { showToast(t('merged.copyFailed')); return; }
     archiveMergedItems(picked);
   }
-  // The filing half on its own: the native copy path has already put the text on the clipboard itself,
-  // through the event, so it must not write it a second time.
   function archiveMergedItems(picked) {
     var byId = {};
     reviewComments.forEach(function (c) { byId[c.seq] = c; });
@@ -266,18 +195,10 @@ function openMergedView() {
       });
     });
     var archived = archiveComments(seqs);
-    // Handing a review to an agent is what "I have read everything up to here" MEANS in this workflow, so
-    // this is where the read mark is set — not on a timer, a scroll position or simply having the window
-    // open, each of which would mark unread work as read and then hide it from the next compare. Fire and
-    // forget: the hand-off has already succeeded (the clipboard write is checked above) and a mark that
-    // could not be written must not turn a completed hand-off into an error.
     if (window.kakapoGit && typeof window.kakapoGit.markRead === 'function') {
-      try { Promise.resolve(window.kakapoGit.markRead()).catch(function () {}); } catch (e) { /* static build */ }
+      try { Promise.resolve(window.kakapoGit.markRead()).catch(function () {}); } catch (e) { }
     }
     refreshComments();
-    // Only the whole-panel hand-off empties the panel. Archiving one card leaves the rest of the review on
-    // screen, and closing the dock out from under it would lose the reviewer's place in a list they are
-    // still working through — refreshComments has already rebuilt it without the card that just left.
     if (!document.querySelector('.mc-merged-card')) closeMergedDock();
     showToast(t('merged.copiedAndArchived', { count: archived, key: shortcutLabel('undoCommentRemoval') }));
   }
@@ -291,10 +212,6 @@ function openMergedView() {
     if (!host.classList.contains('mc-merged-select-all')) return;
     event.preventDefault();
     event.clipboardData.setData('text/plain', currentMergedText());
-    // Both paths can answer one Cmd+C — this event fires for the Edit-menu accelerator, the keydown
-    // handler for the key itself — and archiving twice would file the second batch out of an empty panel
-    // and toast a count of zero over the real one. Whichever arrives first does the filing; the flag is
-    // cleared on the next turn, so the next real copy is not swallowed.
     if (!copyArchivePending) {
       copyArchivePending = true;
       setTimeout(function () { copyArchivePending = false; }, 0);
@@ -303,20 +220,12 @@ function openMergedView() {
       showToast(t('merged.copied'));
     }
   }
-  // Deleting the selected card removes it from reviewComments (with the same shared undo stack the
-  // diff/source view's row-Backspace uses — Cmd/Ctrl+Z restores it, see 05-keymap.js), then rebuilds the
-  // panel so it never shows a stale card list. reselectIndex carries the deleted card's position across the
-  // rebuild so the selection lands on whatever now occupies that slot instead of being lost.
   function deleteSelectedCard(card) {
     var cards = Array.prototype.slice.call(host.querySelectorAll('.mc-merged-card'));
     var index = cards.indexOf(card);
     removeComments([parseInt(card.dataset.commentSeq, 10)]);
     refreshComments();
     initializeMergedEditor({ reselectIndex: index });
-    // The only removal path in the app that said nothing. One Backspace took a comment out of
-    // reviewComments and off disk with no toast, no hint and no confirmation, while the restore it is
-    // paired with announces itself — so the half that loses work was the quiet one. It names the key,
-    // because an undo nobody knows about is not a safety net.
     showToast(t('comment.removedUndo'));
   }
   function handleMergedKeydown(event) {
@@ -326,11 +235,6 @@ function openMergedView() {
     // so Cmd+C silently did nothing. A held modifier alone should never count as a deselecting keystroke.
     if (event.key === 'Meta' || event.key === 'Control' || event.key === 'Alt' || event.key === 'Shift') return;
     var isCmd = event.metaKey || event.ctrlKey;
-    // The hand-off, from the keyboard. Copying the review and filing it away is the one thing this panel
-    // exists to do, and it was reachable only by clicking its button — Cmd+C (after Cmd+A) copies the same
-    // text but leaves the comments in the review, so there was no key that FINISHED a review.
-    // Checked before the select-all branch so it answers wherever focus is inside the panel, including
-    // while the fake select-all is up.
     if (event.altKey && !isCmd && !event.shiftKey && (event.key === 'Enter' || event.code === 'Enter')) {
       event.preventDefault();
       clearSelectAll();
@@ -358,10 +262,6 @@ function openMergedView() {
     var target = event.target;
     var card = target && target.closest ? target.closest('.mc-merged-card') : null;
     if (card) {
-      // Copying one card is a hand-off of one card. The panel's whole job is moving review out of kakapo
-      // and into something else, and a comment that has been handed over but left in the review comes
-      // back in the next hand-off — which is the same reason the select-all copy above files everything.
-      // Undoable like every other removal here: Cmd+Z brings the thread back.
       if (isCmd && !event.altKey && !event.shiftKey && (event.key === 'c' || event.key === 'C' || event.code === 'KeyC')) {
         event.preventDefault();
         var item = itemForCard(card);
@@ -377,9 +277,6 @@ function openMergedView() {
         focusRegion(siblingRegion(card, event.key === 'ArrowDown' ? 1 : -1));
         return;
       }
-      // The ends of the list, and a screenful at a time. A forty-comment hand-off had exactly one keyboard
-      // route to its last card: forty presses of ArrowDown. The History overlay has had PageUp/PageDown
-      // since it shipped; this list is read the same way and did not.
       if (!event.altKey && (event.key === 'Home' || event.key === 'End')) {
         event.preventDefault();
         var all = Array.prototype.slice.call(host.querySelectorAll('.mc-merged-card'));
@@ -391,8 +288,6 @@ function openMergedView() {
         var rows = Array.prototype.slice.call(host.querySelectorAll('.mc-merged-card'));
         var at = rows.indexOf(card);
         if (at < 0 || !rows.length) return;
-        // A screenful measured in cards, because the cards are not a uniform height — count how many of
-        // them the visible area actually holds from here, rather than guessing a row height.
         var viewport = mergedBody.clientHeight || host.clientHeight;
         var step = 0, used = 0;
         for (var i = at; i >= 0 && i < rows.length; i += (event.key === 'PageDown' ? 1 : -1)) {
@@ -429,22 +324,13 @@ function openMergedView() {
   copyBtn.type = 'button';
   copyBtn.className = 'dock-btn mc-copy-all';
   copyBtn.setAttribute('data-i18n', 'merged.copyAndArchive');
-  copyBtn.dataset.keyhintId = 'mergedSend'; // the chord itself comes from the table (applyI18n)
+  copyBtn.dataset.keyhintId = 'mergedSend';
   copyBtn.textContent = t('merged.copyAndArchive');
   copyBtn.disabled = true;
   copyBtn.addEventListener('click', copyAndArchiveMerged);
   dock.bar.insertBefore(copyBtn, dock.bar.querySelector('.dock-max'));
-  // mountDock's sweep already ran — this button is added to the bar afterwards, so it needs its own.
-  // Without this the chord it advertises through data-keyhint-id is never resolved into data-keyhint,
-  // which is the only thing the chip is drawn from.
   applyKeyHints(dock.bar);
-  // Registered once (not per-rebuild inside initializeMergedEditor) so a Backspace-delete rebuild never
-  // stacks a second copy of either listener.
   host.addEventListener('click', handleMergedClick);
-  // Capture so this panel wins the race for Cmd+A. A key this panel
-  // claimed must also not reach the window keymap: ⌥⏎ and ⏎-on-a-card close the dock synchronously, so by
-  // the time the event bubbles to document the "a dock is focused, stand down" guard (isDockFocused) is
-  // already false — and the still-focused Changes row answered the same keystroke by opening its row menu.
   dock.panel.addEventListener('keydown', function (event) {
     handleMergedKeydown(event);
     if (event.defaultPrevented) event.stopPropagation();
@@ -453,7 +339,7 @@ function openMergedView() {
   function handlePrunedComments(event) {
     if (validatingCommentFiles) return;
     var removed = event && event.detail && Array.isArray(event.detail.comments) ? event.detail.comments : [];
-    if (removed.length) dock.close(); // the one panel now represents every comment, of either kind
+    if (removed.length) dock.close();
   }
   document.addEventListener('kakapo:comments-pruned', handlePrunedComments);
   dock.panel.__kakapoBeforeClose = function () {
@@ -461,15 +347,6 @@ function openMergedView() {
     document.removeEventListener('copy', handleNativeCopy);
     if (dockHoldsMenu) { dockHoldsMenu = false; holdMenuShortcuts(false); }
   };
-  // A round where the agent both answers and edits can remove EVERY comment's anchor line at once, so
-  // remapComments flags them all "possibly addressed" and mergedBlocks filters them all out — the panel comes
-  // up blank while the reviewer can still see their comments sitting in the code. That guess must not silently
-  // eat the hand-off document: say what happened and offer the one action that undoes it.
-  //
-  // The other way it comes up blank is now the ORDINARY end of a round: the agent has answered everything and
-  // the reviewer has not written back yet, so mergedBlocks holds every thread (07-comments.js). That is not a
-  // guess to undo, it is a finished conversation — so it gets the same explanation and no button, because the
-  // action is to go and reply to one of the answers.
   function renderAllAddressedNote() {
     if (host.querySelector('.mc-merged-card')) return;
     var flagged = reviewComments.filter(function (c) { return c.addressed; });
@@ -477,13 +354,11 @@ function openMergedView() {
     note.className = 'mc-merged-empty-note';
     var label = document.createElement('span');
     if (!flagged.length) {
-      // A review with nothing in it. The panel's whole job is to hand comments off, so an empty one has to
-      // say where comments come from — a blank sheet with a Copy-all button reads like something is broken.
       if (!reviewComments.some(function (c) { return c.by !== 'agent'; })) {
         var parts = t('merged.empty').split('{key}');
         label.appendChild(document.createTextNode(parts[0]));
         var keys = document.createElement('span');
-        keys.className = 'coach-keys'; // the shortcut-coach key chip, so one kind of key looks one way
+        keys.className = 'coach-keys';
         var key = document.createElement('kbd');
         key.textContent = shortcutLabel('addComment') || '?';
         keys.appendChild(key);
@@ -511,20 +386,9 @@ function openMergedView() {
     note.appendChild(button);
     host.appendChild(note);
   }
-  // options.reselectIndex, when given, means this rebuild followed a card deletion: reselect whatever card
-  // now sits at that position (clamped — the deleted card's neighbors shift down by one) instead of the
-  // normal open-time behavior of focusing the first prose region.
   function initializeMergedEditor(options) {
     if (!dock.panel.isConnected) return;
-    // Set per build rather than once: the "all addressed" note replaces the cards entirely, and a listbox
-    // holding one explanatory paragraph is not a listbox. They never coexist (renderAllAddressedNote
-    // returns early if a card is present), so the role can follow which of the two is on screen.
     var reselectIndex = options && typeof options.reselectIndex === 'number' ? options.reselectIndex : null;
-    // Only a rebuild the reviewer did not ask for holds back from taking focus. Opening the panel, or
-    // rebuilding it after a delete, must take it: the dock is modal, and the global keymap stands down
-    // only while the dock HAS focus (isDockFocused) — a panel that never took it let F7 navigate the diff
-    // behind the backdrop. An arriving comment is the other case, and there the caret stays where the
-    // reviewer put it.
     var quiet = !!(options && options.keepSelection);
     var takeFocus = !quiet || dock.panel.contains(document.activeElement);
     if (reselectIndex === null && options && options.keepSelection) {
@@ -542,10 +406,6 @@ function openMergedView() {
     var isList = !!host.querySelector('.mc-merged-card');
     if (isList) { host.setAttribute('role', 'listbox'); host.setAttribute('aria-label', t('merged.title')); }
     else { host.removeAttribute('role'); host.removeAttribute('aria-label'); }
-    // Nothing to hand over is not something to offer. The comment above renderAllAddressedNote already
-    // says a blank sheet with a live button "reads like something is broken"; it was armed anyway, and
-    // once ⌥Enter reached it that was one keystroke from replacing the clipboard with an empty document
-    // and a toast reporting that zero comments had been filed.
     copyBtn.disabled = !host.querySelector('.mc-merged-card');
     var cards = Array.prototype.slice.call(host.querySelectorAll('.mc-merged-card'));
     if (reselectIndex !== null && cards.length) {
@@ -553,13 +413,8 @@ function openMergedView() {
       return;
     }
     if (cards.length) selectCard(cards[0], takeFocus);
-    // Nothing to select (a review with no open comments). The panel itself takes the keyboard — it is
-    // tabIndex -1 for exactly this — so Esc still closes it and ⌘⇧' still maximizes it. Before, the empty
-    // prose editor happened to hold focus here; without one, an empty panel answered no keys at all.
     else focusDockField(dock.panel, '#mc-merged-panel');
   }
-  // Defer the (heavy) editor mount by one frame so the panel's entrance animation paints smoothly first
-  // instead of stuttering while ProseMirror initializes.
   function startMergedEditor() {
     validatingCommentFiles = false;
     requestAnimationFrame(initializeMergedEditor);
@@ -568,26 +423,19 @@ function openMergedView() {
   verifyCommentFilesExist().then(startMergedEditor, startMergedEditor);
 }
 
-// One Notion-style Markdown document per worktree. Electron persists it below app.getPath('userData'); the
 document.addEventListener('click', function (event) {
   var t = event.target;
   if (!t || !t.closest) return;
   var reopen = t.closest('.mc-reopen');
   if (reopen) { event.preventDefault(); reopenComment(parseInt(reopen.dataset.seq, 10)); return; }
-  // The (…) standing in for the folded directories is its own control: it unfolds the path rather than
-  // following it. One way only — once the path is open there is nothing left to click to fold it, and a
-  // reader who wanted it open is not asking to put it back.
   var pathEllipsis = t.closest('.mc-path-ell');
   if (pathEllipsis) {
     event.preventDefault();
     if (pathEllipsis.parentNode) pathEllipsis.parentNode.classList.add('mc-path-open');
     return;
   }
-  // dataset.path, not textContent: the folded directory is still in the DOM and the (…) is in there with it.
   var pathCode = t.closest('.mc-path-code');
   if (pathCode) { event.preventDefault(); openPathReference(pathCode.dataset.path || pathCode.textContent || ''); return; }
-  // The card's own prev/next. Same walk the keys drive, so the mouse and F8 cannot disagree about where
-  // "next" is — both go through gotoComment.
   var step = t.closest('.mc-walk-step');
   if (step) { event.preventDefault(); gotoComment(Number(step.dataset.walk) < 0 ? -1 : 1); return; }
   var del = t.closest('.mc-del');
@@ -605,31 +453,21 @@ document.addEventListener('keydown', function (event) {
 pruneCommentsForMissingFiles();
 refreshComments();
 
-
-// In Electron, the Review menu's Cmd/Ctrl+Shift+/ and +. accelerators arrive here via IPC
-// (macOS reserves Cmd+? for its Help search, so the menu claims it and routes to these views).
 if (window.kakapoMenu && typeof window.kakapoMenu.onMergedView === 'function') {
   window.kakapoMenu.onMergedView(function () { toggleMergedView(); });
 }
 if (window.kakapoMenu && typeof window.kakapoMenu.onDiffUpdate === 'function') {
-  // Electron watch: refresh review data in place so comments and navigation context stay stable.
   window.kakapoMenu.onDiffUpdate(function (html) { try { applyDiffUpdate(html); } catch (e) {} });
 }
 if (window.kakapoMenu && typeof window.kakapoMenu.onReleaseView === 'function') {
-  // This workspace has been off screen long enough that its diff DOM is worth more as free memory; the
-  // rebuild on the way back in repaints it. See releaseDiffView.
   window.kakapoMenu.onReleaseView(function () { try { releaseDiffView(); } catch (e) {} });
 }
 if (window.kakapoMenu && typeof window.kakapoMenu.onCloseTab === 'function') {
-  // Cmd/Ctrl+W closes the active Files-mode tab (no-op outside the source viewer).
   window.kakapoMenu.onCloseTab(function () {
     if (isSourceViewerVisible()) closeActiveSourceTab();
   });
 }
 
-// Checked on a timer, not once at startup. This app is left running for days, so a check that only ran at
-// page load meant a release published afterwards was invisible until something happened to reload the page. The version you are told about must not depend on
-// when you last restarted.
 var UPDATE_CHECK_MS = 6 * 60 * 60 * 1000;
 function updateIsNewer(a, b) {
   var pa = String(a).split('.'), pb = String(b).split('.');
@@ -640,18 +478,12 @@ function updateIsNewer(a, b) {
   }
   return false;
 }
-// Module scope, not a closure inside the check, because this line is the one place in Settings that says
-// what version you are on — and it is written straight onto the element, so a language switch could not
-// reach it and it kept saying "Update available" (or "업데이트 있음") in whichever language the check
-// happened to run in. repaintUpdateStatus below is what applyI18n calls.
 function paintUpdateStatus(latest) {
   var current = window.__KAKAPO_VERSION__ || '';
   if (!latest || !current) return;
   var status = document.getElementById('app-info-status');
   if (status) status.classList.remove('is-loading');
   if (updateIsNewer(latest, current)) {
-    // One-click auto-update needs the Electron main process (it spawns npm). When available, reveal the
-    // button so a click installs + restarts; otherwise (browser/static export) name the command instead.
     var ub = document.getElementById('app-info-update');
     if (ub && window.kakapoUpdate && typeof window.kakapoUpdate.run === 'function') {
       ub.textContent = t('settings.updateRestart');
@@ -665,7 +497,6 @@ function paintUpdateStatus(latest) {
     status.textContent = t('settings.upToDate') + ' (v' + current + ')';
   }
 }
-/** Repaint the Settings update line from what the last check found, without asking GitHub again. */
 function repaintUpdateStatus() {
   var latest = '';
   try { latest = sessionStorage.getItem('kakapo-update-latest') || ''; } catch (e) {}
@@ -675,19 +506,14 @@ function checkForUpdate() {
   var current = window.__KAKAPO_VERSION__ || '';
   if (!current) return;
   var apply = paintUpdateStatus;
-  // Cached for the session so watch-mode reloads reuse it instead of refetching — but with an age now, or the
-  // cache would answer every later check with the same stale version and the timer below would buy nothing.
   var cached = '', cachedAt = 0;
   try {
     cached = sessionStorage.getItem('kakapo-update-latest') || '';
     cachedAt = Number(sessionStorage.getItem('kakapo-update-checked-at')) || 0;
   } catch (e) {}
-  if (cached) apply(cached); // show what we know immediately; a fetch below may replace it
+  if (cached) apply(cached);
   if (cached && Date.now() - cachedAt < UPDATE_CHECK_MS) return;
   if (typeof fetch !== 'function') return;
-  // GitHub Releases is where kakapo actually ships (release.yml attaches the macOS dmg;
-  // there is no npm publish). This used to ask the npm registry, which answers 404 for this package — so the
-  // check silently failed forever and no update was ever offered.
   fetch('https://api.github.com/repos/happy-nut/kakapo/releases/latest', { cache: 'no-store', headers: { accept: 'application/vnd.github+json' } })
     .then(function (res) { return res && res.ok ? res.json() : null; })
     .then(function (data) {
@@ -711,16 +537,12 @@ function checkForUpdate() {
 checkForUpdate();
 setInterval(checkForUpdate, UPDATE_CHECK_MS);
 
-// Unified settings modal: the sidebar-footer gear opens it (General category by default), with
-// About/update/shortcuts under General and the merge-prompt editor under Merge prompts.
 (function setupSettings() {
   var modal = document.getElementById('settings-modal');
   if (!modal) return;
   var gearBtn = document.getElementById('app-info-btn');
   var closeBtn = document.getElementById('settings-close');
   var updateBtn = document.getElementById('app-info-update');
-  // The download is the long part of an update, so say how far it has got. The row is already the one place
-  // that reports what the update is doing, which is why the percentage belongs there and not on the button.
   if (window.kakapoUpdate && typeof window.kakapoUpdate.onProgress === 'function') {
     window.kakapoUpdate.onProgress(function (p) {
       var status = document.getElementById('app-info-status');
@@ -739,31 +561,11 @@ setInterval(checkForUpdate, UPDATE_CHECK_MS);
     if (cat) showCat(cat);
     rememberOverlayFocus(modal);
     modal.classList.remove('hidden');
-    // Focus goes IN, and that is what makes the trap below real. It was wired and correct and never ran,
-    // because nothing moved focus into the dialog: the keydown listener is on `modal`, so a key pressed
-    // while focus sat on <body> never reached it. The sheet says aria-modal="true", which tells assistive
-    // technology that everything outside is inert — while Tab went out there anyway, past the whole file
-    // tree and the diff, because #settings-modal is the eighth child of <body>.
-    // Tried in order, not as one selector list. `querySelector('a, b, c')` returns the first match in
-    // DOCUMENT order, not the first selector that matches — and `#settings-close` is written before the
-    // category buttons (render.ts), so the comma list meant the × was ALWAYS the answer. Opening the sheet
-    // from the keyboard therefore landed on Close, and because that button advertises its chord
-    // (data-keyhint-id), focusing it popped the keyhint tooltip: the sheet opened with a tooltip hanging
-    // off its close button, every time, as though the pointer were resting there.
     var first = modal.querySelector('.settings-cat.active')
       || modal.querySelector('.settings-cat')
       || modal.querySelector('#settings-close');
     if (first && typeof first.focus === 'function') first.focus();
   }
-  // Ending any live capture is part of closing. A rebind row listens through a capture-phase keydown that
-  // preventDefaults EVERY key; the × button happens to end it by letting its click bubble to the
-  // document handler, and the gear — which stopPropagation()s its own click — did not. The sheet then
-  // went away with the listener still on: the keyboard was dead, nothing on screen said why, and the
-  // next free chord was written into the overrides with no row to show for it.
-  // ...and giving the keyboard back is the other part. This is the most focus-aware overlay in the app
-  // — it moves focus IN deliberately and traps Tab inside — which is exactly why leaving it out of the
-  // shared pair was wrong: it is the one overlay guaranteed to be holding the keyboard when it closes,
-  // so <body> is guaranteed to be where focus lands.
   function close() {
     endShortcutCapture();
     var wasOpen = !modal.classList.contains('hidden');
@@ -775,13 +577,8 @@ setInterval(checkForUpdate, UPDATE_CHECK_MS);
   cats.forEach(function (c) { c.addEventListener('click', function () { showCat(c.dataset.cat); }); });
   modal.addEventListener('click', function (e) { if (e.target === modal) close(); });
   modal.addEventListener('keydown', function (e) { trapTabWithin(modal, e); });
-  // Settings is the first row of KEY_OWNERS (05-keymap.js), which is what makes its Esc beat the lightbox
-  // and the composer. That used to be a capture-phase listener whose only statement of precedence was a
-  // comment here; the ordering now lives in the one table that ranks every such surface.
   handleSettingsKey = function (e) {
     if (e.key === 'Escape' && !modal.classList.contains('hidden')) { e.stopPropagation(); e.preventDefault(); close(); return true; }
-    // Cmd/Ctrl+, (the standard "Preferences" accelerator) toggles the settings panel from anywhere — but not
-    // while the merged overlay owns focus; that one must be Esc'd first.
     if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && (e.key === ',' || e.code === 'Comma')) {
       if (modal.classList.contains('hidden') && document.getElementById('mc-modal')) return false;
       e.preventDefault(); e.stopPropagation();
@@ -790,7 +587,6 @@ setInterval(checkForUpdate, UPDATE_CHECK_MS);
     }
     return false;
   };
-  // One-click self-update (Electron only): install latest globally via the main process, then relaunch.
   if (updateBtn && window.kakapoUpdate && typeof window.kakapoUpdate.run === 'function') {
     updateBtn.addEventListener('click', function () {
       if (updateBtn.disabled) return;
@@ -822,8 +618,6 @@ setInterval(checkForUpdate, UPDATE_CHECK_MS);
       });
     });
   }
-  // Language: live-switch the whole UI (no reload). Factored out so the cross-window chrome broadcast (below)
-  // replays the exact same steps when another review window changes the shared locale.
   function applyLocale(next) {
     if (next !== 'en' && next !== 'ko') return;
     if (next === locale) return;
@@ -831,11 +625,8 @@ setInterval(checkForUpdate, UPDATE_CHECK_MS);
     persistSave(LOCALE_KEY, locale);
     applyI18n();
     try { refreshComments(); } catch (e) {}
-    // Reopening runs mountDock's own closeMergedDock() first, so the outgoing panel still gets its
-    // __kakapoBeforeClose flush.
     if (document.getElementById('mc-merged-panel')) openMergedView();
   }
-  // Theme is light or dark; applyTheme() writes it to data-theme.
   function applyThemePref(next) {
     if (next !== 'light' && next !== 'dark') return;
     if (next === theme) return;
@@ -851,9 +642,6 @@ setInterval(checkForUpdate, UPDATE_CHECK_MS);
     function () { return UI_SCALES.map(function (v) { return { value: String(v), label: Math.round(v * 100) + '%' }; }); },
     function () { return String(uiScale); },
     function (next) { applyUiScale(Number(next)); });
-  // IntelliJ's "Highlight words / lines / do not highlight". The markup never changes — diff2html always
-  // emits the per-character <ins>/<del> — so this is an attribute three CSS blocks read, and switching it
-  // repaints without touching the diff or asking main for anything.
   diffHighlightSelectRef = setupCustomSelect('settings-diff-highlight',
     function () {
       return DIFF_HIGHLIGHT_MODES.map(function (mode) {
@@ -862,19 +650,6 @@ setInterval(checkForUpdate, UPDATE_CHECK_MS);
     },
     function () { return diffHighlightMode; },
     function (next) { applyDiffHighlight(next); });
-  // ----- theme grid. A theme is one named thing that is ALREADY light or dark — Darcula is a dark theme,
-  // IntelliJ Light is a light one; neither has an "appearance" to pick separately. So the grid is a flat
-  // list of the four real palettes, plus System, which is the one genuinely automatic choice (it follows
-  // the OS and keeps whichever family you last chose).
-  //
-  // The two preferences stay separately persisted ('kakapo-theme' / 'kakapo-syntax-theme') and keep their
-  // existing values — only the UI is flattened, so a stored setting, the cross-window broadcast below, and
-  // applyTheme/applySyntaxTheme are all untouched.
-  // A palette is a CSS block, a row here, and a name in SYNTAX_FAMILIES (01-core.js, which is also where a
-  // stored preference is checked against it — this list used to be duplicated here and fell out of step).
-  // The first four are deliberately quiet and, between them, near-identical: two greys and two whites, one
-  // blue accent. The last three are the ones that answer "give me a theme with actual colour" — Solarized and
-  // Dracula bring a coloured ground, High Contrast brings the opposite of a mood.
   var THEMES = [
     { id: 'default-dark', family: 'default', mode: 'dark' },
     { id: 'default-light', family: 'default', mode: 'light' },
@@ -900,9 +675,6 @@ setInterval(checkForUpdate, UPDATE_CHECK_MS);
     if (!grid) return;
     grid.innerHTML = THEMES.map(function (entry) {
       var on = entry.family === syntaxTheme && entry.mode === theme;
-      // Roving tabindex: a radiogroup is ONE tab stop. With every card tabbable, Tab walked all twelve
-      // before it reached the control below them, and the arrow keys — which is how a radiogroup is meant
-      // to be moved through — did nothing at all.
       return '<button type="button" class="theme-card' + (on ? ' is-active' : '') + '" role="radio"'
         + ' tabindex="' + (on ? '0' : '-1') + '"'
         + ' aria-checked="' + (on ? 'true' : 'false') + '" data-theme-id="' + entry.id + '">'
@@ -910,8 +682,6 @@ setInterval(checkForUpdate, UPDATE_CHECK_MS);
         + '<span class="theme-card-name">' + escapeHtml(t('theme.name.' + entry.id)) + '</span></button>';
     }).join('');
   }
-  // Both refs point at the one renderer: applyI18n(), applyTheme() and applySyntaxTheme() each re-render
-  // through them (01-core.js), and the grid is the single surface all three used to update separately.
   themeSelectRef = syntaxThemeSelectRef = registerLocalizedPaint({ render: renderThemeGrid });
   renderThemeGrid();
   var themeGrid = document.getElementById('settings-theme-grid');
@@ -920,31 +690,21 @@ setInterval(checkForUpdate, UPDATE_CHECK_MS);
     if (!card) return;
     var entry = THEMES.filter(function (x) { return x.id === card.dataset.themeId; })[0];
     if (!entry) return;
-    // Captured FIRST. applyThemePref re-renders the grid through themeSelectRef, so by the time the two
-    // calls below have returned, the card this handler was given is already detached and the focus it had
-    // is on <body> — asking afterwards always answered "no".
     var hadFocus = document.activeElement === card;
-    if (entry.family) applySyntaxThemePref(entry.family); // System keeps the family it is already using
+    if (entry.family) applySyntaxThemePref(entry.family);
     applyThemePref(entry.mode);
-    renderThemeGrid(); // applyTheme/applySyntaxTheme skip their re-render when only the OTHER axis moved
-    // The re-render replaces every card, the focused one included. A mouse user never notices; a keyboard
-    // user pressing Enter on a theme was dropped onto <body>, outside the dialog they were working in.
+    renderThemeGrid();
     if (hadFocus) {
       var replacement = themeGrid.querySelector('.theme-card[data-theme-id="' + entry.id + '"]')
         || themeGrid.querySelector('.theme-card[tabindex="0"]');
       if (replacement) replacement.focus();
     }
   });
-  // Arrows move focus; Space/Enter chooses. The usual radiogroup rule is that selection follows focus, but
-  // choosing here repaints the whole window and persists the choice, so arrowing across the grid to reach
-  // one theme would apply and store the four it passed over. ARIA allows decoupling them for exactly that.
   if (themeGrid) themeGrid.addEventListener('keydown', function (event) {
     if (event.metaKey || event.ctrlKey || event.altKey) return;
     var cards = [].slice.call(themeGrid.querySelectorAll('.theme-card'));
     var at = cards.indexOf(document.activeElement);
     if (at < 0) return;
-    // The row length is read off the layout rather than written down here: the grid's column count lives in
-    // the stylesheet, and a copy of it in this file is a copy that would not be told when it changes.
     var top = cards[0].getBoundingClientRect().top;
     var perRow = cards.filter(function (c) { return Math.abs(c.getBoundingClientRect().top - top) < 1; }).length || 1;
     var to = at;
@@ -962,8 +722,6 @@ setInterval(checkForUpdate, UPDATE_CHECK_MS);
     cards[to].focus();
   });
 
-  // Cross-window sync: theme + locale are GLOBAL settings. When another review window (or the OS, relayed by the
-  // main process) changes one, main broadcasts it here so every open review follows live — no reload, no drift.
   try {
     if (window.kakapoChrome && typeof window.kakapoChrome.onChange === 'function') {
       window.kakapoChrome.onChange(function (payload) {

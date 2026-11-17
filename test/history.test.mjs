@@ -1,14 +1,7 @@
-// CORE: the git-history (Cmd+9) graph-lane layout. computeHistoryGraph turns commits + parents into
-// per-row lanes/edges; these guard the two cases that matter — a linear chain stays in one lane, and a
-// merge opens a second lane that collapses back at the shared ancestor.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { makeReviewHtml, cleanupFixtures } from "./helpers/fixture.mjs";
 import { loadViewer } from "./helpers/dom.mjs";
-// The history overlay is the macOS integrated-title-bar layout (the in-view rail is hidden — workspace
-// nav lives in the shell title bar). render() keys that off process.platform, so pin it to "darwin" for
-// this file's fixtures; otherwise these assertions only hold when the suite runs on a Mac (they failed on
-// release CI). node --test isolates each test file in its own process, so this stays contained.
 const __realPlatform = process.platform;
 Object.defineProperty(process, "platform", { value: "darwin", configurable: true });
 after(() => Object.defineProperty(process, "platform", { value: __realPlatform, configurable: true }));
@@ -22,9 +15,6 @@ before(async () => {
 });
 after(cleanupFixtures);
 
-// The overlay no longer renders a diff of its own: everything it opens goes to the MAIN review through
-// setReviewCompare, so that is what the bridge records. `calls` is the list of [base, target, scope] it
-// was asked for — the whole observable behaviour of opening something from here.
 function installHistoryBridge(v) {
   const calls = [];
   v.window.kakapoGit = {
@@ -59,10 +49,10 @@ test("history graph: a linear chain stays in one lane and one color", async () =
 test("history graph: a merge opens a 2nd lane that collapses at the shared ancestor", async () => {
   const v = await loadViewer(html);
   const rows = v.window.computeHistoryGraph([
-    { hash: "m", parents: ["a", "b"] }, // merge of a and b
+    { hash: "m", parents: ["a", "b"] },
     { hash: "a", parents: ["c"] },
     { hash: "b", parents: ["c"] },
-    { hash: "c", parents: [] }, // shared ancestor
+    { hash: "c", parents: [] },
   ]);
   assert.equal(rows[0].myLane, 0, "merge commit on lane 0");
   assert.equal(rows[0].topEdges.length, 0, "a ref tip starts at its commit dot without a dangling line above it");
@@ -76,10 +66,6 @@ test("history graph: a merge opens a 2nd lane that collapses at the shared ances
 
 test("history graph: a page with more branches than fit folds its lanes instead of widening the row", async () => {
   const v = await loadViewer(html);
-  // 60 branch tips whose parents are off this page: every one opens a lane that nothing closes. This is
-  // what a busy repository's first page looks like, and the graph used to be sized to it — 10 + 59*16 + 10
-  // = 964px of graph on EVERY row, which left the `minmax(0, 1fr)` message track nothing and pushed the
-  // subject, author and date off the right edge. The list showed a commit graph with no commits beside it.
   const commits = [];
   for (let i = 0; i < 60; i++) commits.push({ hash: "c" + i, parents: ["ghost" + i] });
   const rows = v.window.computeHistoryGraph(commits);
@@ -93,7 +79,6 @@ test("history graph: a page with more branches than fit folds its lanes instead 
   const width = Number(v.$(".hrow svg.hgraph").getAttribute("width"));
   assert.ok(width <= 340, `graph width stays bounded (was ${width})`);
   assert.equal(v.$("#history-list").style.getPropertyValue("--hgraph-w"), width + "px", "the grid track is told the same number the SVG drew");
-  // Folded, not clipped: the deepest row still has a dot, and it is on the last column rather than off it.
   const deepest = v.$all(".hrow svg.hgraph circle.hgraph-dot").pop();
   assert.ok(Number(deepest.getAttribute("cx")) <= width, "every row's dot stays inside the graph it is drawn in");
   v.close();
@@ -132,14 +117,10 @@ test("history keyboard: Cmd+9 then ArrowDown navigates commits before opening a 
   v.key("9", { metaKey: true, code: "Digit9" });
   await v.settle(80);
   assert.equal(v.$("#history-view").classList.contains("hidden"), false, "history overlay opens");
-  // The activity rail is gone; History covers the window from the left edge, which is what --rail-width: 0
-  // now resolves to. The inset stays expressed against the variable so the two cannot drift apart.
   assert.equal(v.$(".activity-rail"), null, "no activity rail is rendered");
   const css = Array.from(v.document.querySelectorAll("style"), (style) => style.textContent || "").join("\n");
   assert.match(css, /\.history-view\s*\{[^}]*inset:\s*0 0 0 var\(--rail-width\)/, "History is inset against the rail width");
   assert.match(css, /body\s*\{[^}]*--rail-width:\s*0px/, "and that width is zero");
-  // The dialog itself holds keyboard focus on open, so its default :focus ring would hug the window's top
-  // edge (across the macOS traffic lights) and never fade. It must be suppressed; the active row is the cue.
   assert.equal(v.document.activeElement, v.$("#history-view"), "the History dialog holds keyboard focus on open");
   assert.match(css, /\.history-view:focus\s*\{[^}]*outline:\s*none/, "the focus-holding History dialog suppresses its own focus outline");
   assert.equal(v.$("#history-list .hrow.active").dataset.sha, "aaaaaaaa", "newest commit selected");
@@ -150,9 +131,6 @@ test("history keyboard: Cmd+9 then ArrowDown navigates commits before opening a 
   assert.equal(v.$("#history-list .hrow.active").dataset.sha, "bbbbbbbb", "ArrowDown moves through commit history");
   assert.deepEqual(calls, [], "navigating the list still does not repoint it");
 
-  // Enter hands the commit to the main review — as parent..commit, the same shape a range is opened with —
-  // and the overlay closes behind it. It used to render a read-only diff inside the overlay instead: half the
-  // width, no comments, and a second diff implementation to keep in step with the real one.
   v.key("Enter");
   await v.settle(80);
   assert.deepEqual(calls, [["4b825dc642cb6eb9a060e54bf8d69288fbee4904", "bbbbbbbb", ["bbbbbbbb"]]],
@@ -162,9 +140,6 @@ test("history keyboard: Cmd+9 then ArrowDown navigates commits before opening a 
   v.close();
 });
 
-// Shift-selecting two commits and pressing Enter compares from what came BEFORE the oldest of them. It used
-// to compare from the oldest selected commit itself, which leaves that commit's own changes out: two commits
-// opened showing only the newer one's diff, under a bar that said "2 commits".
 test("history: a shift-selected range opens from the parent of its oldest commit", async () => {
   const v = await loadViewer(html);
   const calls = [];
@@ -182,7 +157,7 @@ test("history: a shift-selected range opens from the parent of its oldest commit
 
   v.key("9", { metaKey: true, code: "Digit9" });
   await v.settle(80);
-  v.key("ArrowDown", { shiftKey: true }); // newest + the one under it
+  v.key("ArrowDown", { shiftKey: true });
   await v.settle(40);
   assert.equal(v.$all("#history-list .hrow.in-range").length, 2, "two commits are selected");
 
@@ -201,8 +176,6 @@ test("history keyboard: Cmd+1 leaves History for the Files view", async () => {
   await v.settle(80);
   assert.equal(v.$("#history-view").classList.contains("hidden"), false, "history opens");
 
-  // Cmd+1 is the global Files shortcut; from History it must close the overlay AND reveal the source view,
-  // not run under the still-open overlay (which left the switch invisible).
   v.key("1", { metaKey: true, code: "Digit1" });
   await v.settle(60);
   assert.equal(v.$("#history-view").classList.contains("hidden"), true, "Cmd+1 closes the History overlay");
@@ -258,10 +231,6 @@ test("right-clicking a Files-mode line number shows blame in the gutter and open
     "date and author precede the line number so the number remains adjacent to source code",
   );
 
-  // Clicking the attribution asks "show me the commit that wrote this line". It used to open the overlay in a
-  // diff-only mode of its own; it is the same act as picking that commit from the list, so it takes the same
-  // door — the main review — and the overlay never appears. `sha^` because this path has no commit list to
-  // look a parent up in, and git resolves it.
   v.$('.source-row[data-line-index="0"] [data-blame-sha]').click();
   await v.settle(80);
   assert.deepEqual(compareCalls, [["aaaaaaaa^", "aaaaaaaa", ["aaaaaaaa"]]],
@@ -330,8 +299,6 @@ test("right-clicking a diff line number loads both revisions and keeps numbers a
       & v.window.Node.DOCUMENT_POSITION_FOLLOWING,
     'working-tree order is date, author, line number, code',
   );
-  // Following an attribution from the diff gutter goes where following one from the source gutter goes: the
-  // main review, repointed at that commit. No overlay, and no second diff renderer to keep in step.
   paintedNew.querySelector('[data-blame-sha]').click();
   await v.settle(80);
   assert.equal(compareCalls.length, 1, 'the attribution opens its commit in the main review');
@@ -340,9 +307,6 @@ test("right-clicking a diff line number loads both revisions and keeps numbers a
   v.close();
 });
 
-// REGRESSION: History's key handler is wired as a CAPTURE listener on document, so it saw every key before
-// the element that actually had focus. With a terminal pane open underneath the overlay you could type into
-// the shell but Enter never arrived — History consumed it to open the selected commit instead.
 test("history: Enter typed into the terminal reaches the terminal, not the open overlay", async () => {
   const v = await loadViewer(html);
   const calls = installHistoryBridge(v);
@@ -351,7 +315,6 @@ test("history: Enter typed into the terminal reaches the terminal, not the open 
   await v.settle(80);
   assert.equal(v.$("#history-view").classList.contains("hidden"), false, "history overlay opens");
 
-  // Stands in for xterm's hidden helper textarea, which is what holds focus in a real terminal pane.
   const panel = v.$(".terminal-panel") || v.document.body;
   const shellInput = v.document.createElement("textarea");
   panel.appendChild(shellInput);
@@ -364,7 +327,6 @@ test("history: Enter typed into the terminal reaches the terminal, not the open 
   assert.deepEqual(calls, [], "History did not open a commit diff from a keystroke meant for the shell");
   assert.equal(v.$("#history-view").classList.contains("hidden"), false, "History stays open — only the key passes through");
 
-  // ...and History still owns Enter once its own surface has focus again.
   v.$("#history-view").focus();
   v.key("Enter");
   await v.settle(80);

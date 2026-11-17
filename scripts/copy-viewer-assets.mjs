@@ -1,7 +1,3 @@
-// Builds the client viewer assets into dist/ after tsc (tsc only emits .ts output). The browser viewer is
-// authored as ordered slices in src/viewer/*.js (numbered to preserve order) and CONCATENATED here into the
-// single inlined script the renderer ships — concatenation only, so it stays one global scope, byte-for-byte
-// the same as the former single-file viewer bundle. cli.ts reads these at runtime via readViewerAsset().
 import { readdirSync, readFileSync, writeFileSync, copyFileSync, cpSync, mkdirSync, rmSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,14 +7,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const distDir = join(root, "dist");
 mkdirSync(distDir, { recursive: true });
 
-// Concatenate the numbered slices in order (01-, 02-, …). join("") — each slice already ends with its
-// trailing newline, so the result is identical to the original single file (no extra separators added).
 const viewerDir = join(root, "src", "viewer");
-// Explicit load order (was readdirSync().sort()). Order matters for the slices with top-level executable
-// statements (e.g. 05-keymap's init block runs on load); making it explicit removes the same-numeric-prefix
-// lexicographic-tie fragility and lets a new slice be placed precisely. The check below fails the build
-// loudly if a slice is added/removed without updating this list — instead of silently mis-ordering.
-// What that order implies for cross-slice names is checked in test/viewer-slices.test.mjs.
 const VIEWER_SLICES = [
   "00-util.js", "00-minuscule.js", "00-diff-layers.js", "00-shortcuts.js", "01-core.js", "01-diff-alignment.js", "01-diff-model.js", "02-diff-nav.js",
   "03-quick-open.js", "04-source-tree.js", "05-keymap.js", "06-diff-caret.js", "07-comments.js",
@@ -34,52 +23,30 @@ if (onDisk.length !== listed.length || onDisk.some((f, i) => f !== listed[i])) {
   throw new Error(`VIEWER_SLICES is out of sync with src/viewer/*.js — update scripts/copy-viewer-assets.mjs.\n  on disk: ${onDisk.join(", ")}\n  listed:  ${listed.join(", ")}`);
 }
 const parts = VIEWER_SLICES;
-// One audited read-only Markdown stack is embedded ahead of the app slices, so source previews and agent
-// answers execute the exact same parser + sanitizer in Electron and static/browser reviews.
 const markdownVendors = [
   join(root, "node_modules", "markdown-it", "dist", "markdown-it.min.js"),
   join(root, "node_modules", "dompurify", "dist", "purify.min.js"),
 ];
 const vendorBundle = markdownVendors.map((file) => readFileSync(file, "utf8") + "\n").join("");
-// The shortcut table (src/shortcuts.ts) is one array shared by the Settings sheet, which renders it, and
-// the viewer, which dispatches from it. It rides into the bundle as data ahead of every slice so no slice
-// can read it before it exists — the ordering trap that 00-shortcuts.js's lookups would otherwise sit in.
 const { SHORTCUTS: shortcutDefs, MENU_OWNED_CHORDS: menuOwnedChords, MENU_OWNED_CHORDS_MAC: menuOwnedMac,
   MODAL_SURFACES: modalSurfaces } =
   createRequire(import.meta.url)(join(distDir, "shortcuts.js"));
 if (!Array.isArray(modalSurfaces) || !modalSurfaces.length) throw new Error("dist/shortcuts.js exported no MODAL_SURFACES — did tsc run?");
 if (!Array.isArray(shortcutDefs) || !shortcutDefs.length) throw new Error("dist/shortcuts.js exported no SHORTCUTS — did tsc run?");
-// The chords the application menu eats, for the Settings sheet to refuse a rebind onto one. It cannot
-// work this out for itself — building an Electron menu is a main-process act — and the list is kept true
-// against the real menu by test/menu-accelerators.test.mjs.
 if (!Array.isArray(menuOwnedChords) || !menuOwnedChords.length) throw new Error("dist/shortcuts.js exported no MENU_OWNED_CHORDS — did tsc run?");
 const shortcutPrelude = `var SHORTCUT_DEFS = ${JSON.stringify(shortcutDefs)};\n`
-  // Which surfaces take the whole keyboard — the rule shortcutSurfacesOverlap reads. Data, beside the
-  // table it describes, for the same reason the table itself rides in as data.
   + `var MODAL_SURFACES = ${JSON.stringify(modalSurfaces)};\n`
-  // The bundle is built once and runs on every platform, so the platform choice is made in the page.
   + `var MENU_OWNED_CHORDS = ${JSON.stringify(menuOwnedChords)}`
-  // ...and only where there IS an application menu. A static review opened in a browser has none, so
-  // refusing ⌘H / ⌘M / ⌘Q there turns away four chords that would have worked.
   + `.concat(/Electron/.test(navigator.userAgent) && /Mac|iPhone|iPad/.test(navigator.userAgent)`
   + ` ? ${JSON.stringify(menuOwnedMac)} : []);\n`;
-// Whitespace runs are marked identically on both sides of the app — the diff is built in main through
-// src/highlight.ts, the source view in the viewer — so the one definition in src/util.ts rides in as source
-// rather than being written twice. Emitted ahead of the slices for the same reason SHORTCUT_DEFS is.
 const { markWhitespaceRuns, moduleEntryFor } = createRequire(import.meta.url)(join(distDir, "util.js"));
 if (typeof markWhitespaceRuns !== "function") throw new Error("dist/util.js exported no markWhitespaceRuns — did tsc run?");
-// Same reason: the module a path belongs to decides where it hangs in a tree, and the server trees and the
-// virtual one must answer it identically or the same file lands in two different places.
 if (typeof moduleEntryFor !== "function") throw new Error("dist/util.js exported no moduleEntryFor — did tsc run?");
 const whitespacePrelude = `var markWhitespaceRuns = ${markWhitespaceRuns.toString()};\n`
   + `var moduleEntryFor = ${moduleEntryFor.toString()};\n`;
 const bundle = vendorBundle + shortcutPrelude + whitespacePrelude + parts.map((f) => readFileSync(join(viewerDir, f), "utf8")).join("");
-writeFileSync(join(distDir, "viewer.client.js"), bundle); // readable concat — tests + debugging read this
+writeFileSync(join(distDir, "viewer.client.js"), bundle);
 
-// Runtime ships a MINIFIED bundle (smaller inlined <script> -> faster parse). mangle.toplevel:false keeps
-// top-level/global names — the page + tests reference them via window.*, and the inline functions call each
-// other by name in one shared scope. Best-effort: without terser the build still succeeds and diffScript()
-// falls back to the readable concat.
 try {
   const { minify } = await import("terser");
   const out = await minify(bundle, { compress: true, mangle: { toplevel: false }, format: { comments: /@license|^!/ } });
@@ -93,17 +60,9 @@ try {
 
 copyFileSync(join(root, "src", "viewer.css"), join(distDir, "viewer.css"));
 
-// Lazy assets are served through Electron's narrow kakapo-asset:// scheme. The directory keeps its
-// historical name for protocol compatibility; no code-editor runtime is shipped.
 rmSync(join(distDir, "monaco"), { recursive: true, force: true });
 mkdirSync(join(distDir, "monaco"), { recursive: true });
-// Mermaid renders ```mermaid fences inside a Markdown memo (proper graph layout instead of a hand-rolled
-// one — see 20-mermaid.js's loadMermaid). It's several MB even minified, so it rides the same lazy
-// kakapo-asset:// path as the Markdown editor: fetched only the first time a document actually contains a
-// diagram, never part of the eagerly-parsed startup script.
 copyFileSync(join(root, "node_modules", "mermaid", "dist", "mermaid.min.js"), join(distDir, "monaco", "mermaid.js"));
-// The Electron review references the client as an external kakapo-asset:// script (render.ts diffClientAsset)
-// instead of inlining ~514KB into every window; the handler serves this dir, so mirror the client here too.
 for (const client of ["viewer.client.min.js", "viewer.client.js"]) {
   const from = join(distDir, client);
   if (existsSync(from)) copyFileSync(from, join(distDir, "monaco", client));

@@ -1,15 +1,3 @@
-/**
- * The Changes rows' accessible name — "src/viewer.css — Modified, +56 −19".
- *
- * Rendered server-side (render-tree.ts) with the raw git status word, which is the one part of the row a
- * screen reader hears that never changed language: the visible name, the stat and the viewed checkbox all
- * carry data-i18n*, and the label wrapping them did not. Recomposed here instead of given a key because it
- * is a sentence built from three per-row facts, and the row already carries all three — the status in its
- * `ch-<status>` class, the counts in data-added/data-deleted.
- *
- * Status words follow IntelliJ's own (PlatformEditorBundle `file.status.name.*`, GitBundle
- * `git.status.renamed`), which is where the rest of this tree's vocabulary comes from.
- */
 function paintTreeRowAriaLabels(root) {
   (root || document).querySelectorAll('a.file-link[data-file]').forEach(function (row) {
     var match = /\bch-([a-z]+)\b/.exec(row.className || '');
@@ -32,9 +20,6 @@ function isTreeRowVisible(el) {
   return true;
 }
 
-// Transport-backed reviews receive compact source metadata, not a pre-rendered all-files HTML tree. Build
-// only the root rows here; each folder materializes its direct children the first time it opens. The number
-// of live DOM nodes therefore follows what the reviewer explores instead of the repository's total size.
 var virtualSourceRoot = null;
 var virtualSourceNodeByPath = new Map();
 var virtualSourceDetailsByPath = new Map();
@@ -42,9 +27,6 @@ var virtualSourceDetailsByPath = new Map();
 function buildVirtualSourceTree(files) {
   var root = { name: '', path: '', children: new Map(), file: null };
   virtualSourceNodeByPath = new Map();
-  // The Files tab in the app is ALWAYS this tree (Electron sets lazyLoad), so the module grouping the two
-  // server trees do has to happen here too, from the same decision — moduleEntryFor, emitted into this
-  // bundle from src/util.ts — or the same file hangs under a module in Changes and under its raw path here.
   var modules = projectLayoutData().modules || [];
   (files || []).forEach(function (file) {
     var entry = moduleEntryFor(file.path, modules);
@@ -80,16 +62,12 @@ function buildVirtualSourceTree(files) {
 
 function virtualSourceChildren(node) {
   return Array.from(node.children.values()).sort(function (a, b) {
-    // Modules first, as a block — see the same clause in render-tree.ts.
     if (Boolean(a.module) !== Boolean(b.module)) return a.module ? -1 : 1;
     if (Boolean(a.file) !== Boolean(b.file)) return a.file ? 1 : -1;
     return a.name.localeCompare(b.name);
   });
 }
 
-// Icon parity with the Changes tree and the eager Files tree: the deferred/virtual tree must use the SAME
-// folder glyph and category-based file glyphs as render-tree.ts (fileTypeIcon / FOLDER_ICON), not a bare "›"
-// chevron and a single generic document. These mirror render-tree.ts exactly (the client cannot import it).
 var VIRTUAL_FOLDER_ICON = '<span class="folder-icon"><svg class="folder-ic fi-closed" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg><svg class="folder-ic fi-open" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 14 1.45-2.9A2 2 0 0 1 9.24 10H21a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></svg></span>';
 
 function virtualFileExt(path) {
@@ -172,28 +150,16 @@ function virtualSourceNodeHtml(node, depth) {
     + '<div class="mc-virtual-children" data-depth="' + (depth + 1) + '"></div></details>';
 }
 
-// A folder holding nothing but folders has nothing to read, so stopping there just costs another click —
-// and Java/Kotlin package paths (src/main/kotlin/com/<org>/<app>) are six of them in a row. Opening one
-// therefore keeps descending until a level actually has files. Mouse and keyboard both land here: every
-// expansion path sets details.open, which fires this `toggle`.
 function expandUntilFiles(details, budget) {
   if (!details) return;
-  materializeVirtualSourceDirectory(details); // no-op on the eager tree, whose children are already in the DOM
+  materializeVirtualSourceDirectory(details);
   var scope = details.querySelector(':scope > .mc-virtual-children') || details;
-  if (scope.querySelector(':scope > .tree-file')) return; // real content here — stop, this is what they opened
+  if (scope.querySelector(':scope > .tree-file')) return;
   var dirs = Array.prototype.slice.call(scope.querySelectorAll(':scope > .tree-dir'));
-  // A chain, not a fan. Descending through a lone subfolder saves a click that had no choice in it —
-  // that is the whole case this exists for (src/main/kotlin/com/<org>/<app>). Two or more subfolders ARE
-  // the choice, and opening all of them spilled a subtree the reader then had to collapse by hand; one
-  // click on a folder of folders could unfold most of a project. So: keep going only while there is
-  // exactly one way down. (IntelliJ draws the same line with Compact Middle Packages: it joins a.b.c, it
-  // never opens a into b and c.)
   if (dirs.length !== 1 || budget <= 0) return;
   dirs[0].open = true;
   expandUntilFiles(dirs[0], budget - 1);
 }
-// Auto-opened folders are transient like the revealed path: they are the app walking the user to the files,
-// not a fold the user chose, so they must not be written to the persisted open-folder set.
 function expandUntilFilesTransient(details) {
   if (treeRevealing) return;
   treeRevealing = true;
@@ -225,8 +191,6 @@ function openVirtualSourceDirectory(path) {
   for (var i = 0; i < parts.length; i++) {
     current = current ? current + '/' + parts[i] : parts[i];
     var details = virtualSourceDetailsByPath.get(current);
-    // Not `break`: with modules grouped, the folders ABOVE a module root are not rows at all ("packages"
-    // when the module is "packages/api"), so stopping at the first miss never reaches the file's folder.
     if (!details) continue;
     materializeVirtualSourceDirectory(details);
     details.open = true;
@@ -262,21 +226,15 @@ function renderDeferredSourceTree(files) {
 function treeRows() {
   const panel = document.querySelector('.tab-panel:not(.hidden)');
   if (!panel) return [];
-  // isTreeRowVisible walks ancestor <details> (cheap, layout-free) and already excludes rows inside
-  // collapsed folders. The previous extra `getClientRects().length > 0` check forced a SYNCHRONOUS
-  // reflow per node — 6k forced layouts on every arrow key in a large source tree, which froze input.
-  // The details walk makes the rects check redundant, so drop it.
   return Array.from(panel.querySelectorAll('summary, .file-link')).filter(isTreeRowVisible);
 }
 
-// Range multi-selection for batch "mark as viewed": Shift+Arrow / Shift+Click select a contiguous run of rows
-// from an anchor to the focus; Space then toggles Viewed for every selected changed file at once.
 var treeSelectionAnchor = -1;
 function treeSelectionRange() {
   if (treeSelectionAnchor < 0 || treeFocusIndex < 0) return null;
   var lo = Math.min(treeSelectionAnchor, treeFocusIndex);
   var hi = Math.max(treeSelectionAnchor, treeFocusIndex);
-  return hi > lo ? { lo: lo, hi: hi } : null; // a single row is not a multi-selection
+  return hi > lo ? { lo: lo, hi: hi } : null;
 }
 function renderTreeSelection() {
   var rows = treeRows();
@@ -289,7 +247,6 @@ function clearTreeSelection() {
   treeSelectionAnchor = -1;
   document.querySelectorAll('.tree-selected').forEach(function (el) { el.classList.remove('tree-selected'); });
 }
-// Shift+Click: extend from the anchor (or the current focus) to the clicked row, WITHOUT opening the file.
 function extendTreeSelectionToRow(row) {
   var rows = treeRows();
   var index = rows.indexOf(row);
@@ -301,8 +258,6 @@ function extendTreeSelectionToRow(row) {
   try { row.focus({ preventScroll: true }); } catch (e) {}
   return true;
 }
-// Space over a multi-selection: mark every selected CHANGED file viewed; if all are already viewed, unview
-// them all — so the whole run toggles together ("모두 mark as viewed"). Returns false when there is no range.
 function applyViewedToTreeSelection() {
   var range = treeSelectionRange();
   if (!range) return false;
@@ -328,11 +283,6 @@ function focusTree(index, extendSelection) {
   } else {
     clearTreeSelection();
   }
-  // Render the focus class AND scroll in the SAME frame. A fast key-repeat queues many ArrowDowns before a
-  // frame; moving the focus class instantly while the coalesced scroll lags makes the panel jump. Coalescing
-  // both keeps focus + scroll in lockstep, and scrolloffReveal scrolls ONLY when the focused row nears the
-  // top/bottom edge — a row moving inside the visible band must never drag the whole panel (revealAt did,
-  // re-centering on every move so even a mid-list row scrolled the sidebar).
   scheduleTreeFocus();
 }
 var treeFocusRaf = 0;
@@ -353,16 +303,12 @@ function scheduleTreeFocus() {
   });
 }
 
-// Pointer selection is already visible under the mouse. Keep the logical tree cursor on that exact row so
-// Arrow/Enter continue from it, but never reveal/re-center the sidebar: moving a list the user just clicked
-// makes the target appear to slip out from under the pointer. This also explicitly focuses the row because
-// macOS does not consistently give clicked buttons keyboard focus.
 function focusTreeRowFromPointer(row) {
   if (!row) return;
   const rows = treeRows();
   const index = rows.indexOf(row);
   if (index < 0) return;
-  clearTreeSelection(); // a plain pointer click starts a fresh single selection
+  clearTreeSelection();
   treeFocusIndex = index;
   if (treeFocusRaf) {
     cancelAnimationFrame(treeFocusRaf);
@@ -378,16 +324,10 @@ function clearTreeFocus() {
   treeFocusIndex = -1;
   clearTreeSelection();
   document.querySelectorAll('.tree-focus').forEach((el) => el.classList.remove('tree-focus'));
-  // A row that was CLICKED also holds native DOM focus (focusTreeRowFromPointer takes it, because macOS
-  // does not). Dropping only the logical cursor left that focus ring sitting in the sidebar: F7/F8 moved the
-  // caret into the code while the panel still looked — and to the browser still was — the focused one. Only
-  // focus this tree took is given back, so a sidebar text field is never blurred out from under the user.
   var active = document.activeElement;
   if (active && active.matches && active.matches('.sidebar summary, .sidebar .file-link')) active.blur();
 }
 
-// Focus the tree row for the currently open file (source openPath, else the active diff file);
-// falls back to the first row when nothing is open or no matching row exists.
 function focusOpenFileInTree() {
   const rows = treeRows();
   if (rows.length === 0) return;
@@ -406,26 +346,17 @@ function focusOpenFileInTree() {
   focusTree(idx);
 }
 
-// Reveal the currently-open file in the sidebar tree, scrolled to the CENTER of the panel (the header button
-// and ⌥F1). Expands the sidebar and ancestor folders first, then centers and flashes the row.
 function revealOpenFileInTree() {
-  // Reveal must work from ANY panel. History and the merged dock render OVER the diff/source view, so close
-  // whichever is open to uncover the tree, then bring the Files tree forward (never toggling it closed)
-  // and center + flash the open file. Previously this bailed unless the diff or source view already owned the
-  // screen, so it silently did nothing while another panel was up.
   if (isHistoryOpen()) closeHistory();
   closeMergedDock();
 
   var srcOn = isSourceViewerVisible();
   var diffOn = isDiffViewVisible();
   if (!srcOn && !diffOn) { showSourceView(); srcOn = true; }
-  // Force the file tree open (setSource/Review collapsed(false) sets state — it doesn't toggle).
   setTab('files');
   if (srcOn) setSourceSidebarCollapsed(false);
   else if (diffOn) setReviewSidebarCollapsed(false);
 
-  // Resolve the open file AFTER switching views (the source viewer now owns dataset.openPath), then center on
-  // the next frame (folders/sidebar may have just opened).
   requestAnimationFrame(function () {
     var openPath = sourceOpenPath();
     if (!openPath) {
@@ -433,7 +364,7 @@ function revealOpenFileInTree() {
       if (w) openPath = diffWrapperPathKey(w);
     }
     if (!openPath) return;
-    revealTreeFor(openPath, false); // open ancestor folders; center below
+    revealTreeFor(openPath, false);
     requestAnimationFrame(function () {
       var rows = treeRows();
       var target = null;
@@ -457,7 +388,7 @@ document.addEventListener('click', function (event) {
 function treePageSize() {
   var scroller = document.querySelector('.sidebar-scroll');
   var h = scroller ? scroller.clientHeight : 320;
-  return Math.max(1, Math.floor(h / 20) - 1); // ~20px per tree row, minus one for overlap
+  return Math.max(1, Math.floor(h / 20) - 1);
 }
 function treeOpenKey() { return 'kakapo-tree-open:' + location.pathname; }
 function loadTreeOpen() {
@@ -472,10 +403,7 @@ function saveTreeOpen(set) {
   persistSave(treeOpenKey(), paths);
   try { sessionStorage.setItem(treeOpenKey(), JSON.stringify(paths)); } catch (e) {}
 }
-// Folders start collapsed. Restore the folders the user manually opened, plus reveal the open file's
-// path. Toggle listeners attach AFTER the initial state so the auto-revealed path is not mistaken for
-// a user-opened folder (keeping "collapsed by default" intact on the next load).
-var treeRevealing = false; // true while opening folders programmatically, so those opens are not persisted
+var treeRevealing = false;
 function persistTreeToggle(d) {
   var set = loadTreeOpen();
   var dir = d.dataset.dir || '';
@@ -488,8 +416,6 @@ function initSourceTreeFolds() {
   if (!dirs.length) return;
   var saved = loadTreeOpen();
   var openPath = sourceOpenPath();
-  // Only USER toggles persist; the initial state below is applied under treeRevealing so the open
-  // file's revealed path stays transient (folders stay "collapsed by default" on the next load).
   dirs.forEach(function (d) {
     d.addEventListener('toggle', function () {
       if (treeRevealing) return;
@@ -505,9 +431,6 @@ function initSourceTreeFolds() {
   });
   setTimeout(function () { treeRevealing = false; }, 0);
 }
-// The Changes tree is the inverse of the source tree: folders default OPEN (every change should be visible
-// without a click), so we persist only the folders the reviewer explicitly COLLAPSED — otherwise a watch-tick
-// rebuild (which replaces #changes-panel wholesale, dropping per-element listeners) would re-expand them.
 function changesCollapsedKey() { return 'kakapo-changes-collapsed:' + location.pathname; }
 function loadChangesCollapsed() {
   try {
@@ -525,7 +448,7 @@ function initChangesTreeFolds() {
   var dirs = Array.prototype.slice.call(document.querySelectorAll('#changes-panel .changes-dir'));
   if (!dirs.length) return;
   var collapsed = loadChangesCollapsed();
-  var applying = true; // the initial d.open below must not be mistaken for a user toggle
+  var applying = true;
   dirs.forEach(function (d) {
     d.addEventListener('toggle', function () {
       if (applying) return;
@@ -538,9 +461,6 @@ function initChangesTreeFolds() {
   });
   setTimeout(function () { applying = false; }, 0);
 }
-// Expand a file's ancestor folders so it is visible in the tree (transient — not persisted). Semantic and
-// keyboard navigation may also reveal the selected row; a pointer click suppresses that scroll because the
-// row is already visible and the sidebar must stay under the mouse.
 function revealTreeFor(path, shouldScroll) {
   if (!path) return;
   if (document.querySelector('.mc-virtual-source-tree')) {
@@ -561,9 +481,6 @@ function revealTreeFor(path, shouldScroll) {
   if (shouldScroll !== false && active && active.scrollIntoView) active.scrollIntoView({ block: 'nearest' });
 }
 function handleTreeKey(event) {
-  // Never act while the user is typing in a field (e.g. an open comment box): the dispatcher calls us whenever
-  // a tree row is keyboard-focused, but a focused .mc-input textarea still owns the keystroke — otherwise Space
-  // toggles the focused row's "viewed" state instead of inserting a space. Matches handleDiffCaretKey's guard.
   const ae = document.activeElement;
   if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT' || ae.isContentEditable)) return false;
   const rows = treeRows();
@@ -571,19 +488,12 @@ function handleTreeKey(event) {
   if (treeFocusIndex >= rows.length) treeFocusIndex = rows.length - 1;
   const row = rows[treeFocusIndex];
   const isFolder = row && row.tagName === 'SUMMARY';
-  // Tree navigation ignores Cmd/Ctrl-modified arrows so they fall through to their owners. Without this the
-  // tree, once focused via Cmd+1, swallowed the arrow and toggled the focused folder open/closed instead.
-  // Shift is still honoured (multi-select), and bare Alt+Arrow keeps its folder collapse/expand.
   const treeNav = !event.metaKey && !event.ctrlKey;
-  // Shift+Arrow / Shift+PageUp/Down extend a contiguous multi-selection from the anchor.
   if (treeNav && event.key === 'ArrowDown') { event.preventDefault(); focusTree(treeFocusIndex + 1, event.shiftKey); return true; }
   if (treeNav && event.key === 'ArrowUp') { event.preventDefault(); focusTree(treeFocusIndex - 1, event.shiftKey); return true; }
   if (treeNav && event.key === 'PageDown') { event.preventDefault(); focusTree(treeFocusIndex + treePageSize(), event.shiftKey); return true; }
   if (treeNav && event.key === 'PageUp') { event.preventDefault(); focusTree(treeFocusIndex - treePageSize(), event.shiftKey); return true; }
-  // Viewed is a review-queue property, so it may only be changed from the keyboard-selected Changes row.
-  // Space in the code canvas keeps its existing editor/fold meaning and Files/source rows remain untouched.
   if (event.key === ' ' || event.code === 'Space') {
-    // A multi-selection toggles Viewed for the whole run at once; otherwise the single focused change row.
     if (applyViewedToTreeSelection()) { event.preventDefault(); return true; }
     if (row && row.classList.contains('change-row')) {
       event.preventDefault();
@@ -594,7 +504,7 @@ function handleTreeKey(event) {
   }
   if (event.key === 'Enter' && event.altKey) {
     event.preventDefault();
-    if (row) openTreeRowMenu(row); // path / file manager / terminal actions
+    if (row) openTreeRowMenu(row);
     return true;
   }
   if (event.key === 'Enter') {
@@ -619,9 +529,6 @@ function handleTreeKey(event) {
   return false;
 }
 
-// d2h-file-side-diff is a HORIZONTAL scrollport (overflow-x:auto), so the browser swallows VERTICAL wheel
-// there instead of bubbling it to #diff2html-container — the diff wouldn't scroll by mouse wheel at all.
-// Redirect vertical wheel to the container; leave horizontal wheel (deltaX) for the side's own h-scroll.
 (function () {
   var dsc = document.getElementById('diff2html-container');
   if (dsc) dsc.addEventListener('wheel', function (e) {
@@ -632,25 +539,11 @@ function handleTreeKey(event) {
     }
   }, { passive: false });
 })();
-// A floating, focus-grabbing overlay (merged comments, settings) is open. While one is up it
-// owns focus AND the only caret, so global shortcuts stand down until Esc/close — we must not navigate a
-// panel the user can't even see behind the overlay (nor leave a second blinking caret in it).
 
-// ── Changes that are not about the code fold themselves out of the queue ─────────────────────────────────
-// A pure move, a mode bit, a whitespace sweep — marked on the row by trivialChange() (render-tree.ts). The
-// review queue already has exactly the behaviour "I don't need to read this one" wants: mark it viewed. F7
-// steps past it, the row dims, and the box that unticks it is the box that has always been there. So nothing
-// is invented here — the file simply arrives already ticked, with the reason beside its name saying why.
-//
-// Once per SIGNATURE, and that is the whole of the state this keeps. Unticking has to stick, and a rebuild
-// that re-ran the rule would tick it straight back — the reviewer would untick the same row every time an
-// agent saved a file. The signature is the one the viewed state itself is keyed by, so a file that was a
-// whitespace sweep and later gains a real change is offered to the reviewer again, unticked.
 var trivialSeenKey = 'kakapo-trivial-seen:' + location.pathname;
 function loadTrivialSeen() {
   var seen = persistRead(trivialSeenKey);
   if (seen && typeof seen === 'object') return seen;
-  // Same localStorage fallback the other per-review keys keep, so this survives outside the Electron bridge.
   try { var raw = localStorage.getItem(trivialSeenKey); if (raw) return JSON.parse(raw); } catch (e) {}
   return {};
 }
@@ -662,7 +555,7 @@ function autoViewTrivial() {
   Array.prototype.forEach.call(rows, function (row) {
     var path = row.dataset.file || '';
     var signature = path ? currentFileSignature(path) : '';
-    if (!signature || seen[path] === signature) return; // already offered this exact patch — respect the answer
+    if (!signature || seen[path] === signature) return;
     seen[path] = signature;
     changed = true;
     if (!isFileViewed(path)) setFileViewed(path, true);

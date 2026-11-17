@@ -1,20 +1,12 @@
-// Find in Files' three modifiers, from the page's side: that each one reaches the searcher, that the
-// in-page fallback honours them itself, and that a pattern which cannot be compiled says so instead of
-// coming back as "no matches".
-//
-// The flags' effect on ripgrep is in test/search.test.mjs; this is about the strip of toggles and what
-// the page asks for. The fallback matters on its own because a standalone HTML review has no main
-// process to ask: it used to be a literal smart-case indexOf, which would have gone on answering the
-// unmodified question while the toggles claimed otherwise.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { makeReviewHtml, cleanupFixtures } from "./helpers/fixture.mjs";
 import { loadViewer } from "./helpers/dom.mjs";
 
 const SOURCE = [
-  "const Needle = 1;",   // 0  capital
-  "const needles = 2;",  // 1  lower, longer word
-  "const needle = 3;",   // 2  lower, exact word
+  "const Needle = 1;",
+  "const needles = 2;",
+  "const needle = 3;",
 ].join("\n");
 
 let html;
@@ -33,12 +25,11 @@ const MATCH_CASE = { code: "KeyM", key: "m", altKey: true };
 const WHOLE_WORDS = { code: "KeyW", key: "w", altKey: true };
 const REGEX = { code: "KeyX", key: "x", altKey: true };
 
-/** Find in Files, open, with `query` typed into it. */
 async function openFindInFiles(v, query) {
   v.window.openQuickOpen("content");
   await v.settle(20);
   v.typeInto(v.$("#quick-open-input"), query);
-  await v.settle(260); // the search is debounced
+  await v.settle(260);
 }
 
 const pressed = (v, id) => v.$(id).getAttribute("aria-pressed");
@@ -111,10 +102,8 @@ test("a pattern that cannot be compiled is named, and never asked", async () => 
   v.close();
 });
 
-// ---- the in-page fallback, which is the whole searcher in a standalone review --------------------
-
 test("without a main process, the page's own search honours the three modifiers", async () => {
-  const v = await loadViewer(html); // no searchBridge: localContentSearch answers
+  const v = await loadViewer(html);
   await openFindInFiles(v, "needle");
   assert.deepEqual(hitLines(v), [1, 2, 3], "smart-case and literal: the capital matches too");
 
@@ -154,8 +143,6 @@ test("a pattern that can match nothing does not spin", async () => {
   await press(v, REGEX);
   v.typeInto(v.$("#quick-open-input"), "e*");
   await v.settle(400);
-  // The guard being checked is the lastIndex advance: a zero-length match at every position would never
-  // terminate. Reaching an assertion at all is the result; the hits are the non-empty ones.
   assert.ok(hitLines(v).length > 0, "it finished, with the non-empty matches");
   v.close();
 });

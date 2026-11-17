@@ -103,7 +103,6 @@ export function relaunchUpdatedApp(app: RelaunchTarget, argv: string[], cwd: str
       app.exit(0);
       return;
     } catch {
-      // Fall through to npm exec; the bin path can exist but still fail to spawn if a manager rewrites it.
     }
   }
 
@@ -112,8 +111,6 @@ export function relaunchUpdatedApp(app: RelaunchTarget, argv: string[], cwd: str
     app.exit(0);
     return;
   } catch {
-    // Last resort only. app.relaunch() uses the current executable path; after a rebrand update that path
-    // may be the stale Electron.app/Contents/MacOS/Electron, so prefer the freshly installed CLI above.
   }
 
   app.relaunch({ args: relaunchArgsForCwd(argv, cwd) });

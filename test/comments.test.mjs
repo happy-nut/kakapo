@@ -1,17 +1,8 @@
-// CORE USER FLOW: leaving review comments.
-//
-// A reviewer opens a changed file, selects a line, writes a question or change-request, and saves it.
-// The comment must persist, show up as a card, survive reopening the app, and roll up into the merged
-// prompt that gets handed back to the coding agent. This file guards that end to end — including the
-// regression where clicking "Comment" in the source/markdown view saved nothing because the handler
-// read the hidden diff-view textarea instead of the one on screen.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { makeReviewHtml, cleanupFixtures } from "./helpers/fixture.mjs";
 import { loadViewer } from "./helpers/dom.mjs";
 
-// One fixture, reused across tests. Each test loads its own viewer instance (fresh localStorage), so
-// they stay isolated; only the immutable HTML string is shared.
 let html;
 before(async () => {
   ({ html } = await makeReviewHtml([
@@ -39,7 +30,7 @@ test("source/markdown view: clicking Save persists the comment the user typed", 
   await v.openSourceFile("AGENTS.md");
   assert.equal(v.visibleView(), "source");
 
-  await v.clickSourceLine(4); // "## Project" block -> line 5
+  await v.clickSourceLine(4);
   await v.openComposer("q");
   await v.writeAndSave("why a CLI and not a library?");
 
@@ -58,7 +49,7 @@ test("plain source (code) view: clicking Save persists the comment", async () =>
   await v.openSourceFile("src/app.ts");
   assert.equal(v.visibleView(), "source");
 
-  await v.clickSourceLine(1); // `return 43;` -> line 2
+  await v.clickSourceLine(1);
   await v.openComposer("q");
   await v.writeAndSave("should this be configurable?");
 
@@ -104,7 +95,7 @@ test("diff composer reserves both pane timelines and cancel removes stale layout
   assert.equal(sides[0].querySelector(".mc-composer"), null, "the base spacer never duplicates an interactive textarea");
 
   const oldStack = sides[0].querySelector(".mc-diff-layer-stack");
-  oldStack.style.transform = "translate3d(0, 120px, 0)"; // model the stale correction from the reported regression
+  oldStack.style.transform = "translate3d(0, 120px, 0)";
   wrapper.__asymmetricDiffState.offset = 120;
   const refreshed = [];
   const originalRefreshGutters = v.window.refreshLayeredDiffGutters;
@@ -134,9 +125,6 @@ test("closing a comment composer removes the hovered button shortcut bubble", as
   const save = input.closest(".mc-comment-row").querySelector(".mc-save");
   save.dispatchEvent(new v.window.MouseEvent("mouseover", { bubbles: true }));
   assert.equal(v.$("#mc-button-hint").classList.contains("hidden"), false, "hover shows the Comment shortcut");
-  // Read from the table, not spelled here. This assertion used to carry "⌘↵" while the Settings sheet
-  // said "⌘Enter" for the same key — a fourth copy of a chord, which is the thing shortcuts.ts exists to
-  // prevent, and the copy is what failed when the button finally started reading the table too.
   const saveChord = v.window.shortcutKeys("saveComment")[0];
   assert.ok(saveChord, "the table still has a chord for saving a comment");
   assert.equal(v.$("#mc-button-hint kbd").textContent, saveChord,
@@ -147,7 +135,6 @@ test("closing a comment composer removes the hovered button shortcut bubble", as
   assert.equal(v.$("#mc-button-hint").classList.contains("hidden"), true, "the removed button cannot leave an orphan tooltip");
   v.close();
 });
-// Keyboard navigation of comment boxes (arrow-stop, edit, delete) lives in comment-nav.test.mjs.
 
 test("Cmd+Enter saves from the focused composer", async () => {
   const v = await loadViewer(html);
@@ -167,17 +154,13 @@ test("empty/whitespace input saves nothing and closes the composer", async () =>
   await v.openSourceFile("AGENTS.md");
   await v.clickSourceLine(4);
   await v.openComposer("q");
-  await v.writeAndSave("   \n  "); // only whitespace
+  await v.writeAndSave("   \n  ");
 
   assert.equal(v.storedComments().length, 0, "nothing persisted");
   assert.equal(v.$(".mc-composer"), null, "composer closed");
   v.close();
 });
 
-// The other nothing, and it wants the opposite answer. A composer opens PREFILLED with the line it is
-// about, so ⌘Enter on one nobody has typed into is not "I cleared this" — it is a box with text in it
-// vanishing on the key that is supposed to keep it. Clearing the box is the discard gesture (above) and
-// still closes; leaving it as it opened says what is missing and stays, so the words can go in.
 test("an untouched composer says what is missing instead of vanishing", async () => {
   const v = await loadViewer(html);
   try {
@@ -188,7 +171,7 @@ test("an untouched composer says what is missing instead of vanishing", async ()
     assert.ok(box, "the premise: a composer is open");
     assert.match(box.value, /^@/, "and it opened holding the anchor, not empty");
 
-    await v.writeAndSave(box.value); // exactly what it opened with — nothing typed
+    await v.writeAndSave(box.value);
     assert.equal(v.storedComments().length, 0, "nothing persisted");
     assert.ok(v.$(".mc-composer"), "and the box is still there to write in");
   } finally {
@@ -196,8 +179,6 @@ test("an untouched composer says what is missing instead of vanishing", async ()
   }
 });
 
-// One comment per thread: a line already carrying one is answered, not re-asked. Asking again there reopens
-// the comment that is there rather than stacking a second beside it.
 test("a second comment on the same line edits the first instead of piling up", async () => {
   const v = await loadViewer(html);
   await v.openSourceFile("AGENTS.md");
@@ -219,7 +200,6 @@ test("a second comment on the same line edits the first instead of piling up", a
 });
 
 test("comments persist across a reopen (restored from localStorage)", async () => {
-  // Session 1: write a comment, snapshot storage.
   const v1 = await loadViewer(html);
   await v1.openSourceFile("AGENTS.md");
   await v1.clickSourceLine(4);
@@ -229,7 +209,6 @@ test("comments persist across a reopen (restored from localStorage)", async () =
   assert.ok(snapshot["kakapo-comments:/review.html"], "comment was persisted");
   v1.close();
 
-  // Session 2: fresh viewer seeded with that storage (simulates relaunching the app).
   const v2 = await loadViewer(html, { seedStorage: snapshot });
   assert.equal(v2.storedComments().length, 1, "comment restored into memory");
   await v2.openSourceFile("AGENTS.md");
@@ -238,13 +217,11 @@ test("comments persist across a reopen (restored from localStorage)", async () =
 });
 
 test("auto-focus lands on the on-screen composer, not the hidden duplicate", async () => {
-  // In the source view the composer is injected into BOTH views; only the source one is visible.
-  // Auto-focus must target it (this broke alongside the save bug — same root cause).
   const v = await loadViewer(html);
   await v.openSourceFile("AGENTS.md");
   await v.clickSourceLine(4);
   await v.openComposer("q");
-  await v.settle(400); // let the focus-retry interval (~300ms cap) settle
+  await v.settle(400);
 
   const active = v.document.activeElement;
   assert.ok(active && active.classList.contains("mc-input"), "a composer textarea is focused");
@@ -263,7 +240,6 @@ test("change-request comments are saved and labeled distinctly from questions", 
   const stored = v.storedComments();
   assert.equal(stored.length, 1);
   assert.equal(stored[0].kind, "c");
-  // one review-comment kind: the card carries mc-c whether it asks a question or requests a change
   assert.ok(v.$("#source-body .mc-card.mc-c:not(.mc-composer)"), "rendered as a review comment card");
   v.close();
 });
@@ -284,10 +260,6 @@ test("saved comments roll up into the merged agent prompt", async () => {
   v.close();
 });
 
-// The loop only closes if what leaves the panel tells the agent WHERE to answer. The hand-off is the one way
-// out now (kakapo runs no agent of its own), so the thread file's path and the append rule travel with it —
-// kakapo does not write the reader's instructions for them: what leaves the panel is the review itself,
-// and what should be done with it is said wherever it is pasted.
 test("the copied document is the comments and nothing else", async () => {
   const v = await loadViewer(html);
   await v.openSourceFile("AGENTS.md");
@@ -296,7 +268,7 @@ test("the copied document is the comments and nothing else", async () => {
   await v.writeAndSave("rename this to something honest");
 
   const copied = [];
-  v.window.reviewThreadPath = "/w/.git/kakapo/comments.jsonl"; // set, and still never prepended
+  v.window.reviewThreadPath = "/w/.git/kakapo/comments.jsonl";
   v.window.navigator.clipboard = { writeText: (text) => { copied.push(text); return Promise.resolve(); } };
   v.window.kakapoClipboard = { write: (text) => { copied.push(text); return true; } };
 
@@ -317,16 +289,14 @@ test("the copied document is the comments and nothing else", async () => {
 test("multi-line comments persist and render one canonical range without quoted source", async () => {
   const v = await loadViewer(html);
   await v.openSourceFile("docs/runtime-arrow-wfa-plan.md.ts");
-  await v.clickSourceLine(2); // line 3
+  await v.clickSourceLine(2);
   v.key("ArrowDown", { shiftKey: true });
   v.key("ArrowDown", { shiftKey: true });
-  v.key("ArrowDown", { shiftKey: true }); // selection: lines 3-6
+  v.key("ArrowDown", { shiftKey: true });
   await v.settle(30);
   await v.openComposer("q");
 
   const expected = "@docs/runtime-arrow-wfa-plan.md.ts#L3-6";
-  // In the textarea, not in the header: the place is text the writer can edit or delete, because the thing
-  // they most often want to say is that the question is not about this line (openComposer, 07-comments.js).
   assert.equal(v.$(".mc-composer .mc-input")?.value, expected + " ", "composer prefills the complete selected range");
   await v.writeAndSave("explain the selected range");
 
@@ -346,20 +316,16 @@ test("multi-line comments persist and render one canonical range without quoted 
 });
 
 test("Electron bridge: saves onto a frozen (contextBridge) comments array", async () => {
-  // Electron exposes persisted settings through contextBridge, which DEEP-FREEZES them. An empty
-  // comments array already persisted is the minimal repro — reviewComments.push used to throw
-  // "object is not extensible" here. (jsdom's localStorage path uses plain arrays and never hit it.)
   const v = await loadViewer(html, {
     electronSettings: { "kakapo-comments:/review.html": [] },
   });
   await v.openSourceFile("AGENTS.md");
   await v.clickSourceLine(4);
   await v.openComposer("q");
-  await v.writeAndSaveWithKeyboard("saved under electron"); // pushes onto the frozen array
+  await v.writeAndSaveWithKeyboard("saved under electron");
 
   assert.equal(v.storedComments().length, 1);
   assert.equal(v.storedComments()[0].text, "saved under electron");
-  // it also went back through the settings bridge for cross-restart persistence
   assert.equal(v.electronWrites()["kakapo-comments:/review.html"]?.length, 1);
   v.close();
 });
@@ -375,8 +341,6 @@ test("Electron bridge: appends to a frozen pre-existing thread, keeping both", a
   await v.openSourceFile("AGENTS.md");
   assert.deepEqual(v.visibleCardTexts(), ["pre-existing"], "frozen comment restored + rendered");
 
-  // A DIFFERENT anchor: one comment per thread means writing on line 5 again would edit the restored one
-  // rather than append, and appending is what this test is about.
   await v.openSourceFile("src/app.ts");
   await v.clickSourceLine(1);
   await v.openComposer("q");
@@ -409,7 +373,7 @@ test("merged prompt: comments stay visible after opening then closing the merged
   await v.openComposer("q");
   await v.writeAndSave("keep me");
   v.window.openMergedView();
-  await v.settle(120); // let the inline editor initialize
+  await v.settle(120);
   v.window.__kakapoCloseDocks();
   await v.settle(60);
   assert.equal(v.storedComments().length, 1, "comment still exists after closing the merged view");
@@ -438,12 +402,10 @@ test("Korean IME: the physical E key (code KeyE, key 'ㄷ') still triggers comme
   await v.openComposer("q");
   await v.writeAndSave("original text");
   const body = v.$("#source-body");
-  if (body) { body.tabIndex = -1; body.focus(); } // ensure focus is not on a textarea so the caret handler runs
+  if (body) { body.tabIndex = -1; body.focus(); }
   const row = v.$(".mc-comment-row");
   assert.ok(row, "the comment box rendered in the source view");
   v.window.selectCommentRow(row);
-  // Under a Korean IME the E key reports key='ㄷ' (composed Hangul) but code='KeyE'. The old key-only check
-  // ('e'/'E') missed this; matching on event.code fixes it.
   v.key("ㄷ", { code: "KeyE" });
   await v.settle(50);
   const input = v.$(".mc-composer .mc-input");
@@ -452,9 +414,6 @@ test("Korean IME: the physical E key (code KeyE, key 'ㄷ') still triggers comme
   v.close();
 });
 
-// Undo (Cmd/Ctrl+Z): deleting a comment became one keystroke away from the merged panel's Enter->navigate+edit
-// flow, so an accidental Backspace at the destination needs a safety net (see removeComments/
-// undoLastCommentRemoval in 07-comments.js and the global handler in 05-keymap.js).
 test("Cmd+Z restores a comment removed via the delete (×) button", async () => {
   const v = await loadViewer(html);
   await v.openSourceFile("src/app.ts");
@@ -467,7 +426,7 @@ test("Cmd+Z restores a comment removed via the delete (×) button", async () => 
   await v.settle(20);
   assert.equal(v.storedComments().length, 0, "the comment is removed");
 
-  v.document.body.focus(); // not inside any native input/editor
+  v.document.body.focus();
   v.key("z", { metaKey: true, code: "KeyZ" });
   await v.settle(20);
   assert.equal(v.storedComments().length, 1, "Cmd+Z restores it");
@@ -475,16 +434,13 @@ test("Cmd+Z restores a comment removed via the delete (×) button", async () => 
   v.close();
 });
 
-// Backspace acts on the SELECTED turn, not on everything sharing the line: a thread's question, its
-// follow-ups and the agent's notes all live in one row, and taking the whole conversation out on one keypress
-// is not what "delete this comment" means. Cmd+Z still restores whatever that press removed.
 test("Backspace removes the selected turn only, and Cmd+Z restores it", async () => {
   const v = await loadViewer(html);
   await v.openSourceFile("src/app.ts");
   await v.clickSourceLine(1);
   await v.openComposer("q");
   await v.writeAndSave("first on this line");
-  await v.clickSourceLine(2); // one comment per thread — the second goes on the next line
+  await v.clickSourceLine(2);
   await v.openComposer("c");
   await v.writeAndSave("second on this line");
   assert.equal(v.storedComments().length, 2);
@@ -501,9 +457,6 @@ test("Backspace removes the selected turn only, and Cmd+Z restores it", async ()
   v.close();
 });
 
-// …but a question and the answers to it are ONE thing. A reply carries no anchor of its own, only its
-// parent's, so deleting the first card and leaving the rest behind left cards answering something nobody
-// could read, in a thread with no beginning.
 test("Backspace on the first card in a thread takes the conversation with it, and one Cmd+Z brings it back", async () => {
   const v = await loadViewer(html);
   await v.openSourceFile("src/app.ts");
@@ -516,7 +469,7 @@ test("Backspace on the first card in a thread takes the conversation with it, an
   assert.equal(v.storedComments().length, 2, "the question and the answer to it");
 
   const row = v.$(".mc-comment-row");
-  v.window.selectCommentRow(row); // selection starts on the first turn
+  v.window.selectCommentRow(row);
   v.key("Backspace");
   await v.settle(20);
   assert.deepEqual(v.storedComments(), [], "the answer goes with the question it answers");
@@ -525,7 +478,6 @@ test("Backspace on the first card in a thread takes the conversation with it, an
   await v.settle(20);
   assert.equal(v.storedComments().length, 2, "one undo restores the whole thread, not just the question");
 
-  // Deleting a LATER turn is still just that turn — the question it continues is not its to remove.
   v.window.selectCommentRow(v.$(".mc-comment-row"));
   v.key("ArrowDown");
   await v.settle(20);
@@ -535,9 +487,6 @@ test("Backspace on the first card in a thread takes the conversation with it, an
   v.close();
 });
 
-// Arrow keys used to step off the whole row, so the second turn of a thread could be neither selected nor
-// edited: `e` always reopened the first comment on the line. A thread is two turns at most now — the
-// reviewer's one comment and the agent's answer to it — and the walk still has to reach both.
 test("arrows walk the turns inside a thread, and `e` edits the one selected", async () => {
   const v = await loadViewer(html);
   await v.openSourceFile("src/app.ts");
@@ -566,8 +515,6 @@ test("arrows walk the turns inside a thread, and `e` edits the one selected", as
   v.close();
 });
 
-// The composer prefills the anchor into the comment body, and the hand-off prints the anchor as the heading
-// above it — so the same reference came out twice in everything copied out of the merged panel.
 test("the merged hand-off prints a comment's reference once, not twice", async () => {
   const v = await loadViewer(html);
   await v.openSourceFile("AGENTS.md");
@@ -588,8 +535,6 @@ test("the merged hand-off prints a comment's reference once, not twice", async (
   v.close();
 });
 
-// An anchor the writer CHANGED is not a duplicate of the heading — it is them saying the question is about
-// somewhere else, which is exactly what editing that prefix is for.
 test("an edited reference in the body survives into the hand-off", async () => {
   const v = await loadViewer(html);
   await v.openSourceFile("AGENTS.md");
@@ -615,7 +560,7 @@ test("Cmd+Z inside a real text input does not touch comments — native undo own
   await v.settle(20);
   assert.equal(v.storedComments().length, 0);
 
-  await v.openComposer("q"); // focus lands in a live <textarea>
+  await v.openComposer("q");
   const input = v.visibleComposerInput();
   input.focus();
   v.key("z", { metaKey: true, code: "KeyZ" });
@@ -624,8 +569,6 @@ test("Cmd+Z inside a real text input does not touch comments — native undo own
   v.close();
 });
 
-// GitHub issue #9: the merged panel is a single unified hand-off. Questions and change requests used to be
-// two kinds in two sections; they are one comment now, so the document is one list.
 test("unified merged document: every open comment shares one document, in review order", async () => {
   const v = await loadViewer(html);
   v.window.addComment("c", "AGENTS.md", 5, "", "why this wording?");
@@ -665,11 +608,6 @@ test("unified merged prompt: one dock panel renders both a question and a change
   v.close();
 });
 
-// Regression: the plan/change-request contract prose sits BETWEEN the last question and the first change
-// request in the unified document. The now-removed reconcileMergedComments used to treat everything between
-// two comment headings as belonging to the earlier one, so on close that structural preamble (and, on a
-// second close, a second copy of it) got silently absorbed into the last question's text instead of being
-// left as inert document scaffolding.
 test("unified merged prompt: closing/reopening never absorbs the plan/change-request contract into the last question's text", async () => {
   const v = await loadViewer(html);
   v.window.addComment("q", "AGENTS.md", 5, "", "one open question");
@@ -677,10 +615,10 @@ test("unified merged prompt: closing/reopening never absorbs the plan/change-req
   await v.settle(150);
 
   v.window.addComment("c", "src/app.ts", 1, "", "one open change request");
-  v.window.openMergedView(); // closes+reconciles the q-only session, then rebuilds with both kinds
+  v.window.openMergedView();
   await v.settle(150);
   v.window.addComment("c", "src/app.ts", 2, "", "second change request");
-  v.window.openMergedView(); // closes+reconciles the two-item session, then rebuilds with three
+  v.window.openMergedView();
   await v.settle(150);
 
   const stored = v.storedComments();
@@ -698,9 +636,6 @@ test("unified merged prompt: closing/reopening never absorbs the plan/change-req
   v.close();
 });
 
-// The thread file is written on every comment change, not only when the hand-off panel sends a prompt. A
-// follow-up typed afterwards used to live only inside the app: an agent re-reading the file found the round
-// it was handed and nothing past it, so the reply was unanswerable.
 test("a follow-up reaches the thread file without reopening the hand-off panel", async () => {
   const v = await loadViewer(html);
   const writes = [];
@@ -711,12 +646,10 @@ test("a follow-up reaches the thread file without reopening the hand-off panel",
   await v.clickSourceLine(4);
   await v.openComposer("q");
   await v.writeAndSave("why is this a CLI?");
-  await v.settle(400); // the write is debounced
+  await v.settle(400);
   assert.deepEqual(Array.from(writes.at(-1)?.records ?? [], (r) => r.text), ["why is this a CLI?"],
     "the question is in the file already");
 
-  // Revise it afterwards — the only authoring left once a thread holds one comment — and the file has to
-  // follow. A reviewer who edits after handing off, and an agent re-reading the file, must see the same text.
   await v.openComposer("q");
   await v.writeAndSave("why is this a CLI, and not a library?");
   await v.settle(400);
@@ -728,14 +661,9 @@ test("a follow-up reaches the thread file without reopening the hand-off panel",
   v.close();
 });
 
-// An agent answering a comment is the most precise "it finished" signal kakapo has, so it rides the same
-// notification path the terminal bell already uses. What it must not do is announce old answers: reopening a
-// review re-reads the whole file, and every one of those would otherwise arrive as news.
 test("an agent's answer raises a notification, but re-reading the thread does not", async () => {
   const v = await loadViewer(html);
   const bells = [];
-  // The review is the window you are NOT looking at while the agent works — that is the whole case for a
-  // notification, and the reason the renderer checks focus before raising one.
   v.window.document.hasFocus = () => false;
   v.window.Notification = function (title, options) { bells.push({ title, ...options }); };
   await v.openSourceFile("AGENTS.md");
@@ -749,26 +677,20 @@ test("an agent's answer raises a notification, but re-reading the thread does no
   await v.settle(60);
   assert.equal(bells.length, 1, "the answer is");
   assert.match(bells[0].body, /It ships as one binary\./, "with enough of it to know what landed");
-  // Clicking it has to land ON that exchange; "an answer arrived" is little use in a review of fifty
-  // comments without "here".
   const answered = v.storedComments().find((c) => c.by === "agent");
-  await v.openSourceFile("src/app.ts"); // look away, the way you would have while it worked
+  await v.openSourceFile("src/app.ts");
   await v.settle(40);
   assert.equal(v.window.revealComment(answered.seq), true, "and that id is enough to go back to it");
   await v.settle(80);
-  // Whichever view can show it: a comment on a changed line goes back in the diff now (revealComment), and
-  // only a line no hunk covers reopens the source file. Either way the exchange is what is on screen.
   const shown = v.window.isDiffViewVisible()
     ? v.window.diffWrapperPathKey(v.diffCaretRow()?.closest(".d2h-file-wrapper"))
     : v.$("#source-viewer").dataset.openPath;
   assert.equal(shown, "AGENTS.md", "the file the exchange is in is on screen again");
 
-  // The same list arriving again (a poll tick, a workspace switch, a reload) is not a second answer.
   v.window.applyThreadRecords(v.window.reviewComments.map(v.window.commentToRecord));
   await v.settle(60);
   assert.equal(bells.length, 1, "an unchanged thread stays quiet");
 
-  // The setting lives in the Electron settings bridge.
   v.window.kakapoSettings = { all: { "kakapo-answer-notify": false } };
   v.agentSays({ re: v.storedComments()[0].seq, text: "one more thing" });
   await v.settle(60);
@@ -776,9 +698,6 @@ test("an agent's answer raises a notification, but re-reading the thread does no
   v.close();
 });
 
-// A thread is the reviewer's one comment plus whatever the agent answers — there is no box for a further
-// turn of theirs, and no way to write one. Removed on request ("스레드 당 하나만"): a pile of turns on a single
-// anchor made the hand-off read as a transcript rather than as a list of things to do.
 test("a thread holds one comment of the reviewer's, plus the agent's answer", async () => {
   const v = await loadViewer(html);
   await v.openSourceFile("AGENTS.md");
@@ -797,9 +716,6 @@ test("a thread holds one comment of the reviewer's, plus the agent's answer", as
   v.close();
 });
 
-// A diagram in an ANSWER is an agent-written markdown body exactly like a note is. The Mermaid render pass
-// used to run only when the review also had notes, so in a review with none the diagram sat on "loading…"
-// forever.
 test("a diagram in an agent's answer is rendered, in a review with no notes at all", async () => {
   const v = await loadViewer(html);
   await v.openSourceFile("AGENTS.md");
@@ -809,7 +725,7 @@ test("a diagram in an agent's answer is rendered, in a review with no notes at a
   await v.settle(60);
 
   const passes = [];
-  v.window.renderMermaidDiagrams = function (root) { passes.push(root); }; // the real one needs the lazy-loaded lib
+  v.window.renderMermaidDiagrams = function (root) { passes.push(root); };
   v.agentSays({ re: v.storedComments()[0].seq, text: "Like this:\n\n```mermaid\ngraph TD\n  A-->B\n```\n" });
   await v.settle(60);
 
@@ -818,10 +734,6 @@ test("a diagram in an agent's answer is rendered, in a review with no notes at a
   v.close();
 });
 
-// An agent's answer belongs in the thread at the comment's own line, where you asked the question — and the
-// exchange then leaves the hand-off panel entirely. A question the agent has already answered is not a request
-// going back to it: sending it again hands the agent its own finished work as new, every round, and buries
-// whatever the reviewer actually just wrote.
 test("an agent's answer renders in the thread and takes the exchange out of the hand-off", async () => {
   const v = await loadViewer(html);
   await v.openSourceFile("AGENTS.md");
@@ -830,7 +742,6 @@ test("an agent's answer renders in the thread and takes the exchange out of the 
   await v.writeAndSave("why is this a CLI?");
 
   const seq = v.storedComments()[0].seq;
-  // An agent writes markdown; escaping it put "**one binary**" and the list markers on screen literally.
   v.agentSays({ re: seq, text: "Because it ships as **one binary**.\n\n1. warm start\n2. comparison\n" });
   await v.settle(60);
 
@@ -848,8 +759,6 @@ test("an agent's answer renders in the thread and takes the exchange out of the 
   v.close();
 });
 
-// An answered comment leaves the hand-off. That was already true; what changed is that there is no follow-up
-// to put back into it — one comment per thread — so an answered thread stays quiet for good.
 test("an answered comment drops out of the hand-off and stays out", async () => {
   const v = await loadViewer(html);
   await v.openSourceFile("AGENTS.md");
@@ -887,9 +796,6 @@ test("an unrelated open comment still goes over while another thread is answered
   v.close();
 });
 
-// REGRESSION: an agent round that answers AND edits can remove every comment's anchor line at once, so
-// remapComments flags them ALL "possibly addressed" and mergedBlocks filters them all out — the merged panel
-// came up blank while the reviewer could still see their comments in the code, with nothing saying why.
 test("a merged panel emptied by the addressed heuristic explains itself and can be undone", async () => {
   const v = await loadViewer(html);
   await v.openSourceFile("AGENTS.md");
@@ -898,7 +804,6 @@ test("a merged panel emptied by the addressed heuristic explains itself and can 
   await v.writeAndSave("rename this");
   await v.settle(60);
 
-  // What the heuristic does after the agent's edit removes the anchored line.
   const seq = v.storedComments()[0].seq;
   const comment = v.window.reviewComments.find((c) => c.seq === seq);
   comment.anchorPresent = true;
@@ -918,11 +823,6 @@ test("a merged panel emptied by the addressed heuristic explains itself and can 
   v.close();
 });
 
-// A review with nothing in it does get a note now — 2454dda: a blank sheet with a Copy-all button reads like
-// something is broken, so the panel says where comments come from instead. What it must still never do is
-// claim comments were addressed, which is the OTHER reason this panel comes up blank, and the one that comes
-// with an undo. The two are told apart by what the note carries, not by the shared class: only the empty-state
-// note names a key, and only the addressed note offers a way to reopen.
 test("a genuinely empty review says how to write a comment, and claims nothing was addressed", async () => {
   const v = await loadViewer(html);
   await v.openMergedView();
@@ -933,9 +833,6 @@ test("a genuinely empty review says how to write a comment, and claims nothing w
   v.close();
 });
 
-// Nothing offers a reply any more: the ways in were the box at the end of the thread and the ↩ in a card
-// header, and both are gone. The agent can still answer (that is a write into the thread file, not something
-// authored here) — but the reviewer's side of a thread is one comment, full stop.
 test("nothing offers the reviewer a second turn in a thread", async () => {
   const v = await loadViewer(html);
   await v.openSourceFile("AGENTS.md");
@@ -950,7 +847,6 @@ test("nothing offers the reviewer a second turn in a thread", async () => {
 
   assert.equal(v.$("#source-body .mc-reply-stub"), null, "no waiting box");
   assert.equal(v.$("#source-body .mc-reply"), null, "and no reply button in any card header");
-  // Enter inside the thread used to open that box; with nothing to open it must not invent a composer.
   v.window.selectCommentRow(v.$("#source-body .mc-comment-row"));
   v.key("ArrowDown");
   v.key("Enter");
@@ -973,9 +869,6 @@ test("a plain comment carries no thread context", async () => {
   v.close();
 });
 
-// A card rendered inline is already sitting on the line it is about, in the file it is about. Repeating
-// "@path#L42" in its header restates the two things the reader can see, and takes up to 62% of the head
-// doing it. The range case above keeps its label, because a card anchored at one line cannot show ten.
 test("a saved card drops the location it is already sitting on", async () => {
   const v = await loadViewer(html);
   await v.openSourceFile("src/app.ts");
@@ -1016,13 +909,9 @@ test("a comment with no path is never swept away as a missing file", async () =>
   v.close();
 });
 
-// REGRESSION: a comment left in the BASE pane on a file the change deletes. commentFileIsKnownMissing reports
-// vcs === 'deleted' as missing and the prune took the whole path with it — so "why did you remove this?", the
-// most natural thing to write on a deleted file, vanished from the merged prompt (and from disk) the moment
-// the panel opened. The base pane is where a deleted file still exists; an old-side anchor is never orphaned.
 test("a base-pane comment on a deleted file survives the merged panel's missing-file prune", async () => {
   const { html: withDeletion } = await makeReviewHtml([
-    { path: "src/gone.ts", before: "export const gone = 1;\nexport const also = 2;\n" }, // deleted by the change
+    { path: "src/gone.ts", before: "export const gone = 1;\nexport const also = 2;\n" },
     { path: "src/app.ts", before: "export function run() {\n  return 42;\n}\n", after: "export function run() {\n  return 43;\n}\n" },
   ]);
   const v = await loadViewer(withDeletion);
@@ -1038,8 +927,6 @@ test("a base-pane comment on a deleted file survives the merged panel's missing-
   v.close();
 });
 
-// The other half of the same choke point: a working-tree comment on a path that really is gone is still
-// pruned, and pruning one side of a file leaves the base-pane comments on that same file alone.
 test("the missing-file prune still removes working-tree comments, per comment and not per path", async () => {
   const { html: withDeletion } = await makeReviewHtml([
     { path: "src/gone.ts", before: "export const gone = 1;\n" },
@@ -1055,10 +942,6 @@ test("the missing-file prune still removes working-tree comments, per comment an
   v.close();
 });
 
-// REGRESSION: an agent's answer sat in the app's memory, correctly anchored, and never appeared on screen.
-// renderDiffComments walked every file wrapper in one unguarded loop, and its only agent-driven caller wraps
-// applyThreadRecords in a bare try/catch — so one wrapper throwing aborted the pass, left every file after it
-// showing its previous render, and swallowed the error. Each file renders on its own now.
 test("one file failing to render cannot strand every other file's comments", async () => {
   const v = await loadViewer(html);
   await v.openDiffFor("src/app.ts");
@@ -1067,7 +950,6 @@ test("one file failing to render cannot strand every other file's comments", asy
   await v.settle(40);
   assert.deepEqual(v.visibleCardTexts(), ["why 43?"], "precondition: the comment renders normally");
 
-  // Make the FIRST wrapper throw, the way a bad card body would, and confirm the later file still updates.
   const wrappers = v.$all("#diff2html-container .d2h-file-wrapper");
   assert.ok(wrappers.length > 1, "precondition: the review has more than one file");
   Object.defineProperty(wrappers[0], "__mcDiffCommentRenderKey", {
@@ -1082,8 +964,6 @@ test("one file failing to render cannot strand every other file's comments", asy
   v.close();
 });
 
-// The render key records "this file is painted". Stamping it before the bail-outs meant a file whose body was
-// not materialized yet recorded a render it never performed, so the retry never came.
 test("a file that could not be painted does not record itself as painted", async () => {
   const v = await loadViewer(html);
   await v.openDiffFor("src/app.ts");
@@ -1092,28 +972,19 @@ test("a file that could not be painted does not record itself as painted", async
     .find((w) => w.querySelector(".d2h-file-name")?.textContent.trim() === "src/app.ts");
   const body = wrapper.querySelector(".d2h-files-diff");
   const parked = body.parentNode;
-  body.remove(); // the lazy/unmaterialized body: there are no panes to inject into
+  body.remove();
   v.window.refreshComments();
   await v.settle(40);
   assert.ok(!String(wrapper.__mcDiffCommentRenderKey).includes("paint me"),
     "the unpaintable pass must not record itself as having painted this comment");
 
-  parked.appendChild(body); // the body arrives; the next pass must actually render
+  parked.appendChild(body);
   v.window.refreshComments();
   await v.settle(40);
   assert.ok(v.visibleCardTexts().includes("paint me"), "the retry paints it instead of trusting a stale key");
   v.close();
 });
 
-// The composer opens PREFILLED with the line it is about — `@src/app.ts#L2 ` — so "the reviewer wrote
-// nothing" is not an empty box. ⌘Enter on an untouched composer passed the empty-text guard and saved a
-// comment whose entire body was its own anchor: the diff card printed the raw reference, the dock card
-// came out blank (the hand-off strips the anchor from the body, leaving nothing), and the merged text the
-// agent receives ended with a bare `@src/app.ts#L2` and no instruction under it.
-//
-// The anchor counts as the reviewer's words only once they have changed it — which is the rule the
-// hand-off already applies when it strips the prefix, and the reason editing that prefix is documented as
-// the way to say "this is not about that line".
 test("the anchor the composer prefills is not a comment", async () => {
   const v = await loadViewer(html);
   try {
@@ -1131,9 +1002,6 @@ test("the anchor the composer prefills is not a comment", async () => {
     assert.equal(saved.text, label + " rename this",
       "with the anchor kept exactly as written — editing it is how a reviewer redirects a comment");
 
-    // The same question on the edit path. Stripping a comment back to its own anchor says what emptying
-    // the box says, and emptying the box deletes — so this must too, or the tightened guard has a sibling
-    // that still saves a comment whose whole body is a reference.
     v.window.updateComment(saved.seq, label + "   ");
     assert.ok(!v.window.reviewComments.some((c) => c.seq === saved.seq),
       "editing one down to just its anchor removes it, as editing it down to nothing does");

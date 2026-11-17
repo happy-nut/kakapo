@@ -1,8 +1,3 @@
-// Navigating a file by its structure, from the keyboard: the structure popup (⌘F12), stepping between
-// symbols (⌥↓/⌥↑), where the caret has been (⌘⇧E), and the `name:42` suffix in file search.
-//
-// The analysis bridge is stubbed because that is the boundary — what is being guarded here is what the
-// viewer does with an answer, including how many times it asks.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { makeReviewHtml, cleanupFixtures } from "./helpers/fixture.mjs";
@@ -10,20 +5,20 @@ import { loadViewer } from "./helpers/dom.mjs";
 
 const FILE = "src/store.ts";
 const SOURCE = [
-  "import { thing } from './thing';",       // 0
-  "",                                        // 1
-  "export class Store {",                    // 2
-  "  load() {",                              // 3
-  "    return 1;",                           // 4
-  "  }",                                     // 5
-  "  save() {",                              // 6
-  "    return 2;",                           // 7
-  "  }",                                     // 8
-  "}",                                       // 9
-  "",                                        // 10
-  "export function helper() {",              // 11
-  "  return new Store();",                   // 12
-  "}",                                       // 13
+  "import { thing } from './thing';",
+  "",
+  "export class Store {",
+  "  load() {",
+  "    return 1;",
+  "  }",
+  "  save() {",
+  "    return 2;",
+  "  }",
+  "}",
+  "",
+  "export function helper() {",
+  "  return new Store();",
+  "}",
 ].join("\n");
 
 const SYMBOLS = [
@@ -42,7 +37,6 @@ before(async () => {
 });
 after(cleanupFixtures);
 
-/** A viewer with the analysis bridge stubbed and the file open in the source view. */
 async function openSource(options = {}) {
   const v = await loadViewer(html);
   const asked = [];
@@ -72,8 +66,6 @@ const press = (host, init) => {
 };
 const structureRows = (host) => host.v.$all("#quick-open-results .structure-result")
   .map((row) => row.querySelector(".quick-open-name").textContent);
-// `viewerCursor` is a top-level `let`, which a classic script does not put on `window`; caretLocation() is
-// the accessor the app itself uses (it is what ⌘K copies).
 const caretAt = (host) => host.v.window.caretLocation();
 
 test("⌘F12 lists this file's structure, indented by nesting", async () => {
@@ -109,8 +101,6 @@ test("a query typed with the IME still on finds a Latin symbol, as file search d
   const host = await openSource();
   await press(host, { key: "F12", code: "F12", metaKey: true });
   const input = host.v.$("#quick-open-input");
-  // The jamo the keys s-t-o-r-e produce with a Korean layout on. The shared helper reads a Hangul query
-  // back as the keys that made it, so the symbol is found without switching layout and retyping.
   input.value = "ㄴㅅㅐㄱㄷ";
   input.dispatchEvent(new host.v.window.Event("input", { bubbles: true }));
   await host.v.settle(40);
@@ -137,7 +127,6 @@ test("a Hangul symbol name is matched by a Hangul query, with no folding in the 
 test("Enter on a structure row puts the caret on that symbol's name", async () => {
   const host = await openSource();
   await press(host, { key: "F12", code: "F12", metaKey: true });
-  // Down twice: Store -> load -> save
   await press(host, { key: "ArrowDown", code: "ArrowDown" });
   await press(host, { key: "ArrowDown", code: "ArrowDown" });
   await press(host, { key: "Enter", code: "Enter" });
@@ -155,7 +144,6 @@ test("a file with no structure says so instead of showing an empty list", async 
 
 test("⌘⌥] / ⌘⌥[ step between symbols, and stop at the ends", async () => {
   const host = await openSource();
-  // Warm the structure the way the first press does, then step.
   await press(host, { key: "}", code: "BracketRight", altKey: true, metaKey: true });
   await host.v.settle(40);
 
@@ -175,24 +163,17 @@ test("⌘⌥] / ⌘⌥[ step between symbols, and stop at the ends", async () =>
 });
 
 test("⌘⌥] steps over a function's own locals and an object literal's fields", async () => {
-  // documentSymbol is not a list of declarations, and the servers that ship here send the flat
-  // SymbolInformation[] shape, which puts a function's local constants and an object literal's keys at the
-  // same level as the function itself. Walking all of it measured 557 stops in src/shortcuts.ts — 538 of
-  // them fields of the entries in one array — against 11 declarations in that file. So the noise rows below
-  // are the fixture's point: a stop on any of them is the bug.
   const host = await openSource({
     symbols: [
       { name: "Store", kind: "class", detail: "class Store", lineIndex: 2, column: 13, endLineIndex: 9, depth: 0 },
       { name: "load", kind: "method", detail: "load(): number", lineIndex: 3, column: 2, endLineIndex: 5, depth: 1 },
-      // Inside load(). A value, nested: nothing a reader steps TO.
       { name: "total", kind: "constant", detail: "const total: number", lineIndex: 4, column: 10, endLineIndex: 4, depth: 2 },
       { name: "save", kind: "method", detail: "save(): number", lineIndex: 6, column: 2, endLineIndex: 8, depth: 1 },
-      // A key of an object literal being returned — the 538 kind.
       { name: "retries", kind: "property", detail: "retries: number", lineIndex: 7, column: 4, endLineIndex: 7, depth: 2 },
       { name: "helper", kind: "function", detail: "helper(): Store", lineIndex: 11, column: 16, endLineIndex: 13, depth: 0 },
     ],
   });
-  await press(host, { key: "}", code: "BracketRight", altKey: true, metaKey: true }); // warm the structure
+  await press(host, { key: "}", code: "BracketRight", altKey: true, metaKey: true });
   await host.v.settle(40);
 
   const walked = [];
@@ -201,17 +182,12 @@ test("⌘⌥] steps over a function's own locals and an object literal's fields"
     await press(host, { key: "}", code: "BracketRight", altKey: true, metaKey: true });
     walked.push(caretAt(host));
   }
-  // Store (line 3), load (4), save (7), helper (12) — and then the end, which declines and leaves the caret.
   assert.deepEqual(walked, [`${FILE}:3`, `${FILE}:4`, `${FILE}:7`, `${FILE}:12`],
     "the walk stopped on a local constant or an object field");
   host.v.close();
 });
 
 test("a top-level declaration is a stop whatever kind the server calls it", async () => {
-  // The other half, and the reason kind alone is not the rule. A TypeScript `export type` comes back as
-  // `variable` and a module-level table as `constant` — measured against the real tsserver on
-  // src/watch-decision.ts (WatchTickDecision) and src/shortcuts.ts (SHORTCUTS, MENU_OWNED_CHORDS). They are
-  // a file's landmarks; filtering on kind would have dropped exactly them.
   const host = await openSource({
     symbols: [
       { name: "StoreShape", kind: "variable", detail: "type StoreShape", lineIndex: 2, column: 13, endLineIndex: 2, depth: 0 },
@@ -294,15 +270,11 @@ test("⌘⇧B asks for a type declaration and jumps to the one answer", async ()
   host.v.close();
 });
 
-// ---- Search Everywhere, the counterpart file, the hierarchies and bookmarks --------------------------
-
 test("a double Shift opens the launcher; one Shift, or an interrupted pair, does not", async () => {
   const host = await openSource();
   await press(host, { key: "Shift", code: "ShiftLeft", shiftKey: true });
   assert.equal(host.v.$("#quick-open").classList.contains("hidden"), true, "one tap is not a chord");
 
-  // Something else pressed between the two taps ends the pair — otherwise every Shift+letter followed by
-  // a Shift would open it.
   await press(host, { key: "A", code: "KeyA", shiftKey: true });
   await press(host, { key: "Shift", code: "ShiftLeft", shiftKey: true });
   assert.equal(host.v.$("#quick-open").classList.contains("hidden"), true);
@@ -357,7 +329,6 @@ test("the nearest counterpart wins when the same name exists twice", async () =>
   v.close();
 });
 
-/** A viewer whose analysis bridge answers hierarchy queries from a fixed map. */
 async function openHierarchyHost(answers) {
   const v = await loadViewer(html);
   const asked = [];
@@ -381,7 +352,7 @@ async function openHierarchyHost(answers) {
   };
   v.window.openSourceFile(FILE);
   await v.settle(40);
-  v.window.setSourceCursor(FILE, 11, 16, true, -1); // on `helper`
+  v.window.setSourceCursor(FILE, 11, 16, true, -1);
   await v.settle(20);
   return { v, asked };
 }
@@ -453,7 +424,6 @@ test("F3 bookmarks the caret's line, marks the gutter, and ⌘F3 lists it", asyn
   await host.v.settle(60);
   assert.equal(caretAt(host), `${FILE}:7`);
 
-  // F3 again on the same line takes it away.
   await press(host, { key: "F3", code: "F3" });
   assert.equal(host.v.$(`#source-body tr.source-row[data-line-index="6"]`).classList.contains("bookmarked"), false);
   host.v.close();
@@ -464,8 +434,6 @@ test("bookmarks survive a reopen, and are kakapo's own state — never the repos
   host.v.window.setSourceCursor(FILE, 3, 2, true, -1);
   await host.v.settle(20);
   await press(host, { key: "F3", code: "F3" });
-  // Keyed to this review, not globally: on a file:// page every review shares one localStorage, so a
-  // plain key hands one repository's bookmarks to the next one opened.
   const storage = host.v.exportStorage();
   assert.equal(storage["kakapo-bookmarks"], undefined, "never under a key other reviews would read");
   const saved = storage["kakapo-bookmarks:/review.html"];

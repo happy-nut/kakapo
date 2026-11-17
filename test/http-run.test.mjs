@@ -1,9 +1,3 @@
-// Running a .http file end to end in the viewer: what leaves kakapo for each shape of request, and what
-// the reviewer is shown when it comes back.
-//
-// Driven through the real review HTML and the real source view (the run buttons are rendered by the same
-// table a reviewer reads), with only the main-process bridge stubbed — that boundary is where the network
-// and the filesystem are, and it is the one thing jsdom cannot provide.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { makeReviewHtml, cleanupFixtures } from "./helpers/fixture.mjs";
@@ -118,7 +112,6 @@ before(async () => {
 });
 after(cleanupFixtures);
 
-/** Opens the .http file in the source view with the main-process bridge stubbed. */
 async function openHttpFile(responder) {
   const v = await loadViewer(html);
   const sent = [];
@@ -152,7 +145,6 @@ async function openHttpFile(responder) {
   return { v, sent, reads, saves, clipboard };
 }
 
-/** Clicks the gutter Run button for a request index and waits for the response to be rendered. */
 async function run(host, index) {
   const button = host.v.$(`#source-body .http-run[data-req="${index}"]`);
   assert.ok(button, `request ${index} has a Run button`);
@@ -320,8 +312,6 @@ test("a substituted value with a space is percent-encoded, as IntelliJ does by d
 });
 
 test("⌘⇧Enter runs the whole file in order, one request at a time", async () => {
-  // The login answer is supplied because the file is a SEQUENCE: without an id in it, the request that
-  // reads {{login.response.body.$.id}} has nothing to resolve and correctly never leaves.
   const host = await openHttpFile((request) => (request.url.endsWith("/login")
     ? {
       ok: true, status: 200, statusText: "OK", durationMs: 4, bytes: 30,
@@ -330,7 +320,6 @@ test("⌘⇧Enter runs the whole file in order, one request at a time", async ()
     : null));
   await host.v.window.runHttpFile();
   await host.v.settle(80);
-  // Every request except the one with the unresolved variable, which never reaches the sender.
   assert.equal(host.sent.length, Object.keys(REQUESTS).length - 1);
   assert.ok(host.sent[0].url.endsWith("/login"), "file order, so a login still comes before what needs it");
   host.v.close();
@@ -367,7 +356,6 @@ test("GRPC and WEBSOCKET requests get no Run button", async () => {
   const v = await loadViewer(other);
   v.window.openSourceFile("stream.http");
   await v.settle(40);
-  // The lines are still parsed and coloured — they are simply not runnable, which is the honest answer.
   assert.equal(v.$all("#source-body .http-run").length, 2, "the buttons are rendered…");
   v.$('#source-body .http-run[data-req="0"]').click();
   await v.settle(40);
@@ -375,12 +363,9 @@ test("GRPC and WEBSOCKET requests get no Run button", async () => {
   v.close();
 });
 
-// ---- `run` and `import`: one file running another ---------------------------------------------------
-
 const SUITE_FILE = "requests/suite.http";
 const SHARED_FILE = "requests/shared.http";
 
-/** A second review whose .http files run each other. */
 async function openSuite() {
   const { html: suiteHtml } = await makeReviewHtml([
     {
@@ -464,7 +449,6 @@ test("the overrides on a run line apply to that call and are put back afterwards
   assert.deepEqual(host.sent.map((request) => request.url), ["https://staging.test/login"],
     "@base was overridden for this call");
 
-  // And the file is back to its own value for the next one.
   host.sent.length = 0;
   host.v.$('#source-body .http-run[data-req="1"]').click();
   await host.v.settle(120);
@@ -489,14 +473,10 @@ test("a file cannot run itself", async () => {
   const host = await openSuite();
   host.v.$('#source-body .http-run[data-req="5"]').click();
   await host.v.settle(200);
-  // Running suite.http runs ITS run lines, which is the feature — what must not happen is the one that
-  // points back here going round again. It is refused, the rest proceed, and the whole thing terminates.
   assert.match(runPanel(host, 5), /suite\.http/);
   assert.ok(host.sent.length <= 4, `it terminates instead of recursing (sent ${host.sent.length})`);
   host.v.close();
 });
-
-// ---- variable collections: one request per element --------------------------------------------------
 
 test("a variable holding a JSON array sends one request per element", async () => {
   const { html: collectionHtml } = await makeReviewHtml([{
@@ -533,7 +513,6 @@ test("a variable holding a JSON array sends one request per element", async () =
   ], "three elements, three sends, in order");
   assert.match(v.$("#http-resp-0").textContent, /3/, "and the panel reports the batch, not one response");
 
-  // A request that mentions no collection is still sent exactly once.
   sent.length = 0;
   v.$('#source-body .http-run[data-req="1"]').click();
   await v.settle(80);

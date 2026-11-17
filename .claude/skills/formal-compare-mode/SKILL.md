@@ -21,16 +21,16 @@ models and the lines it was read from.
 
 | Written by | File | Fields |
 | --- | --- | --- |
-| `kakapo:set-compare-mode` (⌥A ⌥U ⌥T ⌥N) | `src/app-main.ts:550` | base, baseLabel, target, staged, compareScope, compareTip |
-| `kakapo:set-review-base` (the bar's numbers, ⌥] ⌥[) | `src/app-main.ts:399` | base, baseLabel, staged |
-| `kakapo:set-review-target` (the bar's right group) | `src/app-main.ts:423` | target, staged |
-| `kakapo:set-review-compare` (⌘9 range, the bar's reset) | `src/app-main.ts:466` | base, baseLabel, target, compareScope, staged |
-| `kakapo:open-pull-request` (⌥L) | `src/app-main.ts:504` | base, baseLabel, target, compareScope, staged, compareTip |
-| `restoreCompareRef` (on open) | `src/app-main.ts:323` | compareRef, compareTip |
+| `kakapo:set-compare-mode` (⌥A ⌥U ⌥T ⌥N) | `src/app-main.ts:406` | base, baseLabel, target, staged, compareScope, compareTip |
+| `kakapo:set-review-base` (the bar's numbers, ⌥] ⌥[) | `src/app-main.ts:285` | base, baseLabel, staged |
+| `kakapo:set-review-target` (the bar's right group) | `src/app-main.ts:306` | target, staged |
+| `kakapo:set-review-compare` (⌘9 range, the bar's reset) | `src/app-main.ts:342` | base, baseLabel, target, compareScope, staged |
+| `kakapo:open-pull-request` (⌥L) | `src/app-main.ts:367` | base, baseLabel, target, compareScope, staged, compareTip |
+| `restoreCompareRef` (on open) | `src/app-main.ts:235` | compareRef, compareTip |
 
 | Read by | File |
 | --- | --- |
-| the `mode` derivation in `kakapo:compare-menu` | `src/app-review-ipc.ts:433-449` |
+| the `mode` derivation in `kakapo:compare-menu` | `src/app-review-ipc.ts:348-356` |
 
 The model holds the **meaning** of `options.base` rather than a sha — `auto`, `HEAD`, `mergebase`,
 `reftip`, `mark`, `commit` — because the question is which diff is on screen, and two shas are not the
@@ -38,7 +38,7 @@ same diff.
 
 `BuiltMode` (ground truth) is a function of the options alone, because the options are all
 `readUnifiedDiff` is given. `compareTip` is never passed to the build; it is a memory of which key was
-pressed. That asymmetry is the point rather than a cheat: the flag exists (`app-main.ts:313-321`)
+pressed. That asymmetry is the point rather than a cheat: the flag exists (`app-main.ts:229-233`)
 *because* the menu cannot tell "all" from "tip" by looking at base/baseLabel, so the flag is the claim
 and `BuiltMode` is the truth, and the invariant asks whether the claim is kept up.
 

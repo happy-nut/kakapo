@@ -28,8 +28,6 @@ else {
   exit(1)
 }
 
-// Find the visible squircle rather than assuming a fixed transparent margin. A small alpha threshold
-// ignores the faint outer shadow, keeping the mask pinned to the charcoal tile itself.
 let width = sourceRep.pixelsWide
 let height = sourceRep.pixelsHigh
 var minX = width

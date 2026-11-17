@@ -1,8 +1,3 @@
-// CORE USER FLOW: navigating the review surface.
-//
-// A reviewer moves between the diff and the file's source, reads markdown/CSV the way it's meant to be
-// read (rendered, with a real line gutter) or flips to raw text, and expects their comments to follow
-// the file across views. These are the affordances that make the review usable; this file guards them.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -59,16 +54,12 @@ test("the Changes list groups files into a collapsible folder tree", async () =>
     "root-level files are not nested under any folder",
   );
 
-  // Collapsing a folder drops its files out of arrow-key tree navigation, exactly like the Files tree.
   assert.equal(v.window.isTreeRowVisible(appRow), true, "an open folder exposes its files to navigation");
   srcDir.open = false;
   assert.equal(v.window.isTreeRowVisible(appRow), false, "a collapsed folder hides its files from navigation");
   v.close();
 });
 
-// The activity rail is gone and `native-app` (which reserved room for an integrated title bar the shell
-// window used to draw) goes with it: the window keeps a standard title bar, and the sidebar — with its own
-// Changes/Files tabs and a bottom toolbar — is the left-most column.
 test("the review has no activity rail and no native title-bar layout", async () => {
   const { html: appHtml } = await makeReviewHtml([
     { path: "src/app.ts", before: "export const x = 1;\n", after: "export const x = 2;\n" },
@@ -99,7 +90,7 @@ test("double-click selects a complete word in both file and diff views", async (
   await v.openSourceFile("src/app.ts");
   const sourceCell = v.$('#source-body .source-row[data-line-index="0"] .source-code');
   sourceCell.getBoundingClientRect = () => ({ left: 0, right: 500, top: 0, bottom: 20, width: 500, height: 20 });
-  const sourceX = 10 + 8 * 7; // `export const`: inside `const` after the cell's 10px padding
+  const sourceX = 10 + 8 * 7;
   sourceCell.dispatchEvent(new v.window.MouseEvent("click", { bubbles: true, cancelable: true, detail: 1, clientX: sourceX }));
   sourceCell.dispatchEvent(new v.window.MouseEvent("click", { bubbles: true, cancelable: true, detail: 2, clientX: sourceX }));
   sourceCell.dispatchEvent(new v.window.MouseEvent("dblclick", { bubbles: true, cancelable: true, detail: 2, clientX: sourceX }));
@@ -119,9 +110,6 @@ test("double-click selects a complete word in both file and diff views", async (
   v.close();
 });
 
-// Cmd+Left/Right jumps to the line edge; with Shift it has to SELECT to that edge, the way it does in any
-// editor. In the diff it did not: setDiffCursor drops the selection anchor on every caret placement, and this
-// was the one caret mover that never put it back, so Cmd+Shift+Arrow moved and then cleared.
 test("Cmd+Shift+Left/Right selects to the line edge in both file and diff views", async () => {
   const v = await loadViewer(html);
   const selection = () => v.window.getSelection().toString();
@@ -171,7 +159,7 @@ test("file view folds imports by default and Cmd+. toggles the caret's brace blo
   v.click(importFold);
   assert.ok(v.$('#source-body .source-row[data-line-index="1"]'), "clicking the fold opens every import line");
 
-  await v.clickSourceLine(3); // function outer() {
+  await v.clickSourceLine(3);
   v.key(".", { metaKey: true, code: "Period" });
   await v.settle(40);
   assert.ok(v.$('#source-body .source-row.source-block-folded[data-line-index="3"]'), "Cmd+. folds the current brace range");
@@ -183,11 +171,6 @@ test("file view folds imports by default and Cmd+. toggles the caret's brace blo
   v.close();
 });
 
-// A fold does not hide its rows, it stops them being RENDERED. So a caret sent to a line inside one — by
-// go-to-definition, by a review stop, by stepping down into it — landed on a row that does not exist: no
-// caret on screen, nothing for the reveal to scroll to, and a jump that looked like it did nothing while
-// viewerCursor insisted it had moved. Measured in the running app before the fix: cursor at line 5, fold
-// still closed, no row and no caret span.
 test("navigating into a folded region opens it and the caret lands somewhere visible", async () => {
   const { html: foldHtml } = await makeReviewHtml([
     {
@@ -201,7 +184,6 @@ test("navigating into a folded region opens it and the caret lands somewhere vis
   assert.ok(v.$("#source-body .source-fold-row [data-source-fold]"), "the imports start folded");
   assert.equal(v.$('#source-body .source-row[data-line-index="1"]'), null, "so line 1 is not rendered");
 
-  // The jump a definition or a review stop makes.
   v.window.openSourceAt("src/fold.ts", 1, 4);
   await v.settle(60);
 
@@ -211,24 +193,18 @@ test("navigating into a folded region opens it and the caret lands somewhere vis
   assert.ok(v.$("#source-body .code-cursor"), "with a caret actually painted in it");
   assert.equal(v.$("#source-body .source-fold-row [data-source-fold]"), null, "the fold marker is gone");
 
-  // A manual fold must not spring open under the caret that just made it: ⌘. leaves the caret on the
-  // fold's own first row, which is rendered, so that line does not count as hidden.
-  await v.clickSourceLine(4); // function outer() {
+  await v.clickSourceLine(4);
   v.key(".", { metaKey: true, code: "Period" });
   await v.settle(40);
   assert.ok(v.$('#source-body .source-row.source-block-folded[data-line-index="4"]'), "the block folds and stays folded");
   assert.equal(v.$('#source-body .source-row[data-line-index="5"]'), null, "its body is not rendered");
 
-  // The boundary itself: a caret move onto the fold's own first row must leave it folded. That row is
-  // rendered — it is the one carrying the marker — so it is not hidden, and treating it as hidden would
-  // reopen every manual fold on the next caret move.
   v.window.setSourceCursor("src/fold.ts", 4, 0, true, -1);
   await v.settle(60);
   assert.ok(v.$('#source-body .source-row.source-block-folded[data-line-index="4"]'),
     "the caret sitting on the marker row does not count as being inside the fold");
   assert.equal(v.$('#source-body .source-row[data-line-index="5"]'), null, "so the body is still not rendered");
 
-  // Stepping the caret into that block opens it, the same as the jump above.
   v.window.setSourceCursor("src/fold.ts", 5, 0, true, -1);
   await v.settle(60);
   const inside = v.$('#source-body .source-row[data-line-index="5"]');
@@ -276,8 +252,6 @@ test("markdown opens rendered as sparse, line-numbered blocks", async () => {
   assert.ok(body.classList.contains("rendered-body"), "rendered (not raw) by default");
   assert.ok(v.$("#source-body .source-row.md-row"), "rows are markdown blocks");
 
-  // Blocks are keyed by their start line, so indices are sparse — this is exactly what makes line
-  // comments anchor correctly in the rendered view.
   const indices = v.sourceRowLineIndices();
   assert.deepEqual(indices, [0, 2, 4, 6], "one row per block, keyed by start line");
   v.close();
@@ -302,7 +276,6 @@ test("markdown raw toggle switches to contiguous, every-line text", async () => 
   assert.equal(body.classList.contains("rendered-body"), false, "raw mode drops rendered-body");
   assert.equal(v.$("#source-body .source-row.md-row"), null, "no markdown block rows in raw mode");
 
-  // Raw text shows every physical line, contiguously (vs. the 4 sparse blocks when rendered).
   const indices = v.sourceRowLineIndices();
   assert.deepEqual(
     indices,
@@ -325,8 +298,6 @@ test("line wrap is a checkbox-style Option+W toggle for raw file views", async (
   assert.ok(toggle && !toggle.classList.contains("hidden"), "raw code exposes the line-wrap checkbox");
   assert.equal(toggle.dataset.keyhint, "⌥W", "the checkbox advertises Option+W");
   assert.equal(toggle.getAttribute("role"), "checkbox");
-  // Wrapping is the default now. Measured on a real review, 95% of lines reached past their pane, so off
-  // by default meant the end of almost every line was somewhere to the right of the window.
   assert.equal(toggle.getAttribute("aria-checked"), "true", "wrapping is on unless the reviewer turns it off");
   assert.ok(body.classList.contains("line-wrap"), "and the body is wrapped from the first paint");
 
@@ -397,7 +368,6 @@ test("CSV opens rendered as an aligned table with a row per record", async () =>
   await v.openSourceFile("data.csv");
 
   assert.ok(v.$("#source-body .source-row.csv-row"), "rows are CSV records");
-  // header + alice + bob = 3 records (keyed 0,1,2)
   assert.deepEqual(v.sourceRowLineIndices(), [0, 1, 2]);
   assert.ok(v.$("#source-body .csv-row.csv-head"), "header row is marked");
   v.close();
@@ -405,14 +375,12 @@ test("CSV opens rendered as an aligned table with a row per record", async () =>
 
 test("a comment left in one view is visible after switching views", async () => {
   const v = await loadViewer(html);
-  // leave a comment in the source view
   await v.openSourceFile("src/app.ts");
-  await v.clickSourceLine(1); // `export const y = 3;`
+  await v.clickSourceLine(1);
   await v.openComposer("q");
   await v.writeAndSave("follows across views");
   assert.deepEqual(v.visibleCardTexts(), ["follows across views"]);
 
-  // switch to the diff view — the same comment must render there too
   await v.openDiffFor("src/app.ts");
   assert.equal(v.visibleView(), "diff");
   assert.deepEqual(v.visibleCardTexts(), ["follows across views"]);
@@ -436,7 +404,7 @@ test("Cmd+Down in the diff view jumps to the file's source (new/working-tree sid
   await v.openDiffFor("src/app.ts");
   assert.equal(v.visibleView(), "diff");
 
-  v.key("ArrowDown", { metaKey: true }); // Cmd/Ctrl+Down: diff caret -> open that file's source
+  v.key("ArrowDown", { metaKey: true });
   await v.settle(100);
 
   assert.equal(v.visibleView(), "source", "switched to the source view");
@@ -458,10 +426,9 @@ test("source indexing is absent from the renderer (main-process analysis owns it
 });
 
 test("clean tree (no changes): opens the file view with the top-most README, not an empty diff", async () => {
-  // before === after for every file ⇒ git diff is empty (nothing to review).
   const { html } = await makeReviewHtml([
-    { path: "AAA/README.md", before: "# Nested\n", after: "# Nested\n" }, // sorts BEFORE the root README
-    { path: "README.md", before: "# Root\n\nhello\n", after: "# Root\n\nhello\n" }, // the root README
+    { path: "AAA/README.md", before: "# Nested\n", after: "# Nested\n" },
+    { path: "README.md", before: "# Root\n\nhello\n", after: "# Root\n\nhello\n" },
   ]);
   const v = await loadViewer(html);
   assert.equal(v.visibleView(), "source", "file view is shown, not an empty diff pane");
@@ -514,15 +481,13 @@ test("F7 from the source view enters the diff (forward navigation works)", async
   await v.openSourceFile("src/app.ts");
   assert.equal(v.visibleView(), "source");
 
-  v.key("F7"); // next change: from a changed file's source, land in its diff
+  v.key("F7");
   await v.settle(120);
   assert.equal(v.visibleView(), "diff", "F7 switched from the source view into the diff");
   v.close();
 });
 
 test("Shift+F7 is a distinct backward step, not a no-op that mirrors F7", async () => {
-  // Regression: the source-view branch used to ignore shiftKey and always jump to the open file's own
-  // hunk, so F7 and Shift+F7 behaved identically. Shift+F7 must fall through to prev-change navigation.
   const v = await loadViewer(html);
   await v.openSourceFile("src/app.ts");
 
@@ -550,19 +515,8 @@ test("syntax highlighter tags function calls, PascalCase types, and decorators",
 });
 
 test("a file past 10,000 lines is still coloured — the ceiling is on code insight, not on the lexer", async () => {
-  // The source view used to swap the language for "text" past 10,000 lines, which switched off the hand
-  // tokenizer and the server's tokens together. node_modules/electron/electron.d.ts — 27,088 lines,
-  // 1,094 KiB — opened as flat grey in a tool whose whole job is reading code, and the guard bought
-  // nothing for it: rows are built a window at a time, so only ~400 of them are ever tokenized per paint
-  // (183ms for the WHOLE file, measured out of process).
-  //
-  // IntelliJ draws its lexer-based highlighting for every file it will open at all and stops only code
-  // assistance, past idea.max.intellisense.filesize — "The file size ({0}) exceeds the configured limit
-  // ({1}). Code insight features are not available." Colour is not in that sentence.
   const lines = ["class Widget extends Base {}"];
   while (lines.length < 10_500) lines.push(`let a${lines.length}=1;`);
-  // One changed line, not 10,500: what is under test is the SOURCE view's language, and a whole-file diff
-  // would spend the test's time building a second 10,500-row table nothing here looks at.
   const before = lines.slice();
   before[5_000] = "let a5000=0;";
   const { html } = await makeReviewHtml([
@@ -578,17 +532,12 @@ test("a file past 10,000 lines is still coloured — the ceiling is on code insi
 });
 
 test("header strip carries the compare pill and nothing else (no file/hunk counts, indexed ratio, or ISO timestamp)", async () => {
-  // The reviewer found the file/hunk counts, the static "<embedded>/<total> indexed" ratio (which never
-  // moves and reads as a frozen progress bar), and the raw generatedAt ISO string noisy and space-hungry.
-  // The strip stayed empty for a while afterwards; what earned the space back is the one thing the header
-  // could not otherwise say — which two things this diff is comparing (see compare-state.test.mjs).
   const v = await loadViewer(html);
   const strip = v.$(".review-status");
   assert.equal(strip?.children.length, 1, "exactly one thing in the strip");
   assert.ok(strip?.querySelector(".compare-pill"), "and it is the compare pill");
   assert.doesNotMatch(strip?.textContent || "", /\d+\s*(files?|hunks?|indexed)|\d{4}-\d{2}-\d{2}T/,
     "no counts, no indexed ratio, no ISO timestamp came back with it");
-  // Viewed is changed only from the selected Changes row; the toolbar stays free of duplicate state controls.
   assert.equal(v.$("#diff-viewed-toggle"), null, "the toolbar carries no Viewed pill");
   assert.equal(v.$("#footer-progress"), null, "renderer indexing progress is absent");
   v.close();
@@ -612,13 +561,10 @@ test("composing toggles body.mc-composing so the file caret is hidden while typi
   v.close();
 });
 
-// The reference is prefilled INTO the textarea, not printed above it (openComposer, 07-comments.js). As a
-// header label it was a fact about the comment the writer could not touch, and the thing they most often
-// want to say is that the question is not about this line — so it has to be deletable.
 test("the composer prefills the canonical source reference as editable text", async () => {
   const v = await loadViewer(html);
   await v.openSourceFile("src/app.ts");
-  await v.clickSourceLine(1); // line index 1 → display line 2
+  await v.clickSourceLine(1);
   await v.openComposer("c");
   assert.equal(v.$(".mc-composer .mc-target"), null, "the head no longer prints it where it cannot be edited");
   assert.equal(v.$(".mc-composer .mc-input").value, "@src/app.ts#L2 ", "the textarea opens with the repository-relative path and line");
@@ -631,7 +577,6 @@ test("ArrowDown selects the comment box below the caret line (keyboard comment-b
   await v.clickSourceLine(0);
   await v.openComposer("c");
   await v.writeAndSave("pick me");
-  // The saved comment box now sits right after line 0's source row.
   await v.clickSourceLine(0);
   v.key("ArrowDown");
   await v.settle(80);
@@ -640,9 +585,6 @@ test("ArrowDown selects the comment box below the caret line (keyboard comment-b
 });
 
 test("leaving the composer unsaved (open another file) clears mc-composing — caret never stays hidden", async () => {
-  // Regression: mc-composing was only removed on save/cancel, so leaving via any other path (open
-  // another file, switch views) left it stuck and `body.mc-composing .code-cursor{display:none}` hid
-  // every caret — making arrow navigation / comment-box selection look dead.
   const v = await loadViewer(html);
   await v.openSourceFile("src/app.ts");
   await v.clickSourceLine(0);
@@ -658,17 +600,14 @@ test("leaving the composer unsaved (open another file) clears mc-composing — c
 });
 
 test("Cmd+2 focuses the Changes panel; arrow + Enter opens that file in the diff (delegated click)", async () => {
-  // Regression: the Changes panel used per-element click listeners, which were lost when a watch tick
-  // re-captured `links` — so Cmd+2 → arrow → Enter (row.click()) silently did nothing. The handler is
-  // now delegated on #changes-panel (like #files-panel), so it survives re-capture.
   const v = await loadViewer(html);
   await v.openSourceFile("src/app.ts");
   assert.equal(v.visibleView(), "source");
-  v.key("2", { metaKey: true }); // Cmd+2 → focus the Changes panel
+  v.key("2", { metaKey: true });
   await v.settle(80);
   v.key("ArrowDown");
   await v.settle(40);
-  v.key("Enter"); // open the focused changed file
+  v.key("Enter");
   await v.settle(120);
   assert.equal(v.visibleView(), "diff", "Enter on a Changes-panel row opens the diff view");
   v.close();
@@ -710,8 +649,6 @@ test("mouse change selection focuses the clicked row without moving the sidebar"
   v.close();
 });
 
-// F7/F8 move the caret into the code, so the sidebar has to let go of BOTH cursors. It gave up the logical
-// one and kept the native focus a click had put on the row, leaving the panel focused after the reader left it.
 test("F7/F8 hand the sidebar's focus back to the code, including the DOM focus a click took", async () => {
   for (const key of ["F7", "F8"]) {
     const v = await loadViewer(html);
@@ -728,11 +665,6 @@ test("F7/F8 hand the sidebar's focus back to the code, including the DOM focus a
   }
 });
 
-// REGRESSION: the file tree was collapsed on every cold start. 05-keymap calls showDiffView() at boot, which
-// syncs the sidebar — and the two collapse flags are `var`s declared in the LATER 09-views-update slice, so
-// that first sync read them hoisted-but-unassigned. classList.toggle(name, undefined) treats the second
-// argument as absent and FLIPS, switching the class on. Nothing turned it back until something toggled the
-// sidebar, so kakapo opened with no tree and no explanation.
 test("the file tree is open on the first paint, not collapsed by the boot sync", async () => {
   const v = await loadViewer(html);
   assert.equal(v.window.document.body.classList.contains("sidebar-collapsed"), false,
@@ -784,7 +716,7 @@ test("merged view: Enter on a comment card navigates to the code and opens its e
   await v.clickSourceLine(1);
   await v.openComposer("q");
   await v.writeAndSave("removeme");
-  v.key("?", { metaKey: true }); // Cmd+? → merged view
+  v.key("?", { metaKey: true });
   await v.settle(80);
   const card = v.$(".mc-merged-card");
   assert.ok(card, "the comment renders as a card in the merged view");
@@ -864,7 +796,7 @@ test("merged view: ArrowDown/ArrowUp step between comment cards", async () => {
   await v.clickSourceLine(1);
   await v.openComposer("q");
   await v.writeAndSave("second comment");
-  v.key("?", { metaKey: true }); // Cmd+? → merged view
+  v.key("?", { metaKey: true });
   await v.settle(80);
 
   const cards = v.$all(".mc-merged-card");
@@ -891,11 +823,6 @@ test("merged view: typing inside a comment card is impossible — it is not a co
   v.close();
 });
 
-// Cmd+C used to copy and stop there, and this test pinned that it copied the same text as the button. It
-// is the hand-off now — copying out of this panel archives what was copied, at whatever size — so what is
-// left to pin is that the TEXT still matches the button's, which it has to: both assemble the same review.
-// The button cannot be clicked afterwards to compare, because by then the panel has closed with nothing
-// left in it, so the two are compared across two panels holding the same comments.
 test("merged view: Cmd+A selects the whole document, and Cmd+C hands over exactly what the button hands over", async () => {
   const v = await loadViewer(html);
   v.window.addComment("q", "src/app.ts", 1, "", "first comment");
@@ -933,10 +860,6 @@ test("merged view: Cmd+A selects the whole document, and Cmd+C hands over exactl
 });
 
 test("merged view: the native copy event (Electron's editMenu Cmd+C accelerator) is overridden with the merged text", async () => {
-  // app-main.ts keeps `role: "editMenu"` so real text fields get native Cut/Paste/Undo — but that also makes
-  // Cmd+C a native accelerator that fires webContents.copy() independently of this panel's own keydown
-  // handler, racing it with whatever the real (mostly empty) DOM selection is. The panel must win that race
-  // by overriding the actual 'copy' ClipboardEvent, not by relying on keydown preventDefault alone.
   const v = await loadViewer(html);
   v.window.addComment("q", "src/app.ts", 1, "", "first comment");
   v.window.addComment("c", "src/app.ts", 2, "", "second comment");
@@ -973,9 +896,6 @@ test("merged view: any other key after Cmd+A drops the whole-document selection"
 });
 
 test("merged view: holding Cmd between Cmd+A and Cmd+C survives the modifier-only keydown macOS redelivers mid-hold", async () => {
-  // Chording Cmd+A -> Cmd+C the normal way (hold Cmd, tap A, tap C) makes macOS/Chromium redeliver a bare
-  // "Meta" keydown while Cmd is still held between the two taps — not a real second keystroke. That used to
-  // be treated as "some other key was pressed" and dropped the selection before Cmd+C ever arrived.
   const v = await loadViewer(html);
   v.window.addComment("q", "src/app.ts", 1, "", "held-cmd comment");
   await v.openMergedView();
@@ -1011,7 +931,7 @@ test("merged view: Backspace on a selected card removes that comment, reselects 
   assert.equal(cardsAfter.length, 1, "the panel rebuilds with the remaining comment");
   assert.ok(cardsAfter[0].classList.contains("selected"), "the card now at that position is reselected");
 
-  v.document.body.focus(); // not inside any native input/editor
+  v.document.body.focus();
   v.key("z", { metaKey: true, code: "KeyZ" });
   await v.settle(20);
   assert.equal(v.storedComments().length, 2, "Cmd+Z restores the comment removed from the merged panel");
@@ -1024,7 +944,7 @@ test("comment tracking: follows a moved line; kept (never dropped) when the snap
   ]);
   const v = await loadViewer(html, { menuBridge: true });
   await v.openSourceFile("src/app.ts");
-  await v.clickSourceLine(0); // caret on "export const x = 1;"
+  await v.clickSourceLine(0);
   await v.openComposer("q");
   await v.writeAndSave("track me");
   assert.equal(v.storedComments().length, 1, "comment saved");
@@ -1039,14 +959,11 @@ test("comment tracking: follows a moved line; kept (never dropped) when the snap
     httpEnvironments: {},
   });
 
-  // (a) the file changed but the commented line just moved down two rows — the comment follows it
   await v.pushDiffUpdate(update("src/app.ts", "// added\n// lines\nexport const x = 1;\nexport const y = 3;\n"));
   assert.equal(v.storedComments().length, 1, "comment retained when its line is found");
   assert.equal(v.storedComments()[0].line, 3, "comment followed its snapshot line to row 3");
   assert.equal(v.$(".mc-toast"), null, "no toast while the comment is tracked");
 
-  // (b) the commented line is gone from the new content — the comment is NOT dropped (user-authored comments
-  // are never silently deleted); it stays at its last line with no toast. The × button removes a stale one.
   await v.pushDiffUpdate(update("src/app.ts", "export const z = 9;\nexport const w = 8;\n"));
   assert.equal(v.storedComments().length, 1, "comment kept even when its snapshot line vanished");
   assert.equal(v.$(".mc-toast"), null, "no toast — nothing was dropped");
@@ -1054,8 +971,6 @@ test("comment tracking: follows a moved line; kept (never dropped) when the snap
 });
 
 test("after a commit removes the open diff file, a watch update lands on the new changes (not a blank pane)", async () => {
-  // Regression: committing the file the diff was showing left `current` pointing at a vanished hunk index,
-  // so the swapped-in diff rendered nothing and the breadcrumb kept the stale (committed-away) file.
   const first = await makeReviewHtml([
     { path: "gone.ts", before: "export const gone = 1;\n", after: "export const gone = 2;\n" },
   ]);
@@ -1064,7 +979,6 @@ test("after a commit removes the open diff file, a watch update lands on the new
   assert.equal(v.visibleView(), "diff", "starts in the diff view on gone.ts");
   assert.equal(v.activeDiffFile(), "gone.ts");
 
-  // Simulate the watch tick after gone.ts is committed and two brand-new files now have changes.
   const second = await makeReviewHtml([
     { path: "fresh_a.ts", before: "export const a = 1;\n", after: "export const a = 9;\n" },
     { path: "fresh_b.ts", before: "export const b = 1;\n", after: "export const b = 9;\n" },
@@ -1097,10 +1011,6 @@ test("the sidebar switch navigates views and reflects the active one", async () 
   v.close();
 });
 test("the toolbars show the current git branch, and the sidebar header keeps the project name", async () => {
-  // The chip moved out of the sidebar's header band and into the toolbars, because the band is the
-  // sidebar's width and the two names did not fit in it: measured at 1728px, the project name was given
-  // 126px of the 234px it needed and the branch 70px for 62 characters, while `.diff-toolbar-file` beside
-  // it was 921px wide holding a file name. One chip per toolbar, only one of which is ever up.
   const v = await loadViewer(html);
   const chips = v.$all(".brand-branch");
   assert.equal(chips.length, 2, "one in the diff toolbar, one in the source toolbar");
@@ -1109,9 +1019,6 @@ test("the toolbars show the current git branch, and the sidebar header keeps the
     assert.ok((chip.querySelector(".brand-branch-name")?.textContent || "").trim().length > 0, "it names a branch");
     assert.ok(chip.closest(".toolbar"), "and it is in a toolbar, where there is room for a long name");
   }
-  // Every branch name has to be able to give way, not only the ones with a "/" in them. A bare name was
-  // left as a text node, and `text-overflow` does not reach the anonymous flex item a text node becomes:
-  // measured at a 1024px window, `bounty-2026-11-05` painted straight across the compare pill beside it.
   for (const name of ["feature/KAKAPO-1-long-branch-name", "bounty-2026-11-05", "main"]) {
     const chip = chips[0].querySelector(".brand-branch-name");
     v.window.applyBranchChip(chip, name);
@@ -1133,19 +1040,15 @@ test("diff view: vertical wheel + PageUp/Down scroll the diff container", async 
   await v.openDiffFor("src/app.ts");
   const c = v.$("#diff2html-container");
   assert.ok(c, "diff container present");
-  // .d2h-file-side-diff is a horizontal scrollport that would swallow vertical wheel; the handler must
-  // redirect vertical wheel to the container.
   c.scrollTop = 0;
   c.dispatchEvent(new v.window.WheelEvent("wheel", { deltaY: 180, deltaX: 0, bubbles: true, cancelable: true }));
   assert.equal(c.scrollTop, 180, "vertical wheel scrolls the diff container");
-  // a wheel on the side-diff child bubbles up to the same container handler
   const side = v.$(".d2h-file-side-diff");
   if (side) {
     c.scrollTop = 0;
     side.dispatchEvent(new v.window.WheelEvent("wheel", { deltaY: 120, deltaX: 0, bubbles: true, cancelable: true }));
     assert.equal(c.scrollTop, 120, "wheel on the side-diff bubbles to the container");
   }
-  // PageDown/PageUp (jsdom has no layout, so give the container a height to page by)
   Object.defineProperty(c, "clientHeight", { value: 400, configurable: true });
   c.scrollTop = 0;
   v.key("PageDown");
@@ -1158,7 +1061,6 @@ test("diff view: vertical wheel + PageUp/Down scroll the diff container", async 
 
 test("Cmd+A in the diff/source view scopes the selection to that view, not the whole page", async () => {
   const v = await loadViewer(html);
-  // Diff view: selection stays inside the diff container (not the sidebar).
   await v.openDiffFor("src/app.ts");
   v.key("a", { metaKey: true });
   let sel = v.window.getSelection();
@@ -1167,7 +1069,6 @@ test("Cmd+A in the diff/source view scopes the selection to that view, not the w
   anc = anc.nodeType === 1 ? anc : anc.parentElement;
   assert.ok(v.$("#diff2html-container").contains(anc), "diff Cmd+A stays within the diff container");
   assert.ok(!v.$(".sidebar").contains(anc), "the sidebar is not part of the selection");
-  // Source view: selection stays inside the source body.
   await v.openSourceFile("src/app.ts");
   v.key("a", { metaKey: true });
   sel = v.window.getSelection();
@@ -1180,7 +1081,6 @@ test("Cmd+A in the diff/source view scopes the selection to that view, not the w
 test("a blank source line still shows the caret (regression: the empty cell skipped the caret span)", async () => {
   const v = await loadViewer(html);
   await v.openSourceFile("blank.ts");
-  // Place the caret on the blank line (index 1). reveal=false keeps it synchronous (no rAF for jsdom to miss).
   v.window.setSourceCursor("blank.ts", 1, 0, false, -1);
   const cl = v.$("#source-body .source-row.cursor-line");
   assert.ok(cl, "a row is the cursor line");
@@ -1200,9 +1100,6 @@ test("Cmd+1 from the diff opens the file you were viewing as source (not a stale
   v.close();
 });
 
-// REGRESSION: the "second press collapses" guard was `treeFocusIndex >= 0` — true whenever ANY tree held the
-// logical cursor, the other one included. So ⌘2 (focus Changes) then ⌘1 read as a repeat of ⌘1 and folded the
-// sidebar away instead of switching to Files. The first press of either key is always "take me to my tree".
 test("Cmd+2 then Cmd+1 switches trees; only a real repeat collapses", async () => {
   const v = await loadViewer(html);
   await v.openSourceFile("src/app.ts");
@@ -1247,7 +1144,6 @@ test("Cmd+1 focuses Files from content, then toggles its sidebar while preservin
   assert.ok(v.$(".source-link.tree-focus"), "expanding restores Files keyboard navigation");
   assert.equal(v.$("#source-viewer").dataset.openPath, "src/app.ts", "toggling never replaces the open file");
 
-  // The sidebar tab is the pointer half of this key, so it collapses and expands the same way.
   v.click(v.$('.sidebar-switch-item[data-tab="files"]'));
   await v.settle(60);
   assert.ok(v.window.document.body.classList.contains("sidebar-collapsed"), "the Files tab uses the same collapse behavior");
@@ -1264,7 +1160,7 @@ test("focus transitions flash only the destination panel and fade after about ha
   const sidebar = v.$(".sidebar");
 
   assert.equal(source.classList.contains("mc-panel-focus-flash"), false, "opening a file with the pointer does not flash the code panel");
-  v.click(source.querySelector(".source-code")); // the pointer-selected tree now legitimately owns focus; return to content first
+  v.click(source.querySelector(".source-code"));
 
   v.key("1", { metaKey: true, code: "Digit1" });
   await v.settle(60);
@@ -1310,9 +1206,9 @@ test("global shortcuts require an exact modifier set (Cmd+Shift+1 must not act l
   const v = await loadViewer(html);
   await v.openDiffFor("src/app.ts");
   assert.equal(v.visibleView(), "diff");
-  v.key("1", { metaKey: true, shiftKey: true }); // an extra Shift → not the Cmd+1 binding
+  v.key("1", { metaKey: true, shiftKey: true });
   assert.equal(v.visibleView(), "diff", "Cmd+Shift+1 leaves the view untouched");
-  v.key("1", { metaKey: true }); // exact combo still works
+  v.key("1", { metaKey: true });
   assert.equal(v.visibleView(), "source", "Cmd+1 alone switches to the source view");
   v.close();
 });
@@ -1320,10 +1216,10 @@ test("global shortcuts require an exact modifier set (Cmd+Shift+1 must not act l
 test("a selected comment box keeps the caret visible (어떤 경우에도 커서는 가려지면 안 됨)", async () => {
   const v = await loadViewer(html);
   await v.openSourceFile("src/app.ts");
-  v.window.addComment("q", "src/app.ts", 1, "", "a question"); // comment on line 1 (row index 0)
+  v.window.addComment("q", "src/app.ts", 1, "", "a question");
   v.window.refreshComments();
-  v.window.setSourceCursor("src/app.ts", 0, 0, false, -1); // caret on row index 0
-  v.key("ArrowDown"); // steps onto the comment box on that line and selects it
+  v.window.setSourceCursor("src/app.ts", 0, 0, false, -1);
+  v.key("ArrowDown");
   assert.ok(v.$("#source-body .mc-comment-row.mc-row-selected"), "the comment box is selected");
   assert.ok(v.$("#source-body .code-cursor"), "the caret is STILL visible (regression: selecting the box used to remove it)");
   v.close();
@@ -1335,8 +1231,8 @@ test("e on a selected comment box opens the composer prefilled and edits in plac
   v.window.addComment("q", "src/app.ts", 1, "", "original text");
   v.window.refreshComments();
   v.window.setSourceCursor("src/app.ts", 0, 0, false, -1);
-  v.key("ArrowDown"); // select the box
-  v.key("e"); // edit
+  v.key("ArrowDown");
+  v.key("e");
   const ta = v.$("#source-body .mc-composer .mc-input");
   assert.ok(ta, "the composer opened");
   assert.equal(ta.value, "original text", "composer is prefilled with the existing comment text");
@@ -1350,10 +1246,6 @@ test("e on a selected comment box opens the composer prefilled and edits in plac
 
 test("F7 across a file boundary sets the diff caret once (no first-line → change double jump)", async () => {
   const v = await loadViewer(html);
-  // README.md has one change block, so the caret already sits at the file's last change. The FIRST F7 now
-  // announces ("last change — press F7 again") instead of crossing, giving a beat to mark-viewed: the caret
-  // must NOT move. It is deliberately not the LAST file of the review — there the press has nowhere to cross
-  // to, and announcing a next file would promise one that doesn't exist (see the no-wrap test below).
   await v.openDiffFor("README.md");
   let calls = 0;
   let orig = v.window.setDiffCursor;
@@ -1365,9 +1257,6 @@ test("F7 across a file boundary sets the diff caret once (no first-line → chan
   const hint = v.window.document.querySelector(".mc-caret-hint");
   assert.ok(hint && /F7/.test(hint.textContent), "first F7 shows the last-change announcement (inline caret hint)");
 
-  // The SECOND consecutive F7 crosses to the next file, setting the caret exactly ONCE (focusDiffRow ->
-  // the change). Before the skipCursor fix, showOnlyFile's ensureDiffCursor also fired, landing the caret
-  // on the file's first code row first — a visible 146L→21L double jump.
   calls = 0;
   orig = v.window.setDiffCursor;
   v.window.setDiffCursor = function () { calls += 1; return orig.apply(this, arguments); };
@@ -1379,13 +1268,11 @@ test("F7 across a file boundary sets the diff caret once (no first-line → chan
   v.close();
 });
 
-// Stepping off either end used to land on the other one, so a reviewer walking the changes had no way to
-// tell "that was the last one" from "here is the first one again" — the review looked like it had restarted.
 test("F7 stops at the last change instead of wrapping back to the first", async () => {
   const v = await loadViewer(html);
   const last = v.window.hunkPathAt(v.window.hunkTotal() - 1);
   await v.openDiffFor(last);
-  v.key("F7"); // the last change in the file: the announcement is skipped, there is nothing to cross to
+  v.key("F7");
   await new Promise((r) => setTimeout(r, 30));
   v.key("F7");
   await new Promise((r) => setTimeout(r, 30));
@@ -1393,7 +1280,6 @@ test("F7 stops at the last change instead of wrapping back to the first", async 
   const hint = v.window.document.querySelector(".mc-caret-hint");
   assert.ok(hint && !/F7/.test(hint.textContent), "no promise of a next file that doesn't exist");
 
-  // ...and the same at the other end: Shift+F7 from the first change stays put.
   const first = v.window.hunkPathAt(0);
   await v.openDiffFor(first);
   v.key("F7", { shiftKey: true });
@@ -1406,36 +1292,22 @@ test("viewed marks persist by path with the exact reviewed diff signature", asyn
   const v = await loadViewer(html);
   v.window.setFileViewed("src/app.ts", true);
   assert.equal(v.window.isFileViewed("src/app.ts"), true, "mark reads back as viewed");
-  // The per-file signature is stable across restarts and unrelated repository refreshes, while a new edit
-  // to this path produces a new signature and correctly puts that patch back in the review queue.
   const state = v.window.loadViewedState();
   assert.equal(state["src/app.ts"], v.window.currentFileSignature("src/app.ts"), "stored against the current per-file diff");
   v.close();
 });
 
 test("applySetActive scrolls a file-crossing change inline, not via scheduleDiffScroll (146→21 stale-offset guard)", () => {
-  // Timing/layout regression jsdom can't exercise (no real scrollTop), so guard the code SHAPE against the
-  // built client. On an F7 file crossing, showOnlyFile display:none's the previous file but the scroll
-  // container keeps its old (large) scrollTop. The change must be scrolled into view in THIS frame; routing
-  // it through scheduleDiffScroll's extra rAF painted the previous file's scrollTop for one frame — the
-  // 146→21 jump the user hit twice. Verified live in a real browser (Preview: first frame scrollTop 0 vs a
-  // stale 1223); this stops the inline scroll from silently reverting to the deferred path.
   const js = readFileSync(new URL("../dist/viewer.client.js", import.meta.url), "utf8");
   const m = js.match(/function applySetActive\b[\s\S]*?(?=\nfunction showOnlyFile\b)/);
   assert.ok(m, "applySetActive body found");
   const body = m[0];
   assert.match(body, /\.scrollIntoView\(/, "applySetActive must scroll the change into view inline");
-  // Match the CALL form `scheduleDiffScroll(` so this guard's own prose ("scheduleDiffScroll's extra rAF")
-  // doesn't trip it — only an actual deferred-scroll call should fail the test.
   assert.doesNotMatch(body, /scheduleDiffScroll\(/, "applySetActive must NOT defer the crossing scroll via scheduleDiffScroll's rAF");
 });
 
 test("remapComments never drops a comment, even one anchored to a deleted/old-side line", async () => {
   const v = await loadViewer(html);
-  // src/app.ts: `export const y = 2;` -> `export const y = 3;`. The old line text is GONE from the new
-  // content, so a comment anchored to it (old-side, or a since-deleted line) can never match — remapComments
-  // used to silently drop it, losing the user's comment even when they considered the file unchanged. It must
-  // now survive (left at its line); only the × button deletes a comment.
   v.window.reviewComments.length = 0;
   v.window.addComment("c", "src/app.ts", 2, "export const y = 2;", "comment on the old/deleted line");
   v.window.addComment("q", "src/app.ts", 1, "export const x = 1;", "comment on an unchanged line");
@@ -1458,7 +1330,7 @@ test("merged view hands grounded evidence over and then empties itself", async (
   await v.clickSourceLine(1);
   await v.openComposer("q");
   await v.writeAndSave("shipit");
-  v.key("?", { metaKey: true }); // Cmd+? → merged view
+  v.key("?", { metaKey: true });
   await v.settle(80);
   assert.ok(v.$("#mc-merged-panel"), "merged view renders");
   const handOff = v.$(".mc-copy-all");
@@ -1466,9 +1338,6 @@ test("merged view hands grounded evidence over and then empties itself", async (
   handOff.click();
   await v.settle(40);
   assert.match(copied, /shipit/, "the complete grounded review text reached the clipboard");
-  // This used to assert the panel stayed open "to keep the evidence visible for inspection". A handed-over
-  // review is spent: it leaves the thread with the clipboard, so there is nothing left to keep visible —
-  // and Cmd+Z is the way back if it went too early (see merged-copy-clear.test.mjs).
   assert.equal(v.$("#mc-merged-panel"), null, "the panel closes once the review has been handed over");
   assert.equal(v.window.reviewComments.length, 0, "and the review is empty");
   v.close();
@@ -1480,19 +1349,19 @@ test("a focused merged dock swallows global shortcuts (F7) until focus leaves it
   await v.clickSourceLine(0);
   await v.openComposer("q");
   await v.writeAndSave("note");
-  v.key("?", { metaKey: true }); // Cmd+? opens the merged questions dock (rendered document takes focus)
+  v.key("?", { metaKey: true });
   await v.settle(80);
   assert.ok(v.$("#mc-merged-panel"), "merged dock open");
 
   let navs = 0;
   const orig = v.window.setActive;
   v.window.setActive = function () { navs += 1; return orig.apply(this, arguments); };
-  v.key("F7"); // a global nav shortcut, dispatched while the dock owns focus
+  v.key("F7");
   await v.settle(40);
   assert.equal(navs, 0, "F7 is swallowed while the dock owns focus (no navigating behind it)");
   assert.ok(v.$("#mc-merged-panel"), "dock stays open — only Esc/close dismisses it, not a nav key");
 
-  v.$("#mc-merged-panel").remove(); // close the dock (focus returns to <body>)
+  v.$("#mc-merged-panel").remove();
   v.key("F7");
   await v.settle(40);
   v.window.setActive = orig;
@@ -1509,12 +1378,11 @@ test("watch update doesn't re-render the open source view when that file didn't 
   await v.openSourceFile("a.ts");
   assert.equal(v.visibleView(), "source");
 
-  const aSig = build.update.fileStates.find((f) => f.path === "a.ts").signature; // current signature of the OPEN file
+  const aSig = build.update.fileStates.find((f) => f.path === "a.ts").signature;
   let seq = 0;
   const mkUpdate = (aSignature, aContent) => ({
     signature: "build-" + ++seq,
     diffContainer: "", changesPanel: "", filesTree: "", reviewStatus: "",
-    // a.ts keeps/loses its signature; b.ts always "changes" — but b.ts is NOT the open file.
     fileStates: [{ path: "a.ts", signature: aSignature }, { path: "b.ts", signature: "b" + seq }],
     sourceFilesMeta: [
       { path: "a.ts", name: "a.ts", language: "typescript", content: aContent, size: aContent.length, embedded: true, changed: aSignature !== aSig, changedLines: [], signature: aSignature },
@@ -1523,17 +1391,14 @@ test("watch update doesn't re-render the open source view when that file didn't 
     httpEnvironments: {},
   });
 
-  // Spy source-view re-renders (openSourceFile is the only thing that repaints #source-body here).
   let opens = 0;
   const orig = v.window.openSourceFile;
   v.window.openSourceFile = function () { opens += 1; return orig.apply(this, arguments); };
 
-  // (a) only b.ts changed → a.ts (open) signature unchanged → source view must NOT be re-rendered (no flicker)
   await v.pushDiffUpdate(mkUpdate(aSig, "const a = 2;\n"));
   assert.equal(opens, 0, "an unrelated file's edit does not re-render the open a.ts source view");
   assert.match(v.$("#source-body").textContent, /const a = 2/, "i18n refresh does not overwrite the live source body with its initial placeholder");
 
-  // (b) a.ts itself changed → the source view IS re-rendered
   await v.pushDiffUpdate(mkUpdate("a-new-sig", "const a = 99;\n"));
   v.window.openSourceFile = orig;
   assert.ok(opens >= 1, "editing the open file does re-render its source view");
@@ -1574,9 +1439,6 @@ test("scrollbars become visible during scrolling and hide again after idle", asy
   v.close();
 });
 
-// REGRESSION: YAML frontmatter was handed straight to the CommonMark parser, where a `---` line UNDER text is
-// a setext H2 — so `---\nname: x\ndescription: y\n---` rendered as one giant bold heading between two rules,
-// with every line it spanned missing from the gutter. It is document metadata, not prose.
 test("YAML frontmatter renders as metadata, not as a giant setext heading", async () => {
   const { html: fm } = await makeReviewHtml([{
     path: "agent.md",
@@ -1593,8 +1455,6 @@ test("YAML frontmatter renders as metadata, not as a giant setext heading", asyn
   assert.equal(v.$("#source-body h2"), null, "the fence is no longer read as a setext heading");
   assert.equal(v.$("#source-body hr"), null, "nor as a pair of thematic breaks");
 
-  // The heading that really is a heading still is one, and the gutter still counts real source lines: the
-  // frontmatter occupies lines 0-3, so `# Doc` sits at index 5 and `Body.` at 7 — not 1 and 3.
   assert.equal(v.$("#source-body h1")?.textContent, "Doc", "real markdown after the fence is unaffected");
   assert.deepEqual(v.sourceRowLineIndices(), [0, 5, 7], "block line indices are shifted past the frontmatter");
   v.close();
@@ -1613,12 +1473,7 @@ test("a --- thematic break in the body is still a thematic break", async () => {
   v.close();
 });
 
-// REGRESSION: the sidebar owns arrow keys while treeFocusIndex >= 0, and nothing in the F7 path focuses a DOM
-// node inside the diff — so after clicking a file in the tree, F7 moved the code caret but arrows kept driving
-// the sidebar. Two symptoms, one cause: "arrows jump to the side panel", and F7 navigating from a stale anchor
-// because the caret never actually moved.
 test("F7 hands arrow keys back to the code caret after the sidebar had focus", async () => {
-  // A file with room to move: two separate edits, with untouched lines between and after them.
   const line = (n, v) => `export const v${n} = ${v};`;
   const body = (a, b) => [line(0, 0), line(1, a), line(2, 2), line(3, 3), line(4, 4),
     line(5, 5), line(6, b), line(7, 7), line(8, 8)].join("\n") + "\n";
@@ -1634,7 +1489,6 @@ test("F7 hands arrow keys back to the code caret after the sidebar had focus", a
   await v.settle(140);
   assert.equal(v.$(".tree-focus"), null, "F7 takes arrow ownership back — the sidebar's focus ring is gone");
 
-  // The click opened the diff at the first edit, so F7 advanced to the second one.
   const caretRow = () => v.$(".mc-diff-cursor-row")?.textContent ?? null;
   const atSecondChange = caretRow();
   assert.match(String(atSecondChange), /666/, "F7 stepped to the next change");
@@ -1643,9 +1497,6 @@ test("F7 hands arrow keys back to the code caret after the sidebar had focus", a
   await v.settle(80);
   assert.notEqual(caretRow(), atSecondChange, "arrows move the diff caret, not the tree cursor");
 
-  // Now the discriminator for the second report: the caret sits just BELOW the 666 edit. Stepping backward
-  // from there lands back on 666. Had F7 kept using a stale anchor (the caret never having moved), backward
-  // would have skipped past it to 111 instead.
   v.key("F7", { shiftKey: true });
   await v.settle(140);
   assert.match(String(caretRow()), /666/, "F7 steps from where the caret actually is, not a stale anchor");
@@ -1657,17 +1508,11 @@ test("a sidebar click still keeps the sidebar's own focus", async () => {
   const change = v.$('.change-row[data-file="src/app.ts"]');
   v.click(change);
   await v.settle(80);
-  // Opening a diff by click routes through setDiffCursor too — clearing tree focus there would have broken
-  // this, which is why the fix lives in the navigation keys instead.
   assert.ok(change.classList.contains("tree-focus"), "clicking a change keeps its row focused");
   assert.equal(v.document.activeElement, change, "and its real DOM focus");
   v.close();
 });
 
-// The window-level shortcuts (merged view, memo, prompts, History, Explain, Changes/Files, undo)
-// belong to the WINDOW, not to whatever has focus — that is why they fire from a focused dock too. Scope is decided once (keyboardScope) and each shortcut is a row in one table, so the rule is
-// readable in one place instead of being re-derived per branch: the old chain carried eight hand-written
-// `!settingsUp &&` guards, and whether a new shortcut landed above or below the focus guard was a coin toss.
 test("window-level shortcuts are one table with one scope rule, and a modal is what stands them down", () => {
   const keymap = readFileSync(new URL("../src/viewer/05-keymap.js", import.meta.url), "utf8");
 
@@ -1676,24 +1521,16 @@ test("window-level shortcuts are one table with one scope rule, and a modal is w
   assert.match(keymap, /if \(scope !== 'modal' && runShortcut\(event, WINDOW_SHORTCUT_IDS\)\) return;/,
     "a modal (settings / go-to-line) is the single thing that stands the table down");
 
-  // The combinations themselves are no longer here. They live in src/shortcuts.ts, which the Settings
-  // sheet renders and the bundle carries as SHORTCUT_DEFS, so a key is spelled once and can be rebound;
-  // this file says only what each id DOES. A chord written back into a branch here would undo that.
   for (const id of ["maximizePanel", "allComments", "openHistory", "filesChangesTab", "undoCommentRemoval"]) {
     assert.match(keymap, new RegExp(`\\b${id}:\\s*function`), `${id} is an action, not a branch`);
   }
   assert.doesNotMatch(keymap, /code === 'Digit\d'|code === 'Key[A-Z]'/,
     "no shortcut spells its own physical key here any more");
 
-  // The scope names the keymap works in are the ones the dock helper feeds it.
   const dock = readFileSync(new URL("../src/viewer/08-dock.js", import.meta.url), "utf8");
   assert.match(dock, /function isDockFocused[\s\S]{0,200}dock-panel/, "a focused merged/memo dock is a panel");
 });
 
-// The caret is an inline-block 1.25em tall, aligned to text-bottom. An empty line has no text box for that to
-// align against, so the caret hung out of its row and read as straddling this line and the next. Taken out of
-// the flow, its height cannot push anything around. jsdom has no layout, so what is pinned here is that the
-// empty-line path is the one taken — the geometry itself lives in viewer.css.
 test("the caret on an empty line is taken out of the flow", async () => {
   const { html: gapped } = await makeReviewHtml([
     { path: "src/gap.ts", before: "const a = 1;\n\nconst b = 2;\n", after: "const a = 9;\n\nconst b = 2;\n" },
@@ -1711,7 +1548,6 @@ test("the caret on an empty line is taken out of the flow", async () => {
   assert.ok(caret, "an empty line still shows a caret");
   assert.ok(caret.classList.contains("code-cursor-empty"), "and it is the out-of-flow one");
 
-  // A line WITH text keeps the inline caret — that is what puts it between the right two characters.
   v.window.insertSourceCaret(filled, 1);
   const inline = filled.querySelector(".code-cursor");
   assert.ok(inline, "a filled line has one too");
@@ -1719,10 +1555,6 @@ test("the caret on an empty line is taken out of the flow", async () => {
   v.close();
 });
 
-// ⌘2 hands the keyboard to the Changes tree, and pressing it again closes the panel and hands the keyboard
-// back. Only the first half said so: collapsing cleared the tree's focus ring and then left the diff caret
-// parked wherever it had been — no re-render, no reveal, no arrival flash — so the review looked like it had
-// no keyboard at all until an arrow key was pressed.
 test("closing the Changes panel with ⌘2 puts the caret back on the diff, without waiting for an arrow", async () => {
   const v = await loadViewer(html);
   await v.openDiffFor("src/app.ts");
@@ -1732,8 +1564,6 @@ test("closing the Changes panel with ⌘2 puts the caret back on the diff, witho
   await v.settle(60);
   assert.ok(v.$(".tree-focus"), "the first press moves the keyboard to the Changes tree");
 
-  // Tag the caret that is on screen now: re-asserting the cursor rebuilds the span (clearDiffCaret first),
-  // so a surviving tag means the caret was merely left where it was.
   const stale = v.$("#diff2html-container .code-cursor");
   assert.ok(stale, "the diff had a caret before the panel took the keyboard");
   stale.dataset.stale = "1";

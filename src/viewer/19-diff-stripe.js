@@ -1,10 +1,3 @@
-// The overview stripe: every change in the open file as one column beside the scrollbar, plus a box
-// showing where in the file you currently are. IntelliJ calls it the error stripe; the question it answers
-// is the one a scrollbar cannot — "how much of this file changed, and where is the rest of it" — which in a
-// review is the first thing you want to know about a file you just opened.
-//
-// Marks are drawn for change runs and for comment threads. A run, not a line: a twelve-line hunk is one
-// thing a reviewer goes to, and twelve marks a pixel apart are a smear rather than a map.
 
 var diffStripeRaf = 0;
 
@@ -12,7 +5,6 @@ function diffStripeScroller() {
   return document.getElementById('diff2html-container');
 }
 
-/** The stripe element, created on first use beside the diff scroller (never inside it — it must not scroll). */
 function diffStripeElement() {
   var scroller = diffStripeScroller();
   if (!scroller || !scroller.parentElement) return null;
@@ -24,8 +16,6 @@ function diffStripeElement() {
   stripe.innerHTML = '<div class="diff-stripe-viewport" aria-hidden="true"></div>';
   stripe.setAttribute('role', 'presentation');
   scroller.parentElement.appendChild(stripe);
-  // A click is "take me there": the fraction of the stripe clicked is the fraction of the file wanted,
-  // centred rather than put at the top, because what you aimed at is a mark and you want to see around it.
   stripe.addEventListener('click', function (event) {
     var host = diffStripeScroller();
     if (!host) return;
@@ -44,7 +34,6 @@ function scheduleDiffStripe() {
   });
 }
 
-/** The code cell of a side-by-side row — the one carrying the change classes, not the line-number cell. */
 function diffStripeCodeCell(row) {
   return row
     ? row.querySelector('td:not(.d2h-code-side-linenumber):not(.d2h-code-linenumber)')
@@ -96,14 +85,11 @@ function diffStripeMarks(wrapper, scroller) {
     else if (newCell && newCell.classList.contains('d2h-ins')) kind = 'ins';
     else if (oldCell && oldCell.classList.contains('d2h-del')) kind = 'del';
     if (!kind) { flush(); continue; }
-    // A deletion run immediately followed by an insertion run is one edit to the reader, so a run whose
-    // kind changes becomes a "change" rather than two marks a pixel apart.
     if (runKind && runKind !== kind) runKind = 'change';
     else if (!runKind) runKind = kind;
     runRows.push(row);
   }
   flush();
-  // Positions are viewport-relative so far; turn them into fractions of the whole scrollable content.
   var scrollerRect = scroller.getBoundingClientRect();
   var total = Math.max(1, scroller.scrollHeight);
   return marks.map(function (mark) {
@@ -115,24 +101,12 @@ function diffStripeMarks(wrapper, scroller) {
   });
 }
 
-/**
- * Puts the stripe over the scroller's box — the pane also holds a toolbar, and the scroller's height
- * changes with the window. `offsetWidth - clientWidth` is the vertical scrollbar: where one takes space
- * (Windows, Linux, and macOS when "always show" is set) the stripe sits beside it rather than under it.
- */
 function placeDiffStripe(stripe, scroller) {
   stripe.style.top = scroller.offsetTop + 'px';
   stripe.style.height = scroller.clientHeight + 'px';
   stripe.style.right = Math.max(0, scroller.offsetWidth - scroller.clientWidth) + 'px';
 }
 
-/**
- * Where in the file the reader is — the only part that moves while scrolling.
- *
- * Reads three properties, then writes two styles, and deliberately does NOT re-place the stripe: writing a
- * style and then reading a layout property forces a synchronous layout, and this runs on every scroll
- * frame. The stripe's own box is placed when the diff is rendered and when the window resizes.
- */
 function updateDiffStripeViewport() {
   var stripe = document.getElementById('diff-stripe');
   var scroller = diffStripeScroller();
@@ -151,8 +125,6 @@ function renderDiffStripe() {
   var wrapper = diffActiveWrapper();
   if (!scroller || !wrapper || !isDiffViewVisible()) { stripe.classList.add('hidden'); return; }
   var marks = diffStripeMarks(wrapper, scroller);
-  // Nothing to map: a file with no changes on screen (a hunkless file, an unreadied lazy body) gets no
-  // ruler rather than an empty one, which would read as "this file has no changes".
   if (!marks.length) { stripe.classList.add('hidden'); return; }
   stripe.classList.remove('hidden');
   var html = '<div class="diff-stripe-viewport" aria-hidden="true"></div>';
@@ -168,9 +140,7 @@ function renderDiffStripe() {
 (function wireDiffStripe() {
   var scroller = diffStripeScroller();
   if (scroller) {
-    // Scrolling moves the viewport box only — no re-measure, so this stays a style write per frame.
     scroller.addEventListener('scroll', updateDiffStripeViewport, { passive: true });
   }
-  // A window resize changes both the content height and the stripe's own, so the marks move.
   window.addEventListener('resize', scheduleDiffStripe);
 })();

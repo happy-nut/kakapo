@@ -1,16 +1,3 @@
-// Code Vision and inlay hints were plumbed, keyed, menued, documented — and blank, in the language this
-// app is written in. Two separate reasons, both invisible to every test that stubbed the analysis bridge,
-// because nothing in the client was broken: it asked, the server answered `ok`, and the answer was empty.
-//
-//  1. kakapo sent `workspace/didChangeConfiguration` with `{}`. typescript-language-server takes that
-//     notification's `settings` AS its workspace configuration and reads Code Vision and inlay hints out
-//     of exactly those keys, so both were off for every TypeScript and JavaScript review.
-//  2. A server may answer `textDocument/codeLens` with `{range, data}` and no title, expecting one
-//     `codeLens/resolve` per lens. That is not an edge case — typescript-language-server does it for
-//     EVERY lens — and the client dropped every title-less lens rather than resolving it.
-//
-// Both halves live in LspClient, so this drives a real one over stdio against a server that behaves the
-// way the real one does.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
@@ -18,7 +5,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LspClient } from "../dist/lsp.js";
 
-/** A server that answers only what this test is about, and records the configuration it was handed. */
 function fakeServer(root, settingsFile, lensCount, firstCount) {
   const path = join(root, "server.mjs");
   writeFileSync(path, `
@@ -67,13 +53,6 @@ process.stdin.on("data", (chunk) => {
   return path;
 }
 
-/**
- * Run `body` against a fresh client and ALWAYS dispose it.
- *
- * A failing assertion must still kill the server: without this the first `assert` to fail skipped the
- * `dispose()` below it, the fake server survived the test file, and `node --test` waited on it forever —
- * so the suite could only ever report success. A guard that cannot fail out loud is not a guard.
- */
 async function withClient(lensCount, body, firstCount = 1) {
   const host = clientAgainst(lensCount, firstCount);
   try {
@@ -88,7 +67,6 @@ function clientAgainst(lensCount, firstCount) {
   writeFileSync(join(root, "one.ts"), "export const one = 1;\n");
   const settingsFile = join(root, "settings.json");
   const client = new LspClient(root, {
-    // The family is what picks the settings, so it has to be the real one.
     family: "typescript", name: "fake-ts", command: process.execPath,
     args: [fakeServer(root, settingsFile, lensCount, firstCount)], source: "project",
   });
@@ -127,8 +105,6 @@ test("a lens with no title is resolved, not dropped", async () => {
   });
 });
 
-// The bound the resolving replaces the old "drop them all" with. 300 is the cap; a file with more
-// declarations than that is read one screen at a time anyway.
 test("one file's Code Vision is bounded", async () => {
   await withClient(420, async ({ client }) => {
   const { lenses } = await client.codeLenses("one.ts");
@@ -136,12 +112,6 @@ test("one file's Code Vision is bounded", async () => {
   });
 });
 
-// A server answers "0 references" about a file it has no project for — typescript-language-server gives
-// anything outside tsconfig.json#include a single-file inferred project, where every cross-file reference
-// is invisible — and the page printed that figure verbatim above the declaration. On this repository's own
-// viewer slices that was 66 of 121 rows reading "0 references" over functions with live call sites, which
-// is the one thing a decoration is not allowed to do: assert, in the compiler's voice, something it does
-// not know. See assertsNothing in lsp.ts. Drawn nowhere is the answer IntelliJ gives too.
 test("a lens that asserts nothing is not drawn", async () => {
   await withClient(3, async ({ client }) => {
     const { supported, lenses } = await client.codeLenses("one.ts");
@@ -153,8 +123,6 @@ test("a lens that asserts nothing is not drawn", async () => {
   }, 0);
 });
 
-// The suppression is about a count of nothing, not about the digit 0 or about numbers in general: a lens
-// that reads "Run | Debug" has no number and one that reads "10 references" has a zero inside it.
 test("only a count of nothing is suppressed", async () => {
   const { assertsNothing } = await import("../dist/lsp.js");
   for (const title of ["0 references", "0 implementations", "0 references | 0 implementations", "0 overrides"]) {

@@ -1,14 +1,4 @@
 #!/usr/bin/env node
-// READ-8: what each caret chord actually selects, in the real app.
-//
-//   node .claude/skills/verify-kakapo/caret-chords.mjs
-//
-// Written for a reported bug — "Cmd+Shift+Right selects nothing and scrolls to the bottom" — and kept
-// because the bug was a chord COLLISION, which is the kind a jsdom test cannot see: the suite dispatches
-// a KeyboardEvent straight at the page, so it never asks who else claimed the key first. Here the key
-// goes in below the page and the answer is whatever the whole dispatch chain does with it.
-//
-// `⌘→` and `⌥→` selecting nothing is correct: they MOVE the caret. Only the three Shift forms select.
 import { drive, makeRepo } from "./drive.mjs";
 
 const LINE = "export function recoverableTransfers(rows: string[], limit: number): string[] {";
@@ -23,8 +13,6 @@ repo.put("src/z.ts", `${LINE}\n  return rows.slice(0, limit);\n}\n`);
 await drive("caret", repo, async (page, h) => {
   const sel = () => page.evaluate(`(() => { const s = window.getSelection(); return s ? s.toString() : ''; })()`);
   const seat = async (whichFile) => {
-    // Put the caret a few characters into the long line of the named file. Counting among the rows that
-    // are DRAWN, because the diff paints a window and leaves the rest zero-height.
     const idx = await page.evaluate(`(() => {
       const all = Array.from(document.querySelectorAll('.d2h-file-wrapper'));
       const w = all.find(e => e.dataset.path === ${JSON.stringify(whichFile)});
@@ -64,7 +52,6 @@ await drive("caret", repo, async (page, h) => {
     h.check(true, `${name}  ->  ${picked ? JSON.stringify(picked) : "nothing selected (a move, not a selection)"}`);
   }
 
-  // The other half of the rebind: stepping files must still work, at its new chord. Cmd+Alt+Right.
   await seat("src/a.ts");
   const activeFile = () => page.evaluate(`(() => {
     const w = document.querySelector('.d2h-file-wrapper.is-active') ||
@@ -76,7 +63,7 @@ await drive("caret", repo, async (page, h) => {
     return top ? top.dataset.path : '(none)';
   })()`);
   const wasOn = await activeFile();
-  await page.key("ArrowRight", "ArrowRight", 39, 5); // Meta 4 + Alt 1
+  await page.key("ArrowRight", "ArrowRight", 39, 5);
   await h.sleep(700);
   const nowOn = await activeFile();
   h.check(nowOn !== wasOn, "Cmd+Alt+Right still steps to the next file in the diff", `${wasOn} -> ${nowOn}`);

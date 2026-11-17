@@ -10,10 +10,6 @@ import { EMPTY_PROJECT_LAYOUT, type ProjectLayout } from "./project-layout.js";
 import { REVIEW_ISLAND } from "./viewer-contract.js";
 import { SHORTCUTS, SHORTCUT_GROUPS } from "./shortcuts.js";
 
-// A control that does the same thing as a shortcut advertises it by ID. The chord rendered here is the
-// table's; applyI18n (01-core.js) refreshes it from the table on every locale change, which is also what
-// keeps it honest once the key has been rebound. `id:n` picks one combination of a pair — ⌘1 is the Files
-// half of filesChangesTab, ⌘2 the Changes half.
 function keyHint(ref: string): string {
   const [id, index] = ref.split(":");
   const def = SHORTCUTS.find((s) => s.id === id);
@@ -40,12 +36,6 @@ const packageVersion: string = (() => {
   }
 })();
 
-// Welcome screen for the packaged .app (double-clicked, no cwd): an "Open Folder" button that asks the main
-// process (window.kakapoApp.openFolder, exposed via preload) to pick a git repo and load its review.
-// One shortcut row: what it does on the left, the keys on the right, each key its own chip — the way a
-// macOS menu or a system Keyboard pane spells a combination out. A single `<kbd>⌘⇧O</kbd>` made the whole
-// combination one lump, so the eye had to parse the glyph run itself; three chips read as three keys.
-// `⌥A / ⌥U` is two combinations for one action and stays two groups with the slash between them.
 const MODIFIER_GLYPHS = new Set(["⌘", "⇧", "⌥", "⌃"]);
 function keyChips(combo: string): string {
   return combo.split(" / ").map((group) => {
@@ -55,33 +45,23 @@ function keyChips(combo: string): string {
       chips.push(rest[0]);
       rest = rest.slice(1);
     }
-    // The key itself: a letter, a word like Enter / Space / F7 — or an arrow cluster, which is four keys
-    // rather than one label and so splits the same way the modifiers do.
     if (/^[←↑↓→]+$/.test(rest)) chips.push(...rest.split(""));
     else if (rest.length) chips.push(rest);
     return `<span class="keys-combo">${chips.map((c) => `<kbd>${escapeHtml(c)}</kbd>`).join("")}</span>`;
   }).join('<span class="keys-or">/</span>');
 }
 function shortcutRow(combo: string, i18nKey: string, label: string, id = "", fixed = ""): string {
-  // `data-shortcut` is what the rebinding UI clicks on; a fixed row says why it is not up for grabs instead
-  // of quietly ignoring the click.
   const attrs = id ? ` data-shortcut="${escapeAttr(id)}"${fixed ? ` data-fixed="${escapeAttr(fixed)}"` : ""}` : "";
   return `<div class="keys-row"${attrs}><span class="keys-label" data-i18n="${i18nKey}">${escapeHtml(label)}</span>`
     + `<span class="keys-keys">${keyChips(combo)}</span></div>`;
 }
 
-// The sheet's own English, read from the same message catalogue every other string comes from — a second
-// copy beside `data-i18n` is how the two came to disagree ("Files / Changes tab" vs "Focus / toggle Files
-// or Changes sidebar") with nothing to notice.
 function enLabel(key: string): string {
   const text = (MESSAGES.en as Record<string, string>)[key];
   if (!text) throw new Error(`shortcut sheet: no English string for "${key}"`);
   return text;
 }
 
-// The Settings sheet is the table, rendered. It used to be 53 hand-written rows beside a dispatcher that
-// spelled the same chords again in its own `if`s — which is how five working shortcuts (⌘K, ⌥F1, ⌘Z, F2,
-// ⌘F7) came to be undocumented and nothing noticed.
 function shortcutSheetHtml(): string {
   return SHORTCUT_GROUPS.map((group) => {
     const rows = group.ids.map((id) => {
@@ -103,8 +83,6 @@ export function renderWelcomeHtml(
   const bg = light ? "#ffffff" : "#2b2b2b";
   const fg = light ? "#1f2328" : "#a9b7c6";
   const brandMark = kakapoIconHtml("brand-mark", "Kakapo");
-  // Recent projects (IntelliJ-style): one click reopens a previously reviewed repo. Each row carries its
-  // absolute path in data-path; the click handler hands it to kakapoApp.openRecent.
   const recentItems = recent
     .map(
       (p) =>
@@ -127,9 +105,6 @@ export function renderWelcomeHtml(
     "<style>",
     `:root { ${kakapoIconCssVariable()}; }`,
     "* { box-sizing: border-box; }",
-    // The same hiddenInset BrowserWindow hosts this screen. Auto margins center a short project list, but
-    // collapse to zero when twelve recents make the card tall, so it scrolls from below the traffic lights
-    // instead of overflowing upward underneath them.
     `body { margin: 0; min-height: 100vh; display: flex; padding: 40px 24px 24px; overflow: auto; background: ${bg}; color: ${fg}; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; }`,
     ".card { width: 520px; max-width: 100%; padding: 40px; margin: auto; text-align: center; }",
     ".brand-mark { display: inline-block; width: 48px; height: 48px; background: var(--kakapo-ui-icon) center/contain no-repeat; }",
@@ -139,7 +114,6 @@ export function renderWelcomeHtml(
     ".open-btn:hover { background: #3f78b3; }",
     ".open-btn:disabled { opacity: 0.6; cursor: default; }",
     ".hint { color: #d36c6c; font-size: 12px; min-height: 16px; margin-top: 16px; }",
-    // Recent projects list: left-aligned rows below the Open Folder button.
     ".recents { margin-top: 28px; text-align: left; }",
     ".recents-title { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #808080; margin: 0 0 8px; padding: 0 4px; }",
     ".recent { display: block; width: 100%; text-align: left; padding: 9px 12px; border: 0; border-radius: 8px; background: transparent; color: inherit; cursor: pointer; font: inherit; }",
@@ -169,7 +143,6 @@ export function renderWelcomeHtml(
     `    if (r && r.error === 'unopenable') hint.textContent = ${jsonForScript(t("welcome.unopenable"))};`,
     "  }).catch(function () { btn.disabled = false; });",
     "});",
-    // Recent Projects: click a row to reopen that repo in this window. A removed/non-git folder drops out.
     "var recents = document.getElementById('recents');",
     "if (recents) recents.addEventListener('click', function (e) {",
     "  var item = e.target.closest ? e.target.closest('.recent') : null;",
@@ -189,30 +162,16 @@ export function renderWelcomeHtml(
   ].join("\n");
 }
 
-// Above a size threshold the diff is rendered "lazily": each file's heavy body
-// (the side-by-side tables — hundreds of thousands of rows on big repos) is moved
-// out of the live DOM into an inert <script type="text/html"> island, leaving only
-// a lightweight wrapper + header. The renderer materializes a file's body on demand
-// (scroll-into-view / navigation), so the browser never parses + lays out a giant DOM
-// up front; the UI opens instantly and shortcuts work immediately. Small repos and
-// tests stay on the eager path (below threshold) and are byte-for-byte unchanged.
 export function shouldLazyRender(fileCount: number, totalLines: number): boolean {
   return fileCount > 60 || totalLines > 4000;
 }
 
-// The opening tag of one file's diff wrapper, carrying what the VIEWER keys a file by.
-//
-// It cannot read the key off diff2html's own header, because for a RENAME that header is the compact
-// `src/{old-name.ts → new-name.ts}` spelling — a sentence about two paths, not a path. A review rendered
-// eagerly (small, or a standalone export) therefore had one file whose wrapper nothing could look up:
-// clicking its row in the sidebar left the previous file on screen and the caret never entered it.
 function diffWrapperOpenTag(index: number, file: DiffFile | undefined, firstHunk: number, hunkCount: number): string {
   const path = file ? file.displayPath : "";
   return `<div id="file-${index}" class="d2h-file-wrapper" data-path="${escapeAttr(path)}"`
     + ` data-first-hunk="${firstHunk}" data-hunk-count="${hunkCount}"`;
 }
 
-/** Key every wrapper by its path, for the eager render — the lazy ones are keyed as they are built. */
 export function annotateDiffWrappers(diffHtml: string, files: DiffFile[]): string {
   const parts = diffHtml.split(/(?=<div [^>]*class="d2h-file-wrapper")/);
   let hunkIndex = 0;
@@ -235,7 +194,7 @@ export function splitDiffForLazy(diffHtml: string, files: DiffFile[]): { contain
   const parts = diffHtml.split(/(?=<div [^>]*class="d2h-file-wrapper")/).filter((p) => p.includes('class="d2h-file-wrapper"'));
   const shells: string[] = [];
   const islands: string[] = [];
-  const bodies: string[] = []; // dense, one per file index — used by lazy-LOAD (served on demand)
+  const bodies: string[] = [];
   let hunkIndex = 0;
   parts.forEach((part, i) => {
     const file = files[i];
@@ -245,7 +204,7 @@ export function splitDiffForLazy(diffHtml: string, files: DiffFile[]): { contain
     const marker = '<div class="d2h-files-diff">';
     const open = part.indexOf(marker);
     if (open < 0) {
-      shells.push(part); // no diff body (e.g. binary / pure rename) — leave it materialized
+      shells.push(part);
       bodies.push("");
       return;
     }
@@ -290,12 +249,9 @@ export function extractLazyDiffBody(diffHtml: string): string {
   return after.replace(/<\/div>\s*<\/div>\s*$/, "");
 }
 
-// A ref as the pill prints it: a 40-char SHA is unreadable at 11px, and a branch name is already short.
 function compareRefLabel(ref: string): string {
   return /^[0-9a-f]{40}$/i.test(ref) ? ref.slice(0, 7) : ref;
 }
-// The pill's name and the accent it carries. `count` rides beside the name (rather than inside a translated
-// sentence) so neither language needs interpolation — "Incoming 3" and "리모트에서 받음 3" are the same shape.
 const COMPARE_NAMES: Record<CompareState["mode"], string> = {
   local: "Local changes",
   staged: "Staged",
@@ -303,7 +259,6 @@ const COMPARE_NAMES: Record<CompareState["mode"], string> = {
   incoming: "Incoming",
   manual: "Comparing",
 };
-// The right-hand side of local/staged is the live tree, not a ref — the one side of this that gets translated.
 function compareRightSide(state: CompareState): string {
   if (state.mode === "local") return '<span class="compare-ref" data-i18n="compare.worktree">Working tree</span>';
   if (state.mode === "staged") return '<span class="compare-ref" data-i18n="compare.index">Index</span>';
@@ -312,28 +267,6 @@ function compareRightSide(state: CompareState): string {
   return `<span class="compare-ref">${escapeHtml(compareRefLabel(right))}</span>`;
 }
 
-// The toolbar's review-status slot: ONE pill that answers both halves of "what am I looking at" in reading
-// order — the state's name, then the two refs it stands for. They were drafted as two separate controls (a
-// colored chip, a direction capsule) and merged deliberately: side by side they made the toolbar say the same
-// fact twice, and in the incoming case three times with the banner below. Extracted so the in-place update
-// path can re-render just this strip; renderDiffHtml wraps it in <div class="review-status">.
-//
-// (It replaces the file/hunk counts that used to live here and were removed for duplicating the Changes tab —
-// which is why the slot was sitting empty, collapsed by `.review-status:empty`, ready for this.)
-// The current branch, for the toolbar of whichever view is up.
-//
-// It used to sit in the sidebar's own header band beside the project name, and the two did not fit: that
-// band is the sidebar's width, and measured on a 1728px window with ordinary names — a repository called
-// `kakapo-review-dashboard-service` on `feature/compare-against-remote-branch-tip-and-two-stage-picker` —
-// the project name got 126px of the 234px it needed and the branch got 70px for 62 characters, about eight
-// of them. Next to it `.diff-toolbar-file` was 921px wide holding "a.txt +1 −1". So the band keeps the
-// project name, which is short and stable, and the branch moves to where the room is.
-//
-// Rendered by one function into both toolbars rather than copied into each: only one view is ever up, so
-// only one is ever visible, and a second spelling of this markup is a second thing to keep in step. It
-// carries no id for the same reason — `brand-branch-name` was read with getElementById by two updaters,
-// which would have found whichever copy came first in the document and written the branch into the hidden
-// one. They read the class now, and write to every match.
 function branchChip(branch?: string): string {
   return `<span class="brand-branch${branch ? "" : " hidden"}" data-i18n-title="rail.branch" title="Current branch">`
     + `${BRANCH_ICON}<span class="brand-branch-name" title="${escapeAttr(branch || "")}">${escapeHtml(branch || "")}</span></span>`;
@@ -346,9 +279,6 @@ export function renderReviewStatus(input: { compare?: CompareState; app?: boolea
   const count = typeof state.count === "number" && state.count > 0
     ? `<span class="compare-count">${state.count}</span>`
     : "";
-  // In the app the pill is the handle for the compare dropdown, so it has to be a real button — a <span>
-  // with a click handler is unreachable by keyboard and announces nothing. A static export has no git
-  // process behind it and keeps the plain, inert pill.
   const tag = input.app ? "button" : "span";
   const open = input.app
     ? '<button type="button" id="compare-pill" class="compare-pill compare-' + state.mode + '" aria-haspopup="menu" aria-expanded="false"'
@@ -369,11 +299,6 @@ export function renderReviewStatus(input: { compare?: CompareState; app?: boolea
   ].join("");
 }
 
-// The one state the pill cannot fully explain: the review moved to the remote because there was nothing of
-// yours left to read, and no pill can say WHY. It says only that — the refs are on the pill directly above —
-// plus the single place that leads anywhere from here. (The compare bar has nothing to offer in this state:
-// its patch-set list is `branch point..HEAD`, which is empty when nothing is unpushed, so the bar hides
-// itself. History is where the incoming commits can actually be read.)
 export function renderCompareBanner(state: CompareState | undefined): string {
   if (!state || state.mode !== "incoming") return "";
   return [
@@ -386,17 +311,8 @@ export function renderCompareBanner(state: CompareState | undefined): string {
   ].join("");
 }
 
-// Which tree the sidebar is showing, as two icons in the header row beside the project name. It replaces a
-// pair of full-width text tabs: those came from the era when the activity rail did the switching, and turned
-// back on when the rail was removed. Two big buttons across the top gave the same billing to the thing you
-// read constantly and the thing you open occasionally, and ate the space where file names should start.
-// Icons, in a row that already exists, keep the switch reachable without spending a row on it.
 const SWITCH_ICONS: Record<string, string> = {
-  // The side-by-side diff itself: two panes with a gutter between them. It names the thing the button opens
-  // rather than symbolising it, which is what makes it readable at 14px without the tooltip.
   changes: '<rect x="1.75" y="2.75" width="5" height="10.5" rx="1"/><rect x="9.25" y="2.75" width="5" height="10.5" rx="1"/>',
-  // A tree: one branch turning down and out, with the rows it holds. Deliberately NOT a folder — the tree
-  // this opens is full of folder glyphs, and an icon that repeats its own contents says nothing.
   files: '<path d="M3 2.5v8.5a1 1 0 0 0 1 1h2"/><path d="M3 6.5h3"/><path d="M8 4.5h5M8 8.5h5M8 12.5h5"/>',
 };
 function sidebarSwitch(active: string): string {
@@ -414,8 +330,6 @@ function sidebarSwitch(active: string): string {
 
 export function renderDiffHtml(input: {
   files: DiffFile[];
-  // Files the base changed since this branch left it, so the Changes tree can say so on the row the reader
-  // decides from. Optional: a build with no base, and every standalone caller, simply has nothing to mark.
   collisions?: Map<string, "conflict" | "diverged">;
   diffHtml: string;
   diffIslands?: string;
@@ -432,15 +346,13 @@ export function renderDiffHtml(input: {
   branch?: string;
   watch?: boolean;
   ignoreWhitespace?: boolean;
-  app?: boolean; // Electron app — enable app-only review features such as Git history
-  compare?: CompareState; // what this diff compares — the toolbar pill and, for `incoming`, the banner
-  openPath?: string; // `kakapo <file>`: the file the first paint lands on, relative to the review root
+  app?: boolean;
+  compare?: CompareState;
+  openPath?: string;
   signature?: string;
   generatedAt?: string;
 }): string {
   const fileNav = renderDiffTree(input.files, input.collisions, input.projectLayout?.modules ?? []);
-  // A transport-backed review asks the host for the project tree only when the user opens Files. Keeping
-  // this empty here removes several megabytes of repeated tree markup from large-project startup.
   const sourceNav = input.lazyLoad ? "" : renderSourceTree(input.sourceFiles, input.projectLayout?.modules ?? []);
   const initialSourceFiles = input.lazyLoad
     ? initialReviewSources(input.files, input.sourceFiles, input.openPath)
@@ -463,8 +375,6 @@ export function renderDiffHtml(input: {
     '<meta charset="utf-8">',
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
     '<link rel="icon" href="data:,">',
-    // The macOS title bar, where the app's name is already the first menu-bar item — "Kakapo - foo" spent
-    // half the strip repeating it. Only the dev marker survives: it is how a dev instance is told apart.
     `<title>${escapeHtml(input.projectName)}${input.title.endsWith("(dev)") ? " (dev)" : ""}</title>`,
     "<style>",
     `:root { ${kakapoIconCssVariable()}; }`,
@@ -473,35 +383,20 @@ export function renderDiffHtml(input: {
 
     "</style>",
     "</head>",
-    // No `native-app` class: that layout hid the in-view activity rail because the shell window's title
-    // bar mirrored its icons. The shell is gone, so this rail is the only one and the window keeps a
-    // standard title bar above it.
     "<body>",
-    // Boot overlay (removed by the renderer once bootstrap has painted) covers the blank gap after loadFile.
     `<div id="boot-overlay">${brandLoader}</div>`,
     '<aside class="sidebar" data-i18n-aria="a11y.reviewNav" aria-label="Review navigation">',
     `<div class="sidebar-brand" title="${escapeAttr(input.projectPath)}"><span class="brand-project">${escapeHtml(input.projectName)}</span>${sidebarSwitch(input.lazy ? "changes" : "files")}</div>`,
     '<div class="sidebar-scroll">',
     `<div class="tab-panel${input.lazy ? "" : " hidden"}" id="changes-panel">${fileNav}</div>`,
-    // Transport-backed reviews do not even embed an inert tree island: parsing its multi-megabyte text was
-    // the dominant startup cost. Static lazy reviews retain the self-contained island fallback.
     input.lazy
       ? input.lazyLoad
         ? '<div class="tab-panel hidden" id="files-panel" data-project-index="deferred"></div>'
         : `<div class="tab-panel hidden" id="files-panel"></div><script type="text/html" id="files-tree-html">${sourceNav}</script>`
       : `<div class="tab-panel" id="files-panel">${sourceNav}</div>`,
-    // Handed-over reviews. Outside the tab panels on purpose: a watch rebuild replaces #changes-panel
-    // wholesale, and the archive is client state that must survive that. Hidden until there is something
-    // in it, so a review nobody has handed over yet shows no empty drawer.
     '<div id="archive-panel" class="archive-panel hidden" data-i18n-aria="a11y.archivedReviews" aria-label="Archived reviews"></div>',
     "</div>",
-    // No sidebar footer any more: the usage quota moved to the rail (per-account, not per-workspace), the
-    // version and its update-download ring moved to the rail's foot (per-app, not per-workspace), and the
-    // "update available" flag that was the last thing left is now one dot on the rail's Settings gear. In the
-    // static export there is no rail, so the header above keeps the version there and only there.
     "",
-    // The sidebar's bottom toolbar. It holds the status/actions that used to sit in the header beside the
-    // project name (and, before that, on the activity rail): analysis state on the left, the actions right.
     `<div class="sidebar-tools">${analysisStatus}<span class="sidebar-tools-spacer"></span>${settingsButton}${revealButton}</div>`,
     "</aside>",
     '<div class="sidebar-resizer" aria-hidden="true"></div>',
@@ -516,19 +411,9 @@ export function renderDiffHtml(input: {
       + '</div>',
     '<div class="diff-toolbar-meta">',
     `<div class="review-status">${renderReviewStatus({ compare: input.compare, app: input.app })}</div>`,
-    // The compare dropdown the pill above opens (Electron only). Static markup, filled by 21-compare-menu.js
-    // from kakapoGit.compareMenu() each time it opens — the branch list goes stale the moment anyone commits,
-    // so it is fetched on open rather than baked into the page.
     input.app
       ? '<div id="compare-menu" class="compare-menu hidden" role="menu" data-i18n-aria="compare.menu.aria" aria-label="Compare options">'
         + '<div class="compare-menu-main" role="group">'
-        // The key rides INSIDE the row. data-keyhint would have been the house style, but that attribute is
-        // what the hover tooltip reads, and a tooltip that covers the menu it describes is worse than no hint.
-        // First because it is the question you come back WITH. In this workflow an agent works in a worktree
-        // while the reviewer is elsewhere, so returning to it, "what arrived since I handed off" is asked
-        // before anything else — and it is the one question here that needs no branch and no commit picked.
-        // Hidden until a hand-off has left a mark and the branch has moved past it (21-compare-menu.js), so
-        // a review nobody has handed off sees the menu it always had.
         + '<button type="button" class="compare-menu-row compare-menu-since hidden" role="menuitemradio" aria-checked="false" data-mode="since">'
         + '<span class="compare-menu-label" data-i18n="compare.menu.since">Since you last read</span>'
         + '<span class="compare-menu-note" id="compare-menu-since-note"></span>'
@@ -546,10 +431,6 @@ export function renderDiffHtml(input: {
         + '<kbd class="compare-menu-key">\u2325U</kbd>'
         + '<span class="compare-menu-check" aria-hidden="true"></span>'
         + '</button>'
-        // The third question the control answers: how this working tree differs from the branch's TIP, with
-        // no merge-base reduction. Beside the other two because it is the same kind of choice, and below
-        // them because it is the rarer one — you reach for it when the branch you are comparing with has
-        // moved on without you.
         + '<button type="button" class="compare-menu-row" role="menuitemradio" aria-checked="false" data-mode="tip">'
         + '<span class="compare-menu-label" data-i18n="compare.menu.tip">vs branch tip</span>'
         + '<kbd class="compare-menu-key">\u2325T</kbd>'
@@ -576,43 +457,21 @@ export function renderDiffHtml(input: {
     '<span class="diff-tool-separator" aria-hidden="true"></span>',
     '<button type="button" id="diff-prev-change" class="diff-tool-button"' + keyHint('prevChange') + ' data-i18n-title="diff.previous" data-i18n-aria="diff.previous" title="Previous change" aria-label="Previous change"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 10 4-4 4 4"/></svg></button>',
     '<button type="button" id="diff-next-change" class="diff-tool-button"' + keyHint('nextChange') + ' data-i18n-title="diff.next" data-i18n-aria="diff.next" title="Next change" aria-label="Next change"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button>',
-    // IntelliJ's Compare Previous / Next File, which its diff viewer puts on the toolbar beside the
-    // change arrows for the same reason they are here: "what else in this file" and "what else did it
-    // touch" are two different questions and the second one had no control at all.
     '<button type="button" id="diff-prev-file" class="diff-tool-button"' + keyHint('diffFileStep:1') + ' data-i18n-title="diff.previousFile" data-i18n-aria="diff.previousFile" title="Previous file" aria-label="Previous file"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 8.5 4-4 4 4"/><path d="M4 12h8"/></svg></button>',
     '<button type="button" id="diff-next-file" class="diff-tool-button"' + keyHint('diffFileStep') + ' data-i18n-title="diff.nextFile" data-i18n-aria="diff.nextFile" title="Next file" aria-label="Next file"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h8"/><path d="m4 7.5 4 4 4-4"/></svg></button>',
     '<span class="diff-tool-separator" aria-hidden="true"></span>',
     '<button type="button" id="diff-open-source" class="diff-tool-button"' + keyHint('goToDef') + ' data-i18n-title="diff.openSource" data-i18n-aria="diff.openSource" title="Open source" aria-label="Open source"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 2.5h4l1.5 2h5.5v9h-11z"/><path d="m6 10 2 2 2-2M8 7v5"/></svg></button>',
     '</div>',
     "</div>",
-    // Why the review moved to the remote. Empty (and collapsed by :empty) in every other state, so this is a
-    // strip the toolbar grows only when it has something to explain.
     `<div class="compare-why" id="compare-why">${renderCompareBanner(input.compare)}</div>`,
-    // Patch-set compare bar (Electron only): numbered patch-set buttons split base-left / target-right to
-    // match the side-by-side diff (old | new). The viewer module fills the two groups from
-    // kakapoGit.patchSets(); each button hovers its commit message. Distinct from the per-file path
-    // .diff-pane-header below, which the diff nav fills with the focused file's old→new path.
     input.app
       ? '<div class="patchset-bar" id="patchset-bar" role="group" data-i18n-aria="patchset.bar" aria-label="Compare patch sets">'
-        // The control's own name, said once where the row is read first. These numbers are a branch's
-        // commits offered as comparison points, and the word for that has been "patch set" everywhere this
-        // is written down — the module, the IPC, the tooltips, the aria-labels — while the bar itself
-        // showed "Base 1 2 3 Target" and named the concept nowhere a reader could see it.
-        // The bar's own name is now the way into the ledger. The numbers answer "which one", and they
-        // answer it well once you already know what each one IS — which the bar cannot say, because a
-        // subject, a file count and a date do not fit on a button. The ledger says it; the bar stays the
-        // summary of the ledger, exactly as it reads today.
         + '<button type="button" class="patchset-name" id="patchset-ledger-btn" aria-haspopup="listbox" aria-expanded="false" aria-controls="patchset-ledger" data-i18n="patchset.name" data-i18n-title="patchset.ledgerOpen" title="What each patch set did">Patch sets</button>'
         + '<div class="patchset-ledger hidden" id="patchset-ledger" role="listbox" data-i18n-aria="patchset.ledger" aria-label="Patch sets"></div>'
         + '<div class="patchset-side patchset-side-base">'
         + '<span class="patchset-kind" data-i18n="patchset.base">Base</span>'
         + '<div class="patchset-nums" id="patchset-base-nums" role="group" data-i18n-aria="patchset.pick" aria-label="Base patch set"></div>'
         + '</div>'
-        // What the two sides currently ARE. The bar named the ends of a range with bare digits and put
-        // every commit's subject, sha and date behind a title= — mouse-only, and nowhere at all for a
-        // reader picking a base among thirty-three of them. The space was already here: measured 882px of
-        // empty bar between the two groups, which is why they read as two independent paginators rather
-        // than the two ends of one comparison.
         + '<div class="patchset-summary" id="patchset-summary" aria-live="polite"></div>'
         + '<div class="patchset-side patchset-side-target">'
         + '<div class="patchset-nums" id="patchset-target-nums" role="group" data-i18n-aria="patchset.pickTarget" aria-label="Target patch set"></div>'
@@ -638,12 +497,6 @@ export function renderDiffHtml(input: {
       + branchChip(input.branch)
       + '</div>',
     '<select id="http-env-select" class="http-env-select hidden" data-i18n-title="http.env.title" data-i18n-aria="http.env.aria" title="HTTP Client environment" aria-label="HTTP environment"></select>',
-    // No aria-pressed. This button's NAME changes to the mode you would switch to, which is the right
-    // thing to show a reader — but aria-pressed describes the control's own state, so the two said
-    // opposite things: in raw mode a screen reader announced "Rendered, pressed" while the view was raw.
-    // A button named for its action does not also carry a pressed state.
-    // The title comes from the table too: it was hardcoded English with the chord hand-spelled inside it,
-    // next to a keyHint() that already emits the real one.
     '<button type="button" id="render-toggle" class="plain-button hidden"' + keyHint('toggleRendered') + ' data-i18n-title="btn.renderToggle" title="Rendered / raw Markdown or CSV">Raw</button>',
     '<button type="button" id="line-wrap-toggle" class="diff-tool-button source-line-wrap-toggle hidden" role="checkbox" aria-checked="false"' + keyHint('toggleLineWrap') + ' data-i18n-title="source.lineWrap.title" data-i18n-aria="source.lineWrap" title="Toggle line wrap" aria-label="Line wrap"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 3.75h12"/><path d="M2 8h9a2.5 2.5 0 0 1 0 5H6"/><path d="m7.75 11.25-2 1.75 2 1.75"/></svg></button>',
     '<button type="button" id="back-to-diff" class="plain-button"' + keyHint('nextChange') + ' data-i18n="btn.diff" data-i18n-title="btn.diff.title" title="Back to diff">Diff</button>',
@@ -653,17 +506,11 @@ export function renderDiffHtml(input: {
     '<div id="file-find" class="file-find hidden" role="search" data-i18n-aria="find.aria" aria-label="Find in current file">',
     '<input id="file-find-input" class="file-find-input" type="search" autocomplete="off" spellcheck="false" data-i18n-ph="find.placeholder" placeholder="Find in current file">',
     '<span id="file-find-count" class="file-find-count" aria-live="polite">0/0</span>',
-    // IntelliJ's editor find toolbar carries these four between the match count and the step arrows:
-    // Match Case, Words, Regex, Search In Selection (its Toggle* actions in find/editorHeaderActions).
-    // Glyph toggles, like the Find in Files strip above — the glyph is decorative and the accessible name
-    // and tooltip are the translated words.
     '<span class="file-find-options">',
     '<button type="button" id="file-find-match-case" class="file-find-option" aria-pressed="false"' + keyHint('searchMatchCase') + ' data-i18n-title="quickopen.matchCase" data-i18n-aria="quickopen.matchCase" title="Match case" aria-label="Match case"><span aria-hidden="true">Cc</span></button>',
     '<button type="button" id="file-find-whole-words" class="file-find-option" aria-pressed="false"' + keyHint('searchWholeWords') + ' data-i18n-title="quickopen.wholeWords" data-i18n-aria="quickopen.wholeWords" title="Whole words" aria-label="Whole words"><span aria-hidden="true">W</span></button>',
     '<button type="button" id="file-find-regex" class="file-find-option" aria-pressed="false"' + keyHint('searchRegex') + ' data-i18n-title="quickopen.regex" data-i18n-aria="quickopen.regex" title="Regular expression" aria-label="Regular expression"><span aria-hidden="true">.*</span></button>',
     '<button type="button" id="file-find-in-selection" class="file-find-option" aria-pressed="false"' + keyHint('findInSelection') + ' data-i18n-title="find.inSelection" data-i18n-aria="find.inSelection" title="Search in selection" aria-label="Search in selection"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" aria-hidden="true"><path d="M4 2.5H2.5v11H4"/><path d="M12 2.5h1.5v11H12"/><path d="M6 8h4"/></svg></button>',
-    // IntelliJ's Search In Changes, which its diff toolbar keeps beside this field. The glyph is the two
-    // marks a changed line carries in the gutter either side of a seam.
     '<button type="button" id="file-find-changes-only" class="file-find-option" aria-pressed="false"' + keyHint('searchChangesOnly') + ' data-i18n-title="find.changesOnly" data-i18n-aria="find.changesOnly" title="Search in changes" aria-label="Search in changes"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" aria-hidden="true"><path d="M3 4.5h4"/><path d="M5 2.5v4"/><path d="M9 11.5h4"/><path d="M2.5 13.5 13.5 2.5"/></svg></button>',
     '</span>',
     '<button type="button" id="file-find-prev" class="file-find-button" data-keyhint-id="findEnter:1" data-i18n-title="find.previous" data-i18n-aria="find.previous" title="Previous match" aria-label="Previous match">&#8593;</button>',
@@ -672,17 +519,10 @@ export function renderDiffHtml(input: {
     '</div>',
     "</main>",
     input.app
-      // Both labels come from the string table: they were written in English here, in a file whose whole
-      // job is to be read in two languages, and a screen reader is exactly the reader who cannot infer
-      // around that. monaco.peekHint two lines down was already doing it correctly.
       ? '<aside id="semantic-peek" class="semantic-peek hidden" data-i18n-aria="peek.aria" aria-label="Semantic Peek">'
         + '<div class="semantic-peek-header"><div class="semantic-peek-heading"><div id="semantic-peek-title" class="semantic-peek-title">Semantic Peek</div><div id="semantic-peek-meta" class="semantic-peek-meta"></div></div>'
         + '</div><div id="semantic-peek-results" class="semantic-peek-results" role="listbox" tabindex="0" data-i18n-aria="peek.list" aria-label="Semantic locations"></div>'
         + '</aside>'
-        // Quick Documentation: prose, not a list of places, so it is a panel of its own rather than a mode
-        // of the one above. It borrows that panel's caret positioning (positionPanelAtCaret) and nothing
-        // else. Gated on `app` for the same reason the peek is: there is no language server to ask in a
-        // standalone HTML review.
         + '<aside id="quick-doc" class="quick-doc hidden" role="dialog" data-i18n-aria="quickdoc.aria" aria-label="Quick documentation">'
         + '<div class="quick-doc-head"><span id="quick-doc-title" class="quick-doc-title"></span><span id="quick-doc-meta" class="quick-doc-meta"></span></div>'
         + '<div id="quick-doc-body" class="quick-doc-body" tabindex="0"></div>'
@@ -690,22 +530,9 @@ export function renderDiffHtml(input: {
       : "",
     '<div id="quick-open" class="quick-open hidden" role="dialog" aria-modal="true" data-i18n-aria="quickopen.aria" aria-label="Quick open">',
     '<div class="quick-open-panel">',
-    // The rail: one dialog, several searches, and a list of them down the left so none of them depends on
-    // remembering a chord.
-    //
-    // It IS IntelliJ's Search Everywhere tab strip, in IntelliJ's own order and with IntelliJ's own
-    // chords beside each row — SearchEverywhereTabsShortcutsUtils.createShortcutsMap builds exactly this
-    // map: All on the double Shift, then Classes (GotoClass), Files (GotoFile), Symbols (GotoSymbol),
-    // Actions (GotoAction) and Text (TextSearchAction). `data-se-tab` marks the rows that cycle with
-    // Tab / ⇧Tab; the two below the separator are this app's own and stay out of the cycle.
-    //
-    // The review-comments dock is deliberately NOT listed: commenting happens in the code itself, so the
-    // merged view is a legacy surface — reachable by ⌘⇧/ and its rail dispatch, but not advertised here.
     '<nav id="quick-open-side" class="quick-open-side" data-i18n-aria="a11y.quickOpenSections" aria-label="Sections">',
     '<button type="button" class="quick-open-side-item" data-se-tab data-section="everywhere"' + keyHint('searchEverywhere') + '><span data-i18n="quickopen.everywhere">All</span></button>',
     '<button type="button" class="quick-open-side-item" data-se-tab data-section="classes"' + keyHint('goToClass') + '><span data-i18n="quickopen.tabClasses">Classes</span></button>',
-    // Every row names its chord. "Search files" showed none on the grounds that it HAS none, which the
-    // table contradicts — ⌘P is `searchFiles`, and `searchFiles` opens exactly this section.
     '<button type="button" class="quick-open-side-item" data-se-tab data-section="all"' + keyHint('searchFiles') + '><span data-i18n="quickopen.tabFiles">Files</span></button>',
     '<button type="button" class="quick-open-side-item" data-se-tab data-section="symbol"' + keyHint('workspaceSymbol') + '><span data-i18n="quickopen.tabSymbols">Symbols</span></button>',
     '<button type="button" class="quick-open-side-item" data-se-tab data-section="actions"' + keyHint('findAction') + '><span data-i18n="quickopen.tabActions">Actions</span></button>',
@@ -715,37 +542,18 @@ export function renderDiffHtml(input: {
     '<button type="button" class="quick-open-side-item" data-section="history"' + keyHint('openHistory') + '><span data-i18n="rail.history">History</span></button>',
     '</nav>',
     '<div class="quick-open-title"><span id="quick-open-mode">Search files</span><span id="quick-open-filter" class="quick-open-filter"></span></div>',
-    // Labelled BY the title above it, not by a placeholder. A placeholder is not a label — it is the first
-    // thing to go when anyone types — and this one was bound to the same i18n key as the title one line
-    // up, so the dialog opened saying "Search files" twice, in two faces and two sizes. The mode sets the
-    // placeholder on every open (03-quick-open.js) and declines it when it would only repeat the title,
-    // which is why there is no data-i18n-ph here for applyI18n to put back.
     '<input id="quick-open-input" type="search" autocomplete="off" spellcheck="false" aria-labelledby="quick-open-mode">',
     '<div id="quick-open-search-options" class="quick-open-search-options">',
-    // IntelliJ calls this the file mask (FindBundle's find.popup.filemask) and takes comma-separated globs
-    // in it, `!` to exclude. So does this now; it used to reduce every entry to a bare extension.
     '<label class="quick-open-extension-field" for="quick-open-extensions"><span data-i18n="quickopen.fileMask">File mask</span><input id="quick-open-extensions" type="text" autocomplete="off" spellcheck="false" data-i18n-ph="quickopen.fileMaskPlaceholder" placeholder="All · *.ts, !*.d.ts"' + keyHint('searchExtensions') + ' data-i18n-title="quickopen.fileMask" title="File mask"></label>',
     '<button type="button" id="quick-open-exclude-noise" class="quick-open-option-toggle" aria-pressed="false"' + keyHint('excludeSearchNoise') + '><span class="quick-open-option-check" aria-hidden="true"></span><span data-i18n="quickopen.excludeNoise">Exclude comments &amp; tests</span></button>',
-    // IntelliJ's scope selector. The scopes are its own predefined ones, minus the ones this app has no
-    // answer for (no library sources are indexed, and every file here is a project file).
     '<label class="quick-open-scope-field" for="quick-open-scope"><span data-i18n="quickopen.scope">Scope</span>'
       + '<select id="quick-open-scope"' + keyHint('searchScope') + '></select></label>',
-    // IntelliJ's Cc / W / .* — glyph toggles rather than three more labelled checkboxes, which is what
-    // IntelliJ does too and what keeps the strip one line wide. The glyph is decorative; the accessible
-    // name and the tooltip are the translated words.
     '<span class="quick-open-option-glyphs">',
     '<button type="button" id="quick-open-match-case" class="quick-open-option-glyph" aria-pressed="false"' + keyHint('searchMatchCase') + ' data-i18n-title="quickopen.matchCase" data-i18n-aria="quickopen.matchCase" title="Match case" aria-label="Match case"><span aria-hidden="true">Cc</span></button>',
     '<button type="button" id="quick-open-whole-words" class="quick-open-option-glyph" aria-pressed="false"' + keyHint('searchWholeWords') + ' data-i18n-title="quickopen.wholeWords" data-i18n-aria="quickopen.wholeWords" title="Whole words" aria-label="Whole words"><span aria-hidden="true">W</span></button>',
     '<button type="button" id="quick-open-regex" class="quick-open-option-glyph" aria-pressed="false"' + keyHint('searchRegex') + ' data-i18n-title="quickopen.regex" data-i18n-aria="quickopen.regex" title="Regular expression" aria-label="Regular expression"><span aria-hidden="true">.*</span></button>',
     '</span>',
-    // IntelliJ's usage view carries two toolbars over the same list: Group By — its grouping rules, one
-    // toggle per rank (UsageGroupingRulesDefaultRanks) — and a filtering row that hides read accesses,
-    // write accesses or imports. Chips in the strip that is already here rather than a gear popup: WHICH
-    // divisions are on is the thing a reader needs to see at a glance, not something to go and open.
     '<span id="quick-open-usage-options" class="quick-open-usage-options">',
-    // Expand All / Collapse All, which IntelliJ's usage-view toolbar carries beside the Group By menu.
-    // Buttons rather than chords: there are nine chords on this strip already, and these two are the ones
-    // IntelliJ itself puts on the toolbar.
     '<button type="button" class="quick-open-usage-icon" data-usage-tree="expand" data-i18n-title="usagegroup.expandAll" data-i18n-aria="usagegroup.expandAll" title="Expand all" aria-label="Expand all"><span aria-hidden="true">▾</span></button>',
     '<button type="button" class="quick-open-usage-icon" data-usage-tree="collapse" data-i18n-title="usagegroup.collapseAll" data-i18n-aria="usagegroup.collapseAll" title="Collapse all" aria-label="Collapse all"><span aria-hidden="true">▸</span></button>',
     '<span class="quick-open-usage-label" data-i18n="usagegroup.title">Group by</span>',
@@ -782,10 +590,6 @@ export function renderDiffHtml(input: {
     '</aside>',
     '<div class="settings-body">',
     '<section class="settings-section" data-cat="general">',
-    // Update status + one-click self-update (Electron); harmless no-ops in the browser build. Shaped like every
-    // other preference on this page — a labelled row with its control on the right — instead of the loose blue
-    // headline over a full-width button it used to be, which read as an alert bar rather than a setting.
-    // The installed version is the row's label, so the status line underneath only has to say what is going on.
     '<div class="settings-card">',
     '<div class="settings-card-title" data-i18n="settings.update">Update</div>',
     '<div class="settings-row">',
@@ -794,62 +598,37 @@ export function renderDiffHtml(input: {
     '<button type="button" id="app-info-update" class="plain-button app-info-update hidden" data-i18n="settings.updateRestart">Update &amp; Restart</button>',
     '</div>',
     '</div>',
-    // Appearance card: language + light/dark/system theme + code theme family, each a label/hint on the left and
-    // the custom themable dropdown on the right (native <select> popups ignore the app theme).
     '<div class="settings-card">',
     '<div class="settings-card-title" data-i18n="settings.appearance">Appearance</div>',
     '<div class="settings-row"><div class="settings-row-text"><span class="settings-row-label" data-i18n="settings.language">Language</span></div><button type="button" id="settings-language" class="settings-select mc-select" data-i18n-aria="settings.language"></button></div>',
-    // Theme is one pick, not two: the family (Kakapo / Darcula) and the light/dark appearance were separate
-    // dropdowns whose product you had to assemble in your head. A swatch grid shows every real theme at once,
-    // each previewing its own canvas and accent — the choice is visible, not described.
     '<div class="settings-row settings-row-stacked"><div class="settings-row-text"><span class="settings-row-label" data-i18n="settings.theme">Theme</span></div>',
     '<div id="settings-theme-grid" class="theme-grid" role="radiogroup" data-i18n-aria="settings.theme"></div></div>',
-    // One scale for the whole app rather than a code-font size: the review is chrome + tree + diff, and
-    // sizing only the code leaves the rest mismatched. Applied by main as a Chromium zoom factor.
     '<div class="settings-row"><div class="settings-row-text"><span class="settings-row-label" data-i18n="settings.uiScale">Font size</span><span class="settings-row-hint" data-i18n="settings.uiScale.hint">Scales the whole interface.</span></div><button type="button" id="settings-ui-scale" class="settings-select mc-select" data-i18n-aria="settings.uiScale"></button></div>',
-    // How a changed line is marked. Not a rebuild: diff2html always emits the per-character <ins>/<del>,
-    // so all three readings are CSS over one DOM (see data-diff-highlight in viewer.css).
     '<div class="settings-row"><div class="settings-row-text"><span class="settings-row-label" data-i18n="settings.diffHighlight">Changed lines</span><span class="settings-row-hint" data-i18n="settings.diffHighlight.hint">How much of a changed line is coloured.</span></div><button type="button" id="settings-diff-highlight" class="settings-select mc-select" data-i18n-aria="settings.diffHighlight"></button></div>',
     '</div>',
     '</section>',
-    // Keyboard shortcuts moved to their own category so General stays a short, scannable preferences page.
     '<section class="settings-section hidden" data-cat="shortcuts">',
     '<div class="app-info-keys">' +
     '<div class="app-info-keys-h" data-i18n="settings.kbd.title">Keyboard shortcuts</div>' +
     shortcutSheetHtml() +
     '</div>',
     "</section>",
-    // Close the shortcuts section's three wrappers — settings-body, settings-panel, settings-modal. They
-    // were never closed, so the parser swallowed everything after them: #history-view became a descendant
-    // of a dialog that is display:none whenever Settings is shut, and \u2318 9 removed its .hidden class onto
-    // a 0\u00d70 box. The feature loaded its three hundred commits and painted nothing. Nothing caught it
-    // because the suite asserts on .hidden classes, which were all correct — the dead ancestor is a
-    // LAYOUT fact, and jsdom has no layout. renderReviewDocument now balances; a guard pins it.
     '</div>',
     '</div>',
     '</div>',
-    // Git history (Cmd+9): the commit graph owns the full canvas. Enter opens the selected commit's
-    // message + diff in a large floating workspace instead of squeezing both views side by side.
     '<div id="history-view" class="history-view hidden" role="dialog" aria-modal="true" data-i18n-aria="history.title" aria-label="Git history">',
     '<div class="history-bar">',
     '<span class="history-title" data-i18n="history.title">History</span>',
     '<span id="history-scope" class="history-scope hidden"></span>',
-    // The placeholder was doing double duty as the accessible name, and a placeholder is gone as soon as
-    // there is a value — so the moment this does something, it stops saying what it is.
     '<input id="history-search" type="search" class="history-search" autocomplete="off" spellcheck="false" data-i18n-ph="history.search" data-i18n-aria="history.search" aria-label="Filter by message, or type a hash to go to it" placeholder="Filter by message, or a hash to go to">',
     '<button type="button" id="history-filter-toggle" class="dock-btn" aria-expanded="false" aria-controls="history-filters" data-i18n-title="history.filters" title="More filters" data-i18n-aria="history.filters" aria-label="More filters">&#9662;</button>',
     '<button type="button" id="history-close" class="dock-btn" data-keyhint-id="closeDialog" data-i18n-title="history.close" title="Close" data-i18n-aria="history.close" aria-label="Close">&times;</button>',
     "</div>",
-    // The three read-only histories of one repository: the log, where HEAD has been, and what is stashed.
-    // Separate tool windows in IntelliJ; one list with three sources here, because they answer the same
-    // question ("which commit was that?") and open the same way.
     '<div class="history-kinds" role="tablist" data-i18n-aria="history.kinds" aria-label="History kind">',
     '<button type="button" class="history-kind active" data-history-kind="commits" role="tab" aria-selected="true" data-i18n="history.kind.commits">Commits</button>',
     '<button type="button" class="history-kind" data-history-kind="reflog" role="tab" aria-selected="false" data-i18n="history.kind.reflog">Reflog</button>',
     '<button type="button" class="history-kind" data-history-kind="stashes" role="tab" aria-selected="false" data-i18n="history.kind.stashes">Stashes</button>',
     "</div>",
-    // Every field here is handed to git, not used to hide rows that are already on screen — a page holds a
-    // few hundred commits, so a filter over those answers "none by Ada" when it means "none in this page".
     '<div id="history-filters" class="history-filters hidden">',
     '<input id="history-filter-author" type="search" autocomplete="off" spellcheck="false" data-i18n-ph="history.filter.author" data-i18n-aria="history.filter.author" aria-label="Author" placeholder="Author">',
     '<input id="history-filter-path" type="search" autocomplete="off" spellcheck="false" data-i18n-ph="history.filter.path" data-i18n-aria="history.filter.path" aria-label="Path" placeholder="Path">',
@@ -860,15 +639,9 @@ export function renderDiffHtml(input: {
     '<label class="history-filter-check"><input id="history-filter-current" type="checkbox"><span data-i18n="history.filter.currentBranch">Current branch</span></label>',
     '<button type="button" id="history-filter-clear" class="history-filter-clear" data-i18n="history.filter.clear">Clear</button>',
     "</div>",
-    // Selection/compare status strip: shows how to compare (hint) when one commit is selected, and the
-    // pending two-commit compare (with Open/Clear) once a range is shift-selected. The visible affordance
-    // for picking patch sets to compare.
     '<div id="history-select-bar" class="history-select-bar hidden" aria-live="polite"></div>',
     '<div class="history-body">',
     '<div id="history-list" class="history-list"></div>',
-    // A filter that matches nothing left a black panel: no rows, no note, and the strip above still
-    // explaining how to compare two of the commits that are not there. It belongs in the body, where the
-    // rows would have been — put in the bar it became another item in that flex row, off at the far edge.
     '<div id="history-empty" class="history-empty hidden" data-i18n="history.noMatch">No commit matches that filter.</div>',
     "</div>",
     "</div>",
@@ -880,10 +653,6 @@ export function renderDiffHtml(input: {
     `<script type="application/json" id="${REVIEW_ISLAND.httpEnv}">${jsonForScript(input.httpEnvironments)}</script>`,
     `<script type="application/json" id="${REVIEW_ISLAND.projectLayout}">${jsonForScript(input.projectLayout ?? EMPTY_PROJECT_LAYOUT)}</script>`,
     `<script>window.__KAKAPO_VERSION__=${JSON.stringify(packageVersion)};</script>`,
-    // The Electron app serves the ~514KB client as an external, immutably-cached kakapo-asset:// script
-    // (loaded from the file:// review page, the same scheme the lazy Markdown editor already uses) so the
-    // review doc is ~40% smaller and the client is parsed/cached once across windows. serve/standalone have
-    // no such scheme, so they keep the inline copy.
     input.app
       ? `<script src="kakapo-asset://app/${diffClientAsset().file}?v=${diffClientAsset().version}"></script>`
       : `<script>${diffScript()}</script>`,

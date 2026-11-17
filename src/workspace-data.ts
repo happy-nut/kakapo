@@ -18,9 +18,6 @@ function workspacePathSegments(root: string): string[] {
   return segments.length ? segments : ["root"];
 }
 
-// Keep application data inspectable and collision-free without hashes. A workspace such as
-// /Users/me/repos/app maps to <userData>/workspaces/Users/me/repos/app, so multiple folders and nested
-// monorepo packages can stay open simultaneously without sharing review state.
 export function workspaceDataDirectory(userData: string, root: string): string {
   return join(resolve(userData), "workspaces", ...workspacePathSegments(root));
 }
@@ -33,17 +30,10 @@ export function workspacePerformanceDirectory(userData: string, root: string): s
   return join(workspaceDataDirectory(userData, root), "perf");
 }
 
-// The kept symbol scan (analysis-cache.ts). `repoRoot` is the REPOSITORY's main checkout rather than the
-// folder being reviewed, so every worktree of it reads and writes the same store — a worktree an agent
-// created minutes ago then starts from what the main checkout already scanned. Still under the same
-// user-data mirror as every other generated artifact; nothing is written into the reviewed project.
 export function workspaceSymbolCacheFile(userData: string, repoRoot: string): string {
   return join(workspaceDataDirectory(userData, repoRoot), "symbols", "index.json");
 }
 
-
-// CLI-only utilities (for example the benchmark command) do not have Electron's app.getPath(). Mirror
-// Electron's conventional userData location so they still never write into the reviewed repository.
 export function defaultKakapoUserDataDirectory(
   platform: NodeJS.Platform = process.platform,
   env: NodeJS.ProcessEnv = process.env,

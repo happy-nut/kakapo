@@ -1,7 +1,3 @@
-// `kakapo install-app` — the npm install ships a CLI and nothing else, so kakapo has no icon in Spotlight,
-// Launchpad or the Dock. This builds a launcher bundle that opens the SAME installed CLI, so there is never
-// a second copy to go stale. A command, not a postinstall step: an npm package writing into /Applications
-// behind your back needs a password and leaves something `npm uninstall` will not take with it.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, existsSync, statSync } from "node:fs";

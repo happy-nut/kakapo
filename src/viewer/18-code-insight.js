@@ -1,18 +1,4 @@
-// IntelliJ's code analysis, as far as a reading app can take it.
-//
-// Four actions, and they divide the same way IntelliJ's own menus do. Three of them answer "what is this,
-// here" from the caret — Quick Documentation (F1), Expression Type (⌃⇧P) and Show Error Description
-// (⌃F1) — and the fourth, the Problems view (⌘6), answers "what is wrong, anywhere" across the review.
-//
-// What is NOT here, and why it cannot be: Inspect Code runs IntelliJ's own inspection engine, and
-// SliceBackward/SliceForward are data-flow analysis. Both need a compiler's model of the program, not a
-// language server's answers about a position. The language-server diagnostics the Problems view collects
-// ARE this app's inspections — they come from the same tools the project's own build uses — and saying so
-// is more honest than shipping a weaker engine under IntelliJ's name.
 
-// ---- the three caret questions ------------------------------------------------------------------
-// All three are one `textDocument/hover` away, which is the request this app did not make until now: the
-// eight it already made all answer "where", and none of them answers "what".
 
 var quickDocSeq = 0;
 
@@ -26,33 +12,21 @@ function closeQuickDoc() {
   var hadFocus = panel.contains(document.activeElement);
   panel.classList.add('hidden');
   panel.style.left = panel.style.top = panel.style.bottom = panel.style.width = panel.style.maxHeight = '';
-  // Hand the keyboard back, as the peek does — Chromium drops focus from a hidden element on its own, and
-  // relying on that leaves the keyboard scope reading "a text field is focused" everywhere that does not.
   if (!hadFocus) return true;
   focusReadingSurface();
   return true;
 }
 
-/** The symbol the caret is on, and where — shared by all three of the caret questions. */
 function codeInsightTarget() {
   var symbol = symbolUnderCursor();
   if (!symbol || !symbol.name) return null;
   return symbol;
 }
 
-/**
- * F1: everything the language server has to say about the thing under the caret.
- *
- * Markdown, because that is what the protocol carries and what every bundled server writes: tsserver
- * sends a fenced signature and then the JSDoc, JDT LS sends Javadoc, rust-analyzer sends the doc comment.
- * It goes through the same markdown-it + DOMPurify stack the source preview uses rather than a second
- * renderer, so a doc comment carrying a link or an image cannot do anything here it could not do there.
- */
 async function openQuickDocumentation() {
   var panel = quickDocPanel();
   var symbol = codeInsightTarget();
   if (!panel || !symbol) { if (!symbol) showSemanticNavigationFailure('symbol'); return false; }
-  // A second press closes it, the way the chord that opened a panel does everywhere else here.
   if (!panel.classList.contains('hidden') && panel.dataset.symbol === symbol.name) return closeQuickDoc();
   var seq = ++quickDocSeq;
   panel.dataset.symbol = symbol.name;
@@ -86,21 +60,12 @@ async function openQuickDocumentation() {
   return true;
 }
 
-/**
- * ⌘⇧P: the type of the thing under the caret, on one line.
- *
- * The same answer F1 renders in full, cut down to the part a reader glancing at an unfamiliar call wants:
- * its signature. That is the first fenced block when the server sends one (every bundled server does) and
- * the first non-empty line otherwise.
- */
 function hoverSignatureLine(markdown) {
   var text = String(markdown || '');
   var fenced = text.match(/```[^\n]*\n([\s\S]*?)```/);
   var body = fenced ? fenced[1] : text;
   var lines = body.split(/\r?\n/).map(function (line) { return line.trim(); }).filter(Boolean);
   if (!lines.length) return '';
-  // A multi-line signature (an overload set, a Kotlin function with its receiver on its own line) is
-  // joined rather than truncated: the first line of `fun <T> List<T>.` says nothing on its own.
   return lines.slice(0, 3).join(' ').slice(0, 300);
 }
 
@@ -119,22 +84,12 @@ async function showExpressionType() {
   return true;
 }
 
-/**
- * ⌘F1: the message of the problem the caret is on, in full.
- *
- * The gutter already carries it in a hover tooltip (18-diagnostics.js), which is a mouse affordance on a
- * surface whose whole point is the keyboard — and a long message is cut off there. This is the same text
- * with no pointer and no truncation.
- */
 function showErrorDescriptionAtCaret() {
   var items = diagnosticsAtCaret();
   if (!items || !items.length) {
     showCaretHint(t('problems.noneHere'));
     return true;
   }
-  // Deduped: a name used three times on one line is three diagnostics with one message, and the hint
-  // read "…Did you mean 'shortcutDef'? — …Did you mean 'shortcutDef'? — …Did you mean 'shortcutDef'?".
-  // createFixCommentAtCaret has deduped for as long as it has existed; this is the same list.
   var seen = [];
   items.forEach(function (item) {
     var source = item.source ? item.source + ': ' : '';
@@ -145,14 +100,6 @@ function showErrorDescriptionAtCaret() {
   return true;
 }
 
-/**
- * ⌥Space / ⌘Y: the definition's own code, here — IntelliJ's Quick Definition.
- *
- * ⌘↓ takes you there; this shows it without taking you anywhere, which is the difference that matters when
- * the question is "what does this call do" in the middle of reading something else. Same panel as Quick
- * Documentation because it is the same shape of answer — a caret-anchored box with a heading — and the two
- * can never be up at once.
- */
 async function openQuickDefinition() {
   var panel = quickDocPanel();
   var symbol = codeInsightTarget();
@@ -176,15 +123,10 @@ async function openQuickDefinition() {
     if (body) body.innerHTML = '<div class="quick-doc-empty">' + escapeHtml(t('quickdef.none').replace('{symbol}', symbol.name)) + '</div>';
     return true;
   }
-  // A definition outside the review — a dependency, a stdlib module, a class inside a JDK image — is not
-  // in the project index, so fetch it the way the source view does before giving up on showing a body.
-  // This is the same read that opens one in a tab; a compiled class reaches it as text the language server
-  // produced for the URI.
   if (!sourceByPath.has(target.path)) {
     await loadLibrarySourceFile(target.path);
     if (seq !== quickDocSeq) return true;
   }
-  // Nothing came back: name the place instead of showing an empty box.
   if (!sourceByPath.has(target.path)) {
     if (meta) meta.textContent = semanticFileLabel(target.path, target.lineIndex);
     if (body) body.innerHTML = '<div class="quick-doc-empty">' + escapeHtml(t('quickdef.outside').replace('{key}', shortcutLabel('goToDef'))) + '</div>';
@@ -199,9 +141,6 @@ async function openQuickDefinition() {
   return true;
 }
 
-// How many lines of the definition to show. IntelliJ sizes its popup to the whole declaration; this takes
-// the server's own end line when it sent one and a fixed window when it did not — a 400-line class would
-// otherwise fill the screen with a panel you cannot scroll out of the way.
 var QUICK_DEFINITION_LINES = 14;
 
 function quickDefinitionHtml(target) {
@@ -221,31 +160,16 @@ function quickDefinitionHtml(target) {
   return '<div class="quick-def">' + out + '</div>';
 }
 
-// ---- ⌘6: the Problems view ------------------------------------------------------------------------
-// IntelliJ's Problems tool window, on IntelliJ's own chord. The diagnostics were already here — every one
-// of them — but only ever for the file on screen, one file at a time (18-diagnostics.js asks for the open
-// path). "Is anything wrong in this review" had no answer, which for a reviewer is the first question.
-//
-// A mode of the quick-open shell, like the structure list, the hierarchies and the usage view: its filter,
-// its keyboard handling and its preview are written, and a fifth list surface would be a fifth copy.
-
 var problemRows = [];
 var problemsBusy = false;
 var problemsScanned = 0;
 var problemsTotal = 0;
 var problemsSeq = 0;
 var problemsGeneration = -1;
-// Errors first and warnings after is the order a reviewer reads in, and hiding the quiet ones is the
-// toolbar button IntelliJ puts above the list.
 var problemsErrorsOnly = false;
-// Files no language server covers. They are NOT zero problems — USER_FLOWS Flow 6 is explicit that an
-// empty answer for an unanalysable file is the misleading version — so they are counted and said out loud.
 var problemsUnavailable = 0;
-// How many files are asked at once. The request is cheap per file and expensive per SERVER — each one
-// opens the document — so this is a politeness bound on the language server, not on the page.
 var PROBLEMS_CONCURRENCY = 4;
 
-/** ⌘6. */
 function openProblemsView() {
   var fresh = problemsGeneration !== analysisGeneration();
   if (fresh) {
@@ -260,7 +184,6 @@ function openProblemsView() {
   return true;
 }
 
-/** The paths the review itself is about — the changed-file rows in the sidebar. */
 function reviewedPaths() {
   var own = new Set();
   links.forEach(function (link) {
@@ -270,23 +193,6 @@ function reviewedPaths() {
   return own;
 }
 
-/**
- * Which files get asked, the review's own first.
- *
- * Two things were wrong here and each was the other's cover. The docstring said "the review's own" and the
- * loop walked the whole project — 272 files on this repository, 35 seconds, 25 problems of which 3 were in
- * the four files being read — while the empty state below still said "No problems in this review". A
- * project-wide scan was reporting a review-wide fact, and whichever half you looked at first excused the
- * other.
- *
- * Project-wide is the scope worth having: a reviewed file is usually broken by a file it calls, and that
- * file is usually not in the review. So the scope stayed and the sentence was corrected. What belongs to a
- * review tool is the ORDER — ask the reader's own files first, so the rows that land while the scan is
- * still running are the ones they are looking at, and sort them above the rest at equal severity.
- *
- * The eligibility test is diagnosticsEligible's alone. This used to re-check the embedded/image pair
- * beside it, which is two copies of one gate — exactly the drift a single gate exists to prevent.
- */
 function problemFilePaths() {
   var own = reviewedPaths();
   var mine = [], rest = [];
@@ -297,13 +203,6 @@ function problemFilePaths() {
   return mine.concat(rest);
 }
 
-/**
- * Ask every file, a few at a time, and paint as the answers land.
- *
- * Progressive rather than awaited-in-full because the first answer is useful and the last one may be a
- * cold server away: a reviewer who opens this on a 60-file branch should see the first errors immediately
- * and watch the count fill in, not stare at a spinner for a minute.
- */
 async function scanProblems() {
   var seq = ++problemsSeq;
   var paths = problemFilePaths();
@@ -323,9 +222,6 @@ async function scanProblems() {
       if (!response || response.ok === false || response.available === false) {
         problemsUnavailable += 1;
       }
-      // Errors and warnings only, which is what this app surfaces anywhere — info and hint are collected
-      // by main and shown nowhere, and a Problems list that disagreed with the gutter beside it would be
-      // two different answers to one question.
       var items = surfacedDiagnostics(response && response.diagnostics);
       items.forEach(function (item) {
         problemRows.push({
@@ -348,7 +244,6 @@ async function scanProblems() {
   if (quickMode === 'problems') renderProblemsResults(String(quickInput && quickInput.value || ''));
 }
 
-/** One file's diagnostics, through the same bridge 18-diagnostics.js uses — a bare path, as it takes. */
 function queryProjectDiagnostics(path) {
   if (!window.kakapoAnalysis || typeof window.kakapoAnalysis.diagnostics !== 'function') return Promise.resolve(null);
   return Promise.resolve(window.kakapoAnalysis.diagnostics(path));
@@ -358,8 +253,6 @@ var PROBLEM_ORDER = { error: 0, warning: 1, weak: 2 };
 
 function visibleProblemRows(query) {
   var needle = String(query || '').trim().toLowerCase();
-  // The matcher gets the query AS TYPED — `needle` stays lower-cased for this list's own
-  // substring work, because camel humps are case and a lower-cased pattern has none.
   var queries = queryVariants(String(query || '').trim());
   var own = reviewedPaths();
   return problemRows.filter(function (row) {
@@ -368,8 +261,6 @@ function visibleProblemRows(query) {
     var hay = [row.message, row.path];
     return matchesQueryVariants(hay, queries);
   }).sort(function (a, b) {
-    // Severity first, then the review's own files. A list of twenty-five where the three that belong to
-    // the change sit at positions 9, 14 and 22 is a list the reviewer has to read all of.
     return (PROBLEM_ORDER[a.severity] - PROBLEM_ORDER[b.severity])
       || ((own.has(b.path) ? 1 : 0) - (own.has(a.path) ? 1 : 0))
       || a.path.localeCompare(b.path)
@@ -398,13 +289,8 @@ function renderProblemsResults(query) {
   if (problemsUnavailable) {
     summary += ' · ' + t('problems.unavailable', { n: problemsUnavailable });
   }
-  // This scan can say more than "Searching…": it knows how many files it has got through.
   setQuickFilterChip(problemsBusy, summary, t('problems.scanning', { done: problemsScanned, total: problemsTotal }));
   if (quickFilterEl) {
-    // "N not checked" is a count with a warning attached, and the warning only existed on the empty
-    // branch below — so a review WITH problems showed the bare figure and nothing saying that those files
-    // are not clean, they are unexamined. The risk is identical in both branches; hang the sentence on the
-    // summary itself so it is there either way.
     quickFilterEl.removeAttribute('title');
     if (!problemsBusy && problemsUnavailable) {
       quickFilterEl.setAttribute('title', t('problems.unavailableWhy', { n: problemsUnavailable }));
@@ -414,7 +300,6 @@ function renderProblemsResults(query) {
     var empty = problemsBusy ? t('quickopen.searching')
       : problemsErrorsOnly && problemRows.length ? t('problems.noErrors')
         : t('problems.none');
-    // "No problems" over a review where half the files had no server is the reassuring lie Flow 6 names.
     showQuickEmpty(empty, !problemsBusy && problemsUnavailable
       ? t('problems.unavailableWhy', { n: problemsUnavailable })
       : '');
@@ -434,7 +319,6 @@ function renderProblemsResults(query) {
   renderQuickPreview(quickItems[quickActive]);
 }
 
-/** ⌥E inside the list: errors only, which is the one filter IntelliJ's toolbar is really used for. */
 function toggleProblemsErrorsOnly() {
   problemsErrorsOnly = !problemsErrorsOnly;
   quickActive = 0;
@@ -444,8 +328,6 @@ function toggleProblemsErrorsOnly() {
 
 function handleProblemsKey(event) {
   if (quickMode !== 'problems') return false;
-  // The launcher owns every key while it is up (KEY_OWNERS in 05-keymap.js), so the chord that opened this
-  // list never reaches the dispatcher — it is answered here, the way the hierarchy answers its own.
   if (isShortcut(event, 'problemsView')) { event.preventDefault(); closeQuickOpen(); return true; }
   if (event.altKey && !event.metaKey && !event.ctrlKey && !event.shiftKey
     && (event.code === 'KeyE' || String(event.key).toLowerCase() === 'e')) {

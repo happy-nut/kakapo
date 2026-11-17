@@ -81,7 +81,6 @@ function assertBranded(root) {
   assert.equal(distEntries.includes("Kakapo.app"), true, "Kakapo.app exists");
   assert.equal(existsSync(join(brandedApp, "Contents", "MacOS", "kakapo")), true, "executable is renamed");
   assert.equal(readFileSync(join(root, "path.txt"), "utf8"), expectedElectronPath);
-  // Without this the Dock and System Settings ▸ Accessibility keep drawing Electron's atom beside "Kakapo".
   assert.ok(readFileSync(join(brandedApp, "Contents", "Resources", "electron.icns")).equals(kakapoIcon), "bundle carries the Kakapo icon");
   assert.match(patchedPlist, /<key>CFBundleName<\/key>\s*<string>Kakapo<\/string>/);
   assert.match(patchedPlist, /<key>CFBundleDisplayName<\/key>\s*<string>Kakapo<\/string>/);

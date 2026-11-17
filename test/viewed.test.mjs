@@ -1,8 +1,3 @@
-// CORE USER FLOW: focus a row in Changes and press Space to toggle its viewed state.
-//
-// A viewed file's diff body is hidden (display:none), so the caret must never be left stranded on it — that
-// blanks the content area and makes F7 look stuck. Marking from the sidebar must not replace the open file,
-// and F7 skips viewed files. Code-canvas shortcuts cannot mutate this sidebar-owned review state.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { makeReviewHtml, cleanupFixtures, renderLazyBodies } from "./helpers/fixture.mjs";
@@ -82,7 +77,6 @@ test("F7 skips a viewed file instead of landing on its hidden body", async () =>
   await v.settle(140);
   assert.equal(v.activeDiffFile(), "src/b.ts");
 
-  // From b, F7 must never drop back onto the viewed (hidden) a.ts.
   v.key("F7");
   await v.settle(140);
   assert.notEqual(v.activeDiffFile(), "src/a.ts", "F7 never lands on the viewed file a.ts");
@@ -171,8 +165,8 @@ test("lazy F7 and direct selection include changed hidden config files", async (
   await v.settle(120);
 
   assert.equal(v.activeDiffFile(), ".claude/settings.json", "legacy viewed state cannot make F7 start after settings.json");
-  v.key("F7"); // first press announces the file boundary
-  v.key("F7"); // second press crosses it
+  v.key("F7");
+  v.key("F7");
   await v.settle(160);
   assert.equal(v.activeDiffFile(), ".gitignore", "F7 navigates into the changed .gitignore hunk");
 
@@ -190,7 +184,6 @@ test("Space marks the arrow-selected Changes row instead of the open file", asyn
   await v.openDiffFor("src/a.ts");
   await v.settle(100);
 
-  // From diff content, Cmd+2 moves focus to the open file in Changes so arrow navigation is deterministic.
   v.key("2", { metaKey: true, code: "Digit2" });
   await v.settle(40);
   v.key("ArrowDown");
@@ -205,10 +198,6 @@ test("Space marks the arrow-selected Changes row instead of the open file", asyn
   v.close();
 });
 
-// The mark itself used to be the whole control: nothing was drawn until a row was already viewed, so there
-// was no way to see from the list that ticking one off was even an option. Every changed row now carries an
-// empty box, leftmost, and clicking it is the mouse's version of Space — which means it must NOT also open
-// the file, the way every other click on that row does.
 test("every changed row shows an empty viewed box, and clicking it toggles without opening the file", async () => {
   const v = await loadViewer(html);
   await v.openDiffFor("src/a.ts");

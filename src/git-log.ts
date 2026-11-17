@@ -1,23 +1,18 @@
 import { git, isCommitSha, RECORD_FS, RECORD_RS } from "./git.js";
 
-// One commit row for the history view. parents drives the graph lanes (computed in the renderer).
 export type GitCommit = {
   hash: string;
   parents: string[];
   author: string;
   email: string;
-  date: string; // ISO-8601
-  refs: string; // %D — "HEAD -> main, origin/main, tag: v1" (may be empty)
+  date: string;
+  refs: string;
   subject: string;
-  // Fields a caller's own pretty format appended after the subject (the reflog's %gD/%gs). Absent for a
-  // plain log, and stripped before the entry leaves readGitReflog.
   extra?: string[];
 };
 
-/** One `git log -g` entry: a commit plus the reflog selector and action that recorded it. */
 export type GitReflogEntry = GitCommit & { selector: string; action: string };
 
-/** One `git stash list` entry. `hash` is the stash commit, which is what the diff reader is given. */
 export type GitStashEntry = {
   selector: string;
   hash: string;
@@ -28,7 +23,6 @@ export type GitStashEntry = {
   subject: string;
 };
 
-/** What a hash, branch, tag or `HEAD~2` typed into the log's search box resolves to. */
 export type GitRevision = {
   hash: string;
   short: string;
@@ -42,11 +36,10 @@ export type GitBlameLine = {
   line: number;
   hash: string;
   author: string;
-  date: string; // YYYY-MM-DD
+  date: string;
   summary: string;
 };
 
-// How a record is framed, and why it is framed that way, lives in git.ts beside RAW_PATHS.
 const FS = RECORD_FS;
 const RS = RECORD_RS;
 const PRETTY = `--pretty=format:%H${FS}%P${FS}%an${FS}%ae${FS}%ad${FS}%D${FS}%s`;
@@ -64,39 +57,30 @@ const PRETTY_REFLOG = `--pretty=format:%H${FS}%P${FS}%an${FS}%ae${FS}%aI${FS}%D$
 export type GitLogFilter = {
   limit?: number;
   skip?: number;
-  /** Substring of the author name or email. */
   author?: string;
-  /** A repository-relative file or folder; the log is narrowed to what touched it. */
   path?: string;
-  /** Substring of the commit message. */
   text?: string;
   /** Commits that changed the number of occurrences of this string (git's pickaxe, `-S`). */
   content?: string;
-  /** YYYY-MM-DD. */
   since?: string;
   until?: string;
-  /** Walk one ref instead of every branch. */
   branch?: string;
-  /** Walk HEAD only — IntelliJ's "current branch" against its "all branches". */
   currentBranchOnly?: boolean;
   /** With `path`: follow the file through renames (git refuses --follow with more than one path). */
   follow?: boolean;
 };
 
-/** A ref name safe to place in argv: no option-looking leading dash, no separators, no whitespace. */
 function safeRefName(value: string | undefined): string {
   const ref = String(value || "");
   return /^[A-Za-z0-9][A-Za-z0-9._/@{}~^-]*$/.test(ref) && !ref.includes("..") ? ref : "";
 }
 
-/** A repository-relative path safe to place after `--`. Unlike blame's, a folder is allowed. */
 function safeLogPath(value: string | undefined): string {
   const path = String(value || "").replace(/\\/g, "/").replace(/^\.\//, "");
   if (!path || path.startsWith("/") || path.includes("\0") || path.includes("\n")) return "";
   return path.split("/").some((part) => part === ".." || part === "") ? "" : path;
 }
 
-/** A filter value that is matched, not interpreted: control characters out, length bounded. */
 function safeFilterText(value: string | undefined): string {
   const text = String(value || "").replace(/[\0\n\r]/g, "").trim();
   return text.slice(0, 200);
@@ -113,11 +97,6 @@ function trackedWorkspacePath(root: string, requestedPath: string): string {
   return git(root, ["ls-files", "--error-unmatch", "--", path]) ? path : "";
 }
 
-/**
- * One record per line. `extraFields` is how many fields a caller's format inserts between `%D` and the
- * subject — the reflog's `%gd`/`%gs` — because the SUBJECT has to stay last: it is the one field a commit
- * author writes freely, so it is rejoined and a separator inside it costs nothing and shifts nothing.
- */
 function parseGitCommits(out: string, extraFields = 0): GitCommit[] {
   if (!out) return [];
   return out
@@ -139,13 +118,6 @@ function parseGitCommits(out: string, extraFields = 0): GitCommit[] {
     .filter((c) => isCommitSha(c.hash));
 }
 
-/**
- * Read up to `limit` commits (optionally skipping `skip`). Newest first — the order the graph walker expects.
- *
- * The filters are applied by GIT, not by hiding rows in the list. That is the whole point: a page holds a
- * few hundred commits, so a filter that only hides what is already loaded answers "no commits by Ada" when
- * what it means is "none in the last two hundred".
- */
 export function readGitLog(root: string, options: GitLogFilter = {}): GitCommit[] {
   const limit = options.limit && options.limit > 0 ? Math.min(Math.trunc(options.limit), 2000) : 200;
   const path = safeLogPath(options.path);
@@ -155,13 +127,6 @@ export function readGitLog(root: string, options: GitLogFilter = {}): GitCommit[
     "-c", "log.showSignature=false",
     "log", "--no-color",
   ];
-  // History is a repository graph, not just the first-parent walk from the checked-out branch.
-  // Topological order guarantees that every child is emitted before its parents, which is the
-  // contract used by the renderer's lane allocator. Full decoration lets the UI distinguish local
-  // branches from remotes even when either name contains slashes, independent of global Git settings.
-  //
-  // --follow is the exception: git refuses it alongside --all, and a file's history is a line of
-  // renames rather than a graph, so that mode walks one ref.
   if (branch) args.push(branch);
   else if (follow || options.currentBranchOnly) args.push("HEAD");
   // Branches, tags and remotes — NOT --all, which also means refs/stash (and refs/notes), so every
@@ -174,8 +139,6 @@ export function readGitLog(root: string, options: GitLogFilter = {}): GitCommit[
   const author = safeFilterText(options.author);
   if (author) args.push(`--author=${author}`);
   const text = safeFilterText(options.text);
-  // Fixed-strings and case-insensitive: a reviewer types words, not a regex, and an unbalanced bracket
-  // should narrow nothing rather than make git exit non-zero.
   if (text) args.push("--fixed-strings", "--regexp-ignore-case", `--grep=${text}`);
   const content = safeFilterText(options.content);
   if (content) args.push(`-S${content}`);
@@ -187,10 +150,6 @@ export function readGitLog(root: string, options: GitLogFilter = {}): GitCommit[
   return parseGitCommits(git(root, args));
 }
 
-/**
- * `git log -g`: where HEAD has actually been. The one view that still holds a commit after a reset or a
- * rebase dropped it — which is exactly when a reviewer needs to find it again.
- */
 export function readGitReflog(root: string, options: { limit?: number } = {}): GitReflogEntry[] {
   const limit = options.limit && options.limit > 0 ? Math.min(Math.trunc(options.limit), 1000) : 200;
   const out = git(root, [
@@ -204,7 +163,6 @@ export function readGitReflog(root: string, options: { limit?: number } = {}): G
   })).map(({ extra: _extra, ...entry }) => entry as GitReflogEntry);
 }
 
-/** `git stash list`. Read-only: kakapo shows what is stashed, it does not apply or drop it. */
 export function readGitStashes(root: string): GitStashEntry[] {
   const out = git(root, [
     "stash", "list", "--no-color",
@@ -228,11 +186,6 @@ export function readGitStashes(root: string): GitStashEntry[] {
     .filter((entry) => isCommitSha(entry.hash));
 }
 
-/**
- * Resolves what someone typed into the log's search box — a full or abbreviated hash, a branch, a tag,
- * `HEAD~3` — to the commit it names, so "go to hash" can jump to it. Returns null when it names nothing,
- * which is how the box tells a revision from an ordinary text filter.
- */
 export function resolveGitRevision(root: string, query: string): GitRevision | null {
   const ref = safeRefName(query);
   if (!ref) return null;
@@ -248,15 +201,10 @@ export function resolveGitRevision(root: string, query: string): GitRevision | n
     author: fields[1] || "",
     date: fields[2] || "",
     refs: fields[3] || "",
-    // Last on purpose, and rejoined: a subject carrying the field separator loses nothing and shifts nothing.
     subject: fields.slice(4).join(FS),
   };
 }
 
-// Commits that actually changed one source line, newest first. `git log -L` follows the line through
-// edits instead of merely listing every commit that touched the file, which is the useful question when
-// a reviewer right-clicks a line number. The path is renderer input, so accept only a workspace-relative
-// Git path and require it to be tracked before placing it in the -L expression.
 export function readGitLineLog(
   root: string,
   request: { path: string; line: number; limit?: number },
@@ -286,8 +234,6 @@ export function readGitBlame(root: string, requestedPath: string, revision?: str
   const path = trackedWorkspacePath(root, requestedPath);
   if (!path) return [];
   const requestedRevision = String(revision || "");
-  // The revision comes from the review snapshot owned by main, never arbitrary renderer input. Resolve a
-  // normal branch/tag/base name to an immutable commit before placing it in blame's option-bearing argv.
   if (requestedRevision && !/^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(requestedRevision)) return [];
   const target = requestedRevision
     ? git(root, ["rev-parse", "--verify", `${requestedRevision}^{commit}`])

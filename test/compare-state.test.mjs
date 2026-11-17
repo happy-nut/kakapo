@@ -1,10 +1,3 @@
-// The diff toolbar says what it is comparing. A clean worktree moves the review to the branch point, and with
-// nothing unpushed either it swings round to the tracking branch — three different reviews that used to look
-// identical on screen ("로컬에 변경이 있는 건지, 없어서 리모트와 비교하는 건지 분간이 안 간다").
-//
-// Each mode is exercised through buildDiffReview, because the point is the mode the BUILD picks, not a
-// renderer called with a hand-written state: the confusion came from the automatic base resolution, so a test
-// that hands `{ mode: "incoming" }` to the renderer would pass while the app kept showing the wrong thing.
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -15,8 +8,8 @@ import { buildDiffReview } from "../dist/build.js";
 import { MESSAGES } from "../dist/i18n.js";
 
 let fixture;
-let repo;   // the checkout under review
-let other;  // a second clone, used to put commits on the remote that `repo` has not got
+let repo;
+let other;
 
 function git(cwd, args) {
   const result = spawnSync("git", args, { cwd, encoding: "utf8" });
@@ -26,8 +19,6 @@ function git(cwd, args) {
 function review(root, extra) {
   return buildDiffReview({ root, staged: false, includeUntracked: true, context: 12, title: "t", lazyLoad: false, ...extra });
 }
-// The pill's mode is the class the renderer stamps on it; the name beside it is a data-i18n key, so the mode
-// can be read out of the markup without depending on which locale the reader is in.
 function pillMode(html) {
   return (html.match(/class="compare-pill compare-([a-z]+)"/) || [])[1] || null;
 }
@@ -54,8 +45,6 @@ before(() => {
   git(fixture, ["clone", "-q", remote, other]);
   git(other, ["config", "user.email", "other@test.invalid"]);
   git(other, ["config", "user.name", "Someone Else"]);
-  // The bare repo's own HEAD still names whatever `git init` defaulted to, so the second clone lands on that
-  // branch rather than on main. Put it on main explicitly instead of relying on the clone's guess.
   git(other, ["checkout", "-qB", "main", "origin/main"]);
 });
 
@@ -82,7 +71,6 @@ test("committing the same edit turns the pill over to the unpushed commits, coun
 
 test("with nothing of your own left, the review swings round to the remote — and says why", () => {
   git(repo, ["push", "-q"]);
-  // Someone else pushes two commits this checkout has not got.
   git(other, ["fetch", "-q"]);
   git(other, ["reset", "-q", "--hard", "origin/main"]);
   writeFileSync(join(other, "src", "app.ts"), "export const value = 3;\n");
@@ -96,7 +84,6 @@ test("with nothing of your own left, the review swings round to the remote — a
   assert.equal(pillMode(build.update.reviewStatus), "incoming");
   assert.deepEqual(pillRefs(build.update.reviewStatus), ["HEAD", "origin/main"], "your checkout on the left, the remote on the right");
   assert.match(build.update.reviewStatus, /class="compare-count">2</, "two commits the remote is ahead by");
-  // The state the whole thing exists for: the pill alone cannot say WHY the diff moved.
   assert.match(build.update.compareBanner, /data-i18n="compare\.incoming\.why"/);
   assert.match(build.update.compareBanner, /id="compare-open-history"/, "and offers the one place those commits can be read");
   assert.match(build.html, /compare-why/);
@@ -120,8 +107,6 @@ test("--staged compares HEAD against the index, and names it that", () => {
   git(repo, ["reset", "-q", "--hard"]);
 });
 
-// The renderer builds the pill's label key as `compare.${mode}` — a mode without a row is a raw key on screen,
-// and only in the locale that is missing it.
 test("every mode has a name in every locale", () => {
   const keys = ["compare.local", "compare.staged", "compare.ahead", "compare.incoming", "compare.manual",
     "compare.worktree", "compare.index", "compare.title", "compare.incoming.why", "compare.openHistory"];
@@ -130,9 +115,6 @@ test("every mode has a name in every locale", () => {
   }
 });
 
-// ── The two renderer-side halves of "you are looking at commits, not your working tree" ──────────────────
-// Both are pure functions over the patch-set payload, so they are exercised against the built bundle rather
-// than through a whole viewer: the payload IS their input, and that is what the IPC hands them.
 import { readFileSync } from "node:fs";
 const bundle = readFileSync(new URL("../dist/viewer.client.js", import.meta.url), "utf8");
 function bundled(name, ...deps) {
@@ -141,10 +123,6 @@ function bundled(name, ...deps) {
   return new Function(...deps.map((d) => d[0]), `${source[0]}; return ${name};`)(...deps.map((d) => d[1]));
 }
 
-// A single commit has a subject and that is what to call it. A RANGE has none: naming it after one of its
-// commits promotes that commit over the others. The newest one's subject leads and the rest are counted, so
-// the words on screen are honestly attributed — and narrowing a range to one commit drops the count by
-// itself, which is the same rule read from the other end.
 test("the breadcrumb names one commit, and counts the rest of a range", () => {
   const commits = [1, 2, 3, 4, 5, 6].map((n) => ({
     sha: `sha${n}`, shortSha: `abc000${n}`, subject: `커밋 ${n}`, date: "",
@@ -162,22 +140,12 @@ test("the breadcrumb names one commit, and counts the rest of a range", () => {
   assert.equal(lead("sha1", "sha6", { scoped: false }), null,
     "outside a Cmd+9 compare the toolbar stays quiet — marking every state marks none");
 
-  // git's empty tree is not an unknown base, it is "nothing was there yet" — which is what a range opened
-  // from the ROOT commit is measured from, and it puts every commit up to the target inside the span.
-  // Counted as an unknown (one), a three-commit range from the root read as a single named commit with
-  // nothing beside it, which is the one shape this function exists to prevent.
   assert.deepEqual(lead(EMPTY_TREE, "sha3"), { sha: "abc0003", subject: "커밋 3", others: 2 },
     "a range from the root counts every commit it contains");
   assert.deepEqual(lead(EMPTY_TREE, "sha1"), { sha: "abc0001", subject: "커밋 1", others: 0 },
     "and the root commit on its own is still one commit");
 });
 
-// compareCommitLead reads activeBase/activeTarget, so whatever MOVES those has changed what the toolbar's
-// commit chip says. The three selector branches repainted only the patch-set bar and left the chip naming the
-// commit the reader had just navigated away from. This reads the source rather than the screen because the
-// defect is an absence sitting next to a mutation: a behavioural test would have to come down the whole IPC
-// round trip to see it, and the branch that moves nothing must stay free of the call, which an
-// every-path-repaints assertion could not express.
 test("whatever moves the active base or target repaints the commit chip", () => {
   const movers = bundle.split("\n")
     .map((line, index) => [index + 1, line])
@@ -189,11 +157,7 @@ test("whatever moves the active base or target repaints the commit chip", () => 
   }
 });
 
-// Thirty-three patch sets wrapped the bar onto a second row and no number was findable. Show the two at each
-// end, the active one with its neighbours, and a fold for each run left out.
 test("the patch-set bar folds a long branch down to a findable window", () => {
-  // Read the two window sizes out of the bundle rather than restating them, or this test would keep passing
-  // while the bar on screen showed a different shape.
   const sizeOf = (name) => Number(new RegExp(`var ${name} = (\\d+)`).exec(bundle)?.[1]);
   const expanded = { base: false, target: false };
   const patchSetWindow = bundled("patchSetWindow",
@@ -210,9 +174,6 @@ test("the patch-set bar folds a long branch down to a findable window", () => {
   assert.equal(of(7, 3), "1 2 3 4 5 6 7", "a branch that already fits is never folded");
   assert.equal(of(8, 3), "1 2 3 4 5 … 7 8", "one past the limit folds exactly one run");
 
-  // The window advances by one per selection, so walking to the middle of a long branch took as many
-  // diff rebuilds as there were steps — measured at sixteen `git diff`s to reach patch set 17 of 33.
-  // The fold stops hiding them rather than guessing which one was meant, so the middle is two clicks.
   const folded = patchSetWindow(
     Array.from({ length: 33 }, (_, i) => ({ label: String(i + 1), active: false })), "base");
   const fold = folded.find((o) => o.ellipsis);
@@ -228,12 +189,6 @@ test("the patch-set bar folds a long branch down to a findable window", () => {
   expanded.base = false;
 });
 
-// "전체" and the branch point resolve to the same diff, and only one of them is reversible. The option
-// sent `branchPoint.sha`, which app-main stores as an explicit base — so one click moved the toolbar pill
-// from `main` to `54d784f` and nothing in the app put it back: ⌥A did not, and neither did re-picking the
-// same option, because the bar marks it active for either value and so looked unchanged the whole time.
-// "auto" is understood on both compare paths (app-main's set-review-base and set-review-compare) and is
-// the value that restores automatic base resolution.
 test("the patch-set bar's “all” option is reversible", () => {
   const options = bundled("patchSetBaseOptions", ["t", (key) => key], ["patchSetShortRef", (ref) => String(ref)], ["patchSetCommitTitle", (i, c) => String(c.subject)])({
     branchPoint: { sha: "54d784f0000", label: "main" },
@@ -245,8 +200,6 @@ test("the patch-set bar's “all” option is reversible", () => {
   assert.equal(all.ref, "auto", "picking it restores the automatic base rather than pinning a commit");
   assert.equal(all.active, true, "and with no explicit base it is the one marked active");
 
-  // Still marked active when the base IS that sha — a review opened at the branch point is "all changes",
-  // and this is why the bar looked unchanged while the pill had started naming a commit.
   const atSha = bundled("patchSetBaseOptions", ["t", (key) => key], ["patchSetShortRef", (ref) => String(ref)], ["patchSetCommitTitle", (i, c) => String(c.subject)])({
     branchPoint: { sha: "54d784f0000", label: "main" },
     commits: [],
@@ -257,11 +210,6 @@ test("the patch-set bar's “all” option is reversible", () => {
   assert.equal(atSha[0].ref, "auto", "and picking it there is still the reversible value");
 });
 
-// Clicking the option the bar already shows as active must do nothing. `activeBase` arrives as the sha the
-// build resolved, so the old guard — compare it with the option's `ref` — held only while that ref was a
-// sha as well. When "all" started sending "auto" to stay reversible, the guard went dead and every click
-// on the already-active "all" ran a full rebuild for no change. The two questions have one answer now:
-// the option list decides which option is active, and the guard reads that.
 test("clicking the option already in force changes nothing", () => {
   const deps = [
     ["t", (key) => key],
@@ -269,7 +217,6 @@ test("clicking the option already in force changes nothing", () => {
     ["patchSetCommitTitle", (index, commit) => String(commit.subject)],
   ];
   const options = (data) => bundled("patchSetBaseOptions", ...deps)(data);
-  // The state the backend actually sends when the review is at the branch point: a resolved sha.
   const atBranchPoint = {
     branchPoint: { sha: "54d784f0000", label: "main" },
     commits: [{ sha: "1fe2700", subject: "work", shortSha: "1fe2700", date: "" }],
@@ -281,19 +228,10 @@ test("clicking the option already in force changes nothing", () => {
   assert.equal(all.active, true,
     "and the bar knows it is already in force — which is what the no-op guard has to read");
 
-  // And a patch set that is NOT in force is not marked active, or the guard would swallow a real pick.
   const one = options(atBranchPoint).filter((option) => option.ref === "1fe2700")[0];
   assert.equal(one.active, false, "picking a different patch set is a real change");
 });
 
-// "전체" in the patch-set bar and "모든 변경사항" (⌥A) say the same thing, so they have to BE the same
-// thing. They were not: the bar sent `auto`, which clears `options.base` and leaves the build to resolve
-// one automatically — and automatic resolution DECLINES on a dirty worktree (resolveAutomaticReviewBase:
-// unpushed commits are only the base when there is nothing uncommitted), so the build fell back to HEAD.
-// A button reading `전체 변경 · main` then narrowed the review to uncommitted changes, which is the
-// opposite of what it says, on any tree with anything uncommitted — the state this app is usually in.
-//
-// Read off the source because the defect is which CALL the click makes, and both calls succeed.
 test("the bar's “all” goes the same way Alt+A goes", () => {
   const source = bundle.slice(bundle.indexOf("function selectPatchSet"));
   const body = source.slice(0, source.indexOf("\nfunction ", 1));

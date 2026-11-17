@@ -1,13 +1,3 @@
-// A language server reads the WORKING TREE. A caret in the diff's BASE pane carries a line number from the
-// old file, so a server that resolves by position answers truthfully about whatever now sits at that
-// number — ⌘⌥B on a deleted `openSourceAt(…)` call came back with lib.es5.d.ts's `String.replace`, because
-// that line in the new file is a `.replace(…)`. The analyzer therefore declines the server for such a
-// request by name and lets the name index answer, exactly as it already does on a revision.
-//
-// Driven through `analysis.query` rather than through the page, because the page cannot show this: the
-// viewer tests stub the bridge, so they assert that the request carries `side` and that a `baseSide` reply
-// is rendered well, and both stay green no matter what this file does with either. The question here is
-// whether a server is asked at all, and the honest way to ask it is to count the resolver's calls.
 import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -41,10 +31,6 @@ function repo() {
   return root;
 }
 
-// The resolver is the one door to a language server (serverCandidates → clientFor → lspLocations), so
-// counting its calls says whether one was reached for. It answers `undefined` — no server for this
-// language — which leaves the index to answer in BOTH cases, so the only thing that differs between them
-// is the thing under test.
 function analyzerFor(root, calls) {
   return new ProjectAnalysis(root, {
     resolveServer: (...args) => { calls.push(args[0]); return undefined; },
@@ -73,8 +59,6 @@ test("a base-pane position is never handed to a language server", async () => {
   assert.equal(base.engine, "index", "the name index answers instead — the reason the base side is offered");
 });
 
-// The symbol's NAME survives the move from the base to the working tree, which is the whole reason a
-// base-side caret is supported rather than refused. Declining the server must not decline the answer.
 test("declining the server does not decline the answer", async () => {
   const root = repo();
   const analysis = analyzerFor(root, []);

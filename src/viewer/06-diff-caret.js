@@ -1,4 +1,3 @@
-// ===== Side-by-side diff caret (keyboard navigation across the old/new panes) =====
 function isDiffViewVisible() {
   var d = document.getElementById('diff-view');
   return Boolean(d && !d.classList.contains('hidden'));
@@ -7,10 +6,6 @@ function diffActiveWrapper() {
   return document.querySelector('#diff2html-container .d2h-file-wrapper:not(.df-inactive)')
     || document.querySelector('#diff2html-container .d2h-file-wrapper');
 }
-// path -> wrapper, O(1) after the first build. Rebuilt only on a miss/disconnect
-// (the wrapper set is stable; only bodies materialize). This is called several times
-// per F7 press, so the old O(files) querySelector scan made each keystroke cost scale
-// with the file count — the main source of cross-file nav stutter on big diffs.
 var wrapperPathMap = null;
 function diffWrapperPathKey(w) {
   return (w.dataset && w.dataset.path) || ((w.querySelector('.d2h-file-name') || {}).textContent || '').trim();
@@ -36,9 +31,6 @@ function diffSideTable(wrapper, side) {
   var t = diffSideTables(wrapper);
   return side === 'old' ? t.left : t.right;
 }
-// Diff tables are immutable during normal caret movement. Cache their navigable rows instead of running a
-// querySelectorAll + filter several times for every key repeat. Context expansion/body materialization call
-// invalidateDiffRows; replaced watch DOM naturally gets a fresh WeakMap key.
 var diffRowsCache;
 function diffRowsOf(sideTable) {
   if (!sideTable) return [];
@@ -51,8 +43,6 @@ function diffRowsOf(sideTable) {
   diffRowsCache.set(sideTable, rows);
   return rows;
 }
-// The same table, indexed the other way: printed line number -> row index. Built once per side table and
-// thrown away with the row cache, for the same reason the row cache exists.
 var diffLineIndexCache;
 function diffLineIndexOf(sideTable) {
   if (!sideTable) return null;
@@ -81,12 +71,6 @@ function diffRowAt(wrapper, side, rowIndex) {
   var rows = diffRowsOf(diffSideTable(wrapper, side));
   return rows[rowIndex] || null;
 }
-// Inverse of diffLineNumber: which row index on this side shows a given line number. Used by comment
-// navigation (Cmd+F7, 07-comments.js) to land the diff caret on a comment's anchor line, and — the reason
-// it is a map rather than a scan — by ⌥↓ and F2, which ask it once PER SYMBOL and per diagnostic on every
-// press. The scan was a querySelector plus a parseInt for every row of the pane: measured at 8.9 ms a call
-// on a 1200-row pane in jsdom, so a held ⌥↓ on a large rewritten file spent that much again per symbol,
-// synchronously, on a movement key.
 function diffRowIndexForLine(wrapper, side, line) {
   var index = diffLineIndexOf(diffSideTable(wrapper, side));
   if (!index) return -1;
@@ -137,8 +121,6 @@ function codeWordBounds(text, column) {
   if (!value.length) return null;
   var at = Math.max(0, Math.min(Number(column) || 0, value.length - 1));
   var isWord = function (char) { return /[$_\p{L}\p{N}\p{M}]/u.test(char || ''); };
-  // A rounded pixel-to-column estimate can land immediately after the word. Prefer the character on the
-  // left at that boundary, matching native editor double-click behavior.
   if (!isWord(value[at]) && at > 0 && isWord(value[at - 1])) at -= 1;
   if (!isWord(value[at])) return { start: at, end: Math.min(value.length, at + 1) };
   var start = at, end = at + 1;
@@ -146,15 +128,8 @@ function codeWordBounds(text, column) {
   while (end < value.length && isWord(value[end])) end += 1;
   return { start: start, end: end };
 }
-// The review surfaces render their own fake caret by splitting highlighted text nodes. That DOM mutation
-// breaks Chromium's built-in double-click sequence, so reconstruct the exact word range after removing the
-// fake caret. This helper is shared by source and side-by-side diff views.
 function selectCodeWord(container, text, column) {
   if (!container) return false;
-  // A double click that turned into a drag: Chromium has already extended the selection word by word, and
-  // that range is what the user is dragging out. Replacing it with the single word under the pointer threw
-  // the whole gesture away — the selection snapped back to one word (the one under wherever the drag ended).
-  // Only a plain double click reaches past here: its native selection is the one word we are about to select.
   var bounds = codeWordBounds(text, column);
   if (bounds && selectedText().length > bounds.end - bounds.start) return false;
   container.querySelectorAll('.code-cursor').forEach(function (span) {
@@ -180,7 +155,6 @@ function clearDiffCaret() {
   var container = document.getElementById('diff2html-container');
   if (container) {
     container.querySelectorAll('.mc-diff-cursor-row').forEach(function (r) { r.classList.remove('mc-diff-cursor-row'); });
-    // remove ALL caret spans (not just the tracked one) so a stray indicator never lingers
     container.querySelectorAll('.code-cursor').forEach(function (s) { var p = s.parentNode; if (p) { p.removeChild(s); if (p.normalize) p.normalize(); } });
   }
   diffCaretSpan = null;
@@ -195,13 +169,6 @@ function renderDiffCaret() {
   row.classList.add('mc-diff-cursor-row');
   var ctn = diffCellCtn(row);
   if (!ctn) return;
-  // Empty line (ctn is just a <br>): an inline caret span would wrap onto a 2nd visual line and break the
-  // row height, so take the caret out of the flow — and then PLACE it, which is the half this used to skip.
-  // `position: absolute` with no offsets keeps the static position, and the static position of a span
-  // appended after a <br> is the line BELOW the one the row shows: measured on a 20px row, the 15px caret
-  // started 18px down and drew 13px of itself over the next row. That is the "caret straddles the blank
-  // line" report. code-cursor-empty (shared with the source view, 10-source-view.js) pins it to the cell's
-  // own box instead; the ctn is already inside the cell's padding here, so it starts at the cell's left edge.
   if ((ctn.textContent || '').length === 0) {
     var espan = document.createElement('span');
     espan.className = 'code-cursor code-cursor-empty';
@@ -229,16 +196,7 @@ function setDiffCursor(path, side, rowIndex, column, reveal) {
   clearSelectedDiffFold();
   var wrapper = diffWrapperByPath(path);
   if (!wrapper) return;
-  // The diff shows one file at a time (showOnlyFile), so a caret placed in a file that is NOT the visible one
-  // landed in a display:none wrapper: the chrome updated — the base-version label named the target file — while
-  // the reader kept looking at the previous file, and the scroll had nothing on screen to reveal. Reveal it
-  // first (which also materializes a lazy body, so the row lookup below can find its rows at all). An ordinary
-  // caret move inside the active file finds it already active and skips this entirely.
   if (wrapper.classList && wrapper.classList.contains('df-inactive')) revealDiffFile(path);
-  // ...and the same for a file the reader folded away. F7, ⌥↓ and F2 were moving the caret through a
-  // `display: none` body: the row measured 0x0, the pane kept showing the "folded away" placeholder, and
-  // four presses of the app's main navigation key changed nothing on screen. Stepping INTO a collapsed
-  // file opens it, which is what goToDiffFile already does for its own jump and for the same reason.
   if (wrapper.classList && wrapper.classList.contains('file-collapsed')) {
     delete diffCollapsedFileSet()[path];
     paintDiffFileCollapse();
@@ -251,14 +209,10 @@ function setDiffCursor(path, side, rowIndex, column, reveal) {
   diffCursor = { path: path, side: side, rowIndex: ri, column: col };
   syncActiveDiffHunk(hunkIndexAtCaret());
   syncDiffReviewChrome(path);
-  pendingFileBoundary = null; // any caret move re-arms the last-change announcement for the next F7 (see next)
-  hideCaretHint(); // caret moved (incl. crossing to the next file) → drop the "last change" hint so it never covers the new file
-  diffSelectionAnchor = null; // any direct caret placement (click/F7/Cmd-arrow) drops the selection; Shift+Arrow re-sets it
+  pendingFileBoundary = null;
+  hideCaretHint();
+  diffSelectionAnchor = null;
   if (reveal) {
-    // Render the caret AND scroll in the SAME animation frame. A fast key-repeat queues several ArrowDowns
-    // before one frame; rendering the caret immediately (while the coalesced scroll lags) would push it many
-    // rows past the viewport, then the view would snap ~one viewport at a time. Coalescing both keeps the
-    // caret and scroll in lockstep, so holding ArrowDown scrolls smoothly instead of jumping every ~15 lines.
     scheduleDiffReveal(wrapper, side, ri);
   } else {
     renderDiffCaret();
@@ -275,7 +229,7 @@ function scheduleDiffReveal(wrapper, side, ri) {
     var t = diffRevealTarget; diffRevealTarget = null;
     renderDiffCaret();
     applyDiffSelection();
-    repositionCaretHint(); // the caret only exists now; anything anchored to it was aimed at the old one
+    repositionCaretHint();
     if (!t) return;
     var row = diffRowAt(t.wrapper, t.side, t.ri);
     scrolloffReveal(row, document.getElementById('diff2html-container'), 0.15);
@@ -293,9 +247,6 @@ function navEntryOf(kind) {
 function navSamePos(a, b) {
   return !!(a && b && a.kind === b.kind && a.path === b.path && a.line === b.line && (a.kind !== 'diff' || a.side === b.side));
 }
-// Record a caret placement into the back/forward history. Contiguous small moves refresh the
-// current entry (so arrowing around does not flood it); a jump (different file or a far line)
-// pushes a new entry and drops any forward history.
 function recordNav(entry) {
   if (navSuppress || !entry) return;
   var cur = navPos >= 0 ? navList[navPos] : null;
@@ -331,17 +282,15 @@ function restoreNav(entry) {
 }
 function navBack() {
   if (navPos < 0) return;
-  // Change-nav (F7) does not record positions. If the caret has drifted past the last recorded
-  // spot, the first Cmd+[ returns to it; the next steps further back through the cursor history.
   var live = navEntryOf(isSourceViewerVisible() ? 'source' : 'diff');
   if (live && !navSamePos(live, navList[navPos])) { restoreNav(navList[navPos]); return true; }
-  if (navPos <= 0) return false; // nothing further back — decline rather than eat the key in silence
+  if (navPos <= 0) return false;
   navPos -= 1;
   restoreNav(navList[navPos]);
   return true;
 }
 function navForward() {
-  if (navPos >= navList.length - 1) return false; // the forward stack is empty
+  if (navPos >= navList.length - 1) return false;
   navPos += 1;
   restoreNav(navList[navPos]);
   return true;
@@ -349,7 +298,6 @@ function navForward() {
 function applyDiffSelection() {
   var sel = window.getSelection();
   if (!sel) return;
-  // Selection only makes sense within one pane and one file; otherwise clear it.
   if (!diffSelectionAnchor || !diffCursor || diffSelectionAnchor.side !== diffCursor.side) { try { sel.removeAllRanges(); } catch (e) {} return; }
   var wrapper = diffWrapperByPath(diffCursor.path);
   if (!wrapper) { try { sel.removeAllRanges(); } catch (e) {} return; }
@@ -362,10 +310,10 @@ function applyDiffSelection() {
 function isDiffCodeRow(row) {
   if (!row) return false;
   if (row.classList.contains('mc-import-fold-row') || row.classList.contains('mc-import-fold-hidden')) return false;
-  if (row.querySelector('.d2h-emptyplaceholder, .d2h-code-side-emptyplaceholder')) return false; // added/removed counterpart — no real line
+  if (row.querySelector('.d2h-emptyplaceholder, .d2h-code-side-emptyplaceholder')) return false;
   if (!row.querySelector('.d2h-code-line-ctn')) return false;
   var num = row.querySelector('.d2h-code-side-linenumber');
-  return !!num && (num.textContent || '').trim().length > 0; // real code line has a line number (excludes hunk-info rows)
+  return !!num && (num.textContent || '').trim().length > 0;
 }
 function firstDiffCodeRow(wrapper, side) {
   var rows = diffRowsOf(diffSideTable(wrapper, side));
@@ -394,18 +342,16 @@ function moveDiffCursor(dLine, dColumn, extend) {
   var ri = diffCursor.rowIndex;
   var col = diffCursor.column;
   var text = diffLineText(rows[ri]);
-  // Shift extends a text selection from where the caret sat before the first shifted move.
   var anchor = extend ? (diffSelectionAnchor || { side: diffCursor.side, rowIndex: diffCursor.rowIndex, column: diffCursor.column }) : null;
-  // Plain arrows stay within the current pane (no auto pane-crossing — that is Cmd+Left/Right).
   if (dColumn < 0) {
     if (col > 0) { col -= 1; }
-    else { // at line start: end of previous code line in the SAME pane
+    else {
       var p = ri - 1; while (p >= 0 && !isDiffCodeRow(rows[p])) p -= 1;
       if (p >= 0) { ri = p; col = diffLineText(rows[p]).length; }
     }
   } else if (dColumn > 0) {
     if (col < text.length) { col += 1; }
-    else { // at line end: start of next code line in the SAME pane
+    else {
       var nx = ri + 1; while (nx < rows.length && !isDiffCodeRow(rows[nx])) nx += 1;
       if (nx < rows.length) { ri = nx; col = 0; }
     }
@@ -416,8 +362,8 @@ function moveDiffCursor(dLine, dColumn, extend) {
     while (cand >= 0 && cand < rows.length && !isDiffCodeRow(rows[cand])) cand += step;
     if (cand >= 0 && cand < rows.length) { ri = cand; col = Math.min(col, diffLineText(rows[ri]).length); }
   }
-  setDiffCursor(diffCursor.path, side, ri, col, true); // clears diffSelectionAnchor + native selection
-  if (anchor) { diffSelectionAnchor = anchor; applyDiffSelection(); } // re-establish the Shift selection
+  setDiffCursor(diffCursor.path, side, ri, col, true);
+  if (anchor) { diffSelectionAnchor = anchor; applyDiffSelection(); }
 }
 function moveDiffWord(dir, extend) {
   if (!diffCursor) return;
@@ -426,15 +372,11 @@ function moveDiffWord(dir, extend) {
   var row = diffRowAt(wrapper, diffCursor.side, diffCursor.rowIndex);
   var text = diffLineText(row);
   var ncol = nextWordBoundary(text, diffCursor.column, dir);
-  if (ncol === diffCursor.column) return; // already at the line edge — plain arrows change lines
+  if (ncol === diffCursor.column) return;
   var anchor = extend ? (diffSelectionAnchor || { side: diffCursor.side, rowIndex: diffCursor.rowIndex, column: diffCursor.column }) : null;
   setDiffCursor(diffCursor.path, diffCursor.side, diffCursor.rowIndex, ncol, true);
   if (anchor) { diffSelectionAnchor = anchor; applyDiffSelection(); }
 }
-// A comment box is injected right after its line's row, in the pane the comment was written on (see
-// injectThreadRow / renderDiffComments) — the other pane gets only a height-matching spacer. Split-view rows
-// align 1:1 by index, so check the caret's own pane first and then the other one, and the box is found from
-// either side. Mirrors commentRowSiblingOf for the source view.
 function diffCommentBoxSiblingOf(dir) {
   if (!diffCursor) return null;
   var wrapper = diffWrapperByPath(diffCursor.path);
@@ -447,9 +389,6 @@ function diffCommentBoxSiblingOf(dir) {
   }
   return null;
 }
-// Omitted-context rows participate in vertical caret navigation just like comment boxes. diffRowsOf keeps
-// the fold marker in positional order but moveDiffCursor normally skips non-code rows, so explicitly detect
-// a fold between the current line and the next real code line.
 function diffFoldBetween(dir) {
   if (!diffCursor) return null;
   var wrapper = diffWrapperByPath(diffCursor.path);
@@ -496,8 +435,6 @@ function handleDiffCaretKey(event) {
   if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT')) return false;
   var extend = event.shiftKey;
   if (selectedDiffFoldRow && !selectedDiffFoldRow.isConnected) selectedDiffFoldRow = null;
-  // A selected fold owns Space and vertical arrows. The code caret remains on its adjacent source line,
-  // matching comment-box navigation, so Escape/left/right can simply return focus to that caret.
   if (selectedDiffFoldRow) {
     if (event.code === 'Space' || event.key === ' ' || event.key === 'Spacebar') {
       event.preventDefault();
@@ -519,11 +456,6 @@ function handleDiffCaretKey(event) {
     }
     return false;
   }
-  // A comment box is selected: the same contract as the source view, which owns it
-  // (handleSelectedCommentRowKey). A diff row is addressed by pane and row index, and diffRowInfoFromNode
-  // reads both off the row itself — including WHICH pane it is in. Resolving the new-side table for every
-  // sibling instead meant a comment on the old side, which is a comment on a deleted line, could never be
-  // stepped off: no left-pane row has an index in the right pane's list, so every arrow restored the caret.
   if (selectedCommentRow) {
     return handleSelectedCommentRowKey(event, function (sib) {
       var at = diffRowInfoFromNode(sib);
@@ -534,7 +466,6 @@ function handleDiffCaretKey(event) {
       setDiffCursor(diffCursor.path, diffCursor.side, diffCursor.rowIndex, diffCursor.column, false);
     });
   }
-  // Plain Up/Down: a comment box attached to the caret line is a selectable stop (caret stays visible).
   if (!extend && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
     var box = diffCommentBoxSiblingOf(event.key === 'ArrowUp' ? -1 : 1);
     if (box) { event.preventDefault(); selectCommentRow(box, event.key === 'ArrowUp'); return true; }

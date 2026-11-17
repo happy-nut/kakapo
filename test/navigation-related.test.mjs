@@ -1,10 +1,3 @@
-// The rest of IntelliJ's Navigate menu: Go to Class (⌥O), Go to Related Symbol (⌥G), Go to Custom Region
-// (⌘⌥.), Jump to Last Change (⌘⇧⌫) and the method hierarchy (⌘⇧M).
-//
-// Each is small, and each is small for the same reason: the answer already existed somewhere in this app
-// and what was missing was a way to ask for it. So what these guard is mostly the asking — that ⌥O asks
-// for types only, that ⌘⇧M asks for the overrides and flips to the supertypes, that ⌥G finds the two
-// relations a reader with no framework knowledge can find.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { makeReviewHtml, cleanupFixtures } from "./helpers/fixture.mjs";
@@ -12,16 +5,16 @@ import { loadViewer } from "./helpers/dom.mjs";
 
 const FILE = "src/Button.tsx";
 const SOURCE = [
-  "// region Rendering",      // 0
-  "export function Button() {", // 1
-  "  return null;",            // 2
-  "}",                         // 3
-  "// endregion",              // 4
-  "",                          // 5
-  "// #region Hooks",          // 6
-  "export function useButton() {", // 7
-  "  return 1;",               // 8
-  "}",                         // 9
+  "// region Rendering",
+  "export function Button() {",
+  "  return null;",
+  "}",
+  "// endregion",
+  "",
+  "// #region Hooks",
+  "export function useButton() {",
+  "  return 1;",
+  "}",
 ].join("\n");
 
 let html;
@@ -125,7 +118,7 @@ test("⌘⇧M opens the method hierarchy, and pressing it again flips the direct
   const host = await openSource({
     hierarchy: [{ path: "src/other.ts", lineIndex: 0, column: 7, name: "x", text: "export const x = 2;" }],
   });
-  host.v.window.setSourceCursor(FILE, 1, 16, true, -1); // on `Button`
+  host.v.window.setSourceCursor(FILE, 1, 16, true, -1);
   await press(host, { code: "KeyM", key: "m", metaKey: true, shiftKey: true });
   await host.v.settle(120);
   const kinds = host.asked.map((request) => request.kind);
@@ -138,8 +131,6 @@ test("⌘⇧M opens the method hierarchy, and pressing it again flips the direct
   host.v.close();
 });
 
-// ---- ⌘⇧A and ⌥Space ------------------------------------------------------------------------------
-
 const actionRows = (host) => host.v.$all("#quick-open-results .action-result")
   .map((row) => row.dataset.action);
 
@@ -149,7 +140,6 @@ test("⌘⇧A lists the actions this page can run, with their chords", async () 
   const rows = actionRows(host);
   assert.ok(rows.includes("fileStructure"), `the structure popup is an action: ${rows.length} rows`);
   assert.ok(rows.includes("problemsView"));
-  // A menu accelerator belongs to the OS menu and cannot be fired from the page, so it is not offered.
   assert.ok(!rows.includes("openFolder"), "⌘O opens a folder through the menu, not through here");
   const chord = host.v.$('#quick-open-results .action-result[data-action="fileStructure"] .action-chord');
   assert.equal(chord.textContent, "⌘F12", "the chord is on the row — half of why the list is opened");
@@ -173,7 +163,6 @@ test("Enter on an action closes the list and runs it", async () => {
   assert.deepEqual(actionRows(host), ["problemsView"]);
   await press(host, { code: "Enter", key: "Enter" });
   await host.v.settle(120);
-  // It ran: the launcher is showing the Problems list now rather than the actions it was showing.
   assert.equal(host.v.$("#quick-open-mode").textContent, "Problems");
   host.v.close();
 });

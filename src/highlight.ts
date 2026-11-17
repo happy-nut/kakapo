@@ -2,9 +2,6 @@ import { html as renderDiff2HtmlMarkup } from "diff2html";
 import hljs from "highlight.js";
 import { decodeEntities, languageForPath, markWhitespaceRuns, stripHtmlTags } from "./util.js";
 
-// How the caller finds a changed file's CURRENT text, by the repo-relative path the diff names. Optional
-// everywhere: a history diff of an old commit has no such text, and highlighting falls back to reading the
-// hunks alone. See markupLanguageByLine for what having it buys.
 export type SourceTextLookup = (path: string) => string | undefined;
 
 export function renderDiff2Html(diffText: string, sourceText?: SourceTextLookup): string {
@@ -40,37 +37,22 @@ function highlightDiffWrapper(wrapper: string, sourceText?: SourceTextLookup): s
   if (language !== "xml") {
     return highlightSideLines(wrapper, () => language);
   }
-  // A single-file component is markup only around its edges; nearly everything in it lives inside <script>
-  // or <style>. Which block a line is in is a property of the FILE, and the diff shows hunks — so ask the
-  // file when we can reach it, and fall back to reading the hunks alone when we cannot (history diffs).
   const byLine = markupLanguageByLine(sourceText?.(path));
   if (byLine) {
     return highlightSideLines(wrapper, (_text, line) => (line > 0 && byLine[line - 1]) || "xml");
   }
-  // A side-by-side wrapper holds the old file's lines then the new file's, each in its own block and each
-  // starting again at that file's first line. The block state below (which language a line is in) has to
-  // restart with them, or the right-hand side inherits whatever the left-hand side ended inside.
   return wrapper
     .split(/(?=<div [^>]*class="[^"]*d2h-file-side-diff)/)
     .map((side) => highlightSideLines(side, blockLanguageScanner()))
     .join("");
 }
 
-// `lang="ts"` / `type="text/typescript"` is worth honouring: TS syntax in a plain-javascript grammar reads as
-// an illegal sequence, and ignoreIllegals then drops the tokens we came for.
 function scriptLanguage(attributes: string): string {
   return /\b(?:lang|type)\s*=\s*["']?[^"'>]*\b(?:ts|typescript)\b/i.test(attributes) ? "typescript" : "javascript";
 }
 const BLOCK_OPENER = /<\s*(script|style)\b([^>]*)>/i;
 const BLOCK_CLOSER = /<\s*\/\s*(script|style)\s*>/i;
 
-// The language of every line of a single-file component, by 1-based line number (index 0 = line 1). This is
-// the whole answer to "is this line inside <script>": the file has the openers and closers in it, whether or
-// not the diff happened to show them.
-//
-// Line numbers are the NEW file's, and the old side of a side-by-side diff is numbered against the old file.
-// Blocks are hundreds of lines long and a diff shifts things by a handful, so the two agree everywhere except
-// within a few lines of a boundary — where the worst case is one `</script>` line coloured as script.
 function markupLanguageByLine(text: string | undefined): string[] | undefined {
   if (typeof text !== "string" || !text) return undefined;
   const lines = text.split(/\r?\n/);
@@ -79,7 +61,7 @@ function markupLanguageByLine(text: string | undefined): string[] | undefined {
   for (let i = 0; i < lines.length; i += 1) {
     const opener = BLOCK_OPENER.exec(lines[i]);
     if (opener && !/\/\s*>\s*$/.test(opener[0])) {
-      out[i] = "xml"; // the line carrying the opening tag is still markup
+      out[i] = "xml";
       mode = opener[1].toLowerCase() === "style" ? "css" : scriptLanguage(opener[2]);
       continue;
     }
@@ -93,9 +75,6 @@ function markupLanguageByLine(text: string | undefined): string[] | undefined {
   return out;
 }
 
-// Fallback for a diff with no file behind it (git history). One code line at a time is all diff2html gives
-// us, so track the block as the lines go past. A run of script lines whose opening <script> is not in the
-// diff reads as markup — the floor, not a regression.
 function blockLanguageScanner(): (text: string) => string {
   let mode = "xml";
   return (text: string): string => {
@@ -103,7 +82,7 @@ function blockLanguageScanner(): (text: string) => string {
     const opener = BLOCK_OPENER.exec(text);
     if (opener && !/\/\s*>\s*$/.test(opener[0])) {
       mode = opener[1].toLowerCase() === "style" ? "css" : scriptLanguage(opener[2]);
-      return current; // the line carrying the opening tag is still markup
+      return current;
     }
     if (BLOCK_CLOSER.test(text)) {
       mode = "xml";
@@ -113,17 +92,11 @@ function blockLanguageScanner(): (text: string) => string {
   };
 }
 
-// diff2html emits each side-by-side row as a line-number cell followed by the code cell, so the number for a
-// row is the last one printed before it. Indexing the per-file language map by line rather than by position
-// in the hunk is what makes it correct across folds — a folded hunk skips line numbers, so counting rows
-// would drift by however many lines were left out.
 function highlightSideLines(side: string, languageFor: (text: string, line: number) => string): string {
   return side.replace(
     /(<span class="d2h-code-line-ctn">)([\s\S]*?)(<\/span>\s*<\/div>)/g,
     (whole: string, open: string, content: string, close: string, offset: number) => {
       const language = languageFor(decodeEntities(stripHtmlTags(content)), lineNumberBefore(side, offset));
-      // Marked whether or not the line could be highlighted: a row of nothing but spaces has no language
-      // and is exactly the row worth seeing (highlightCtnSegments answers null for it).
       const marked = (inner: string) => `${open}${markWhitespaceRuns(inner)}${close}`;
       if (!hljs.getLanguage(language)) return marked(content);
       const highlighted = highlightCtnSegments(content, language);
@@ -132,8 +105,6 @@ function highlightSideLines(side: string, languageFor: (text: string, line: numb
   );
 }
 
-// The line number diff2html printed for the row that ends at `offset`. Empty on the blank half of an
-// added/removed pair, which is what 0 means — the caller then falls back to markup.
 const LINE_NUMBER_CELL = "d2h-code-side-linenumber";
 function lineNumberBefore(side: string, offset: number): number {
   const head = side.lastIndexOf(LINE_NUMBER_CELL, offset);
@@ -143,9 +114,6 @@ function lineNumberBefore(side: string, offset: number): number {
   return digits ? Number(digits[1]) : 0;
 }
 
-// Apply hljs to a code-line container while preserving diff2html word-level
-// change markup (e.g. <span class="d2h-change">...): tags are kept verbatim and
-// only the text segments between them are syntax-highlighted.
 function highlightCtnSegments(content: string, language: string): string | null {
   if (content.trim().length === 0) {
     return null;

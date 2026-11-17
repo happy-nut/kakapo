@@ -1,15 +1,10 @@
-// ===== Go-to-line (Cmd/Ctrl+L), copy caret location (Cmd/Ctrl+K), and the sidebar row action menu. =====
 
-// Programmatic clipboard write. Electron's bridge is reliable on file://; navigator.clipboard is the fallback.
 function copyTextToClipboard(text) {
   try { if (window.kakapoClipboard && typeof window.kakapoClipboard.write === 'function') { window.kakapoClipboard.write(text); return true; } } catch (e) {}
   try { if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(text); return true; } } catch (e) {}
   return false;
 }
 
-// IntelliJ's Copy as Patch, for the file being read: git's own hunks for it, on the clipboard, ready for
-// `git apply`. Asked of main (kakapo:file-patch) rather than rebuilt from the rendered rows — a folded hunk
-// is not in the DOM, and a patch missing a hunk still looks like a patch.
 function copyFileAsPatch(path) {
   if (!path) return false;
   if (!window.kakapoGit || typeof window.kakapoGit.filePatch !== 'function') return false;
@@ -25,11 +20,6 @@ function copyFileAsPatch(path) {
   return true;
 }
 
-// IntelliJ's Compare with Clipboard. What this does NOT do is open a side-by-side pane for it: this app's
-// diff view is built once, in main, from the review's own `git diff`, and there is no second diff surface in
-// the window to put an ad-hoc comparison into. So the comparison is shown as what it is — git's own patch
-// between the two sides — opened as a read-only document in the source view, which is already a perfectly
-// good place to read a patch. It is less than IntelliJ shows, and that is worth saying rather than hiding.
 function compareClipboardWith(path) {
   if (!path) return false;
   if (!window.kakapoClipboard || typeof window.kakapoClipboard.read !== 'function') return false;
@@ -41,8 +31,6 @@ function compareClipboardWith(path) {
     if (!pageAlive()) return;
     var body = typeof patch === 'string' ? patch : '';
     if (!body.trim()) { showToast(t('clipdiff.same').replace('{path}', path)); return; }
-    // A synthetic entry in the same map every other file lives in, so the tabs, the caret, ⌘F and the
-    // whitespace marks all work on it without knowing where it came from. Named for what it is.
     var synthetic = path + ' ↔ clipboard.diff';
     sourceByPath.set(synthetic, {
       path: synthetic,
@@ -54,7 +42,7 @@ function compareClipboardWith(path) {
       embedded: true,
       changedLines: [],
       signature: '',
-      library: true, // read-only, and not part of the project index
+      library: true,
       __loaded: true,
     });
     openSourceFile(synthetic, true);
@@ -64,7 +52,6 @@ function compareClipboardWith(path) {
   return true;
 }
 
-/** The file the reader is on: the open source file, else whichever the diff caret is in. '' if neither. */
 function activeReadingPath() {
   if (isSourceViewerVisible()) {
     return sourceOpenPath();
@@ -76,7 +63,6 @@ function activeReadingPath() {
 function copyActiveFileAsPatch() { return copyFileAsPatch(activeReadingPath()); }
 function compareClipboardWithFile() { return compareClipboardWith(activeReadingPath()); }
 
-// "path:line" for the current caret — source view (the painted file) or the diff caret. '' if neither.
 function caretLocation() {
   if (isSourceViewerVisible()) {
     var p = sourceOpenPath();
@@ -92,19 +78,15 @@ function caretLocation() {
   return '';
 }
 
-// Cmd/Ctrl+K — copy the caret's file:line to the clipboard.
 function copyCaretLocation() {
-  // With lines selected, the reference is worth more with the lines themselves attached — that is the
-  // citation plain Cmd+C used to force on every copy. Without a selection it stays just the caret's file:line.
   var cite = sourceSelectionCitation();
   if (cite) { if (copyTextToClipboard(cite.payload)) showToast(t('goto.copied') + ' ' + cite.reference); return true; }
   var loc = caretLocation();
-  if (!loc) return false; // no caret anywhere — there is no location to copy, so the key is not ours
+  if (!loc) return false;
   if (copyTextToClipboard(loc)) showToast(t('goto.copied') + ' ' + loc);
   return true;
 }
 
-// Diff view: place the caret on the row whose (new, then old) line number matches n, in the active file.
 function gotoDiffLine(n) {
   var path = (typeof diffCursor !== 'undefined' && diffCursor && diffCursor.path) || '';
   if (!path) {
@@ -136,22 +118,9 @@ function gotoLineJump(n) {
   if (isDiffViewVisible()) gotoDiffLine(n);
 }
 
-// Cmd/Ctrl+L — a small numeric prompt; Enter jumps, Esc closes.
-//
-// Clicking away closes it, which is not a nicety. This box claims scope 'modal' while it is in the DOM
-// (keyboardScope, 05-keymap.js), so every window-level shortcut stands down for it — and it used to listen
-// for exactly two keys and nothing else. Press ⌘L, then click a line of code: the 238×48 translucent box
-// stays, the caret is somewhere else, and the next F7 / ⌘6 / ⇧⌥W does nothing at all, with no way back but
-// a key nobody would think to press. Two closes, because they answer two different questions: the pointer
-// leaving is a dismissal, and the keyboard leaving means it no longer owns the keys (keyboardScope asks).
 var closeGotoLine = null;
 function openGotoLine() {
-  // No code surface, no line to go to: decline so the key falls through instead of being swallowed.
   if (!isSourceViewerVisible() && !isDiffViewVisible()) return false;
-  // Close the previous prompt properly rather than just detaching its element: its capture-phase keydown
-  // stays on `document` otherwise, and being registered first it eats the NEXT prompt's Enter — an empty
-  // parse, a stopPropagation, and a box that will not accept a line number. Unreachable while any box
-  // held the keyboard outright; reachable now that an unfocused one does not (keyboardScope).
   if (closeGotoLine) closeGotoLine();
   var prior = document.getElementById('goto-line');
   if (prior) prior.remove();
@@ -175,13 +144,10 @@ function openGotoLine() {
     if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
     else if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); var n = parseInt(input.value, 10); close(); if (n >= 1) gotoLineJump(n); }
   }
-  // Dismiss, not consume: the click that closes the box is also the click that places the caret, which is
-  // what the reader meant by it.
   function onPointerDown(e) {
     if (e.target && box.contains(e.target)) return;
     close();
   }
-  // Capture phase so Enter/Esc are handled here before the global keymap (which is on bubble).
   document.addEventListener('keydown', onKey, true);
   document.addEventListener('pointerdown', onPointerDown, true);
   closeGotoLine = close;
@@ -189,18 +155,6 @@ function openGotoLine() {
   return true;
 }
 
-/**
- * ⌥L: paste a pull request link and read it here.
- *
- * Built on the same bones as the line prompt above, for the same reasons: capture-phase keys so Enter and
- * Escape are answered before the window keymap, a pointerdown dismissal because the click that closes it is
- * usually a click meant for the code behind it, and the previous prompt closed properly rather than
- * detached — its listener would otherwise still be on `document`, registered first, eating this one's Enter.
- *
- * The answer takes a moment (it is a `gh` call), so the box says it is working and stays up until the main
- * process replies. Closing it on Enter would leave a reader watching an unchanged diff with nothing on
- * screen to say that anything had been asked.
- */
 var closePullRequestPrompt = null;
 function openPullRequestPrompt() {
   if (!window.kakapoGit || typeof window.kakapoGit.openPullRequest !== 'function') return false;
@@ -269,8 +223,6 @@ function openPullRequestPrompt() {
   return true;
 }
 
-// Sidebar Opt+Enter: project-grounded file actions for the focused row. Absolute paths are resolved by
-// Electron's main process so the renderer never needs the project root or direct filesystem access.
 function openTreeRowMenu(row) {
   if (!row) return;
   var path = row.dataset.sourceFile || row.dataset.file || '';
@@ -289,21 +241,15 @@ function openTreeRowMenu(row) {
       } catch (e) {}
     } });
   }
-  // IntelliJ's Git ▸ Show History for a file: every commit that touched it, followed through its renames.
-  // The line-level version is already a right-click on a line number; this is the whole file's story.
   if (window.kakapoGit) {
     items.push({ label: t('menu.fileHistory'), onSelect: function () { openFileHistory(path); } });
   }
   if (window.kakapoApp && typeof window.kakapoApp.revealInFinder === 'function') {
     items.push({ label: t('menu.revealFinder'), onSelect: function () { try { window.kakapoApp.revealInFinder(path); } catch (e) {} } });
   }
-  // "Open terminal here" opens the OS terminal in the folder holding the row's file. kakapo is run FROM a
-  // terminal, so this is the way back to one beside the change being read.
   if (window.kakapoApp && typeof window.kakapoApp.openTerminal === 'function') {
     items.push({ label: t('menu.openTerminal'), onSelect: function () { try { window.kakapoApp.openTerminal(path); } catch (e) {} } });
   }
-  // IntelliJ keeps both of these on the context menu of a change, which is what this row is. They are the
-  // same two functions the ⇧⌥P / ⇧⌥C chords call — the path is simply this row's instead of the caret's.
   if (window.kakapoGit && typeof window.kakapoGit.filePatch === 'function') {
     items.push({ label: t('kbd.copyAsPatch'), onSelect: function () { copyFileAsPatch(path); } });
   }
@@ -311,9 +257,6 @@ function openTreeRowMenu(row) {
     && window.kakapoGit && typeof window.kakapoGit.compareClipboard === 'function') {
     items.push({ label: t('kbd.compareClipboard'), onSelect: function () { compareClipboardWith(path); } });
   }
-  // Clear this file's review comments in one action. It rides removeComments, so the whole batch comes back
-  // with one Cmd/Ctrl+Z — which is why it asks for no confirmation. Only offered when there is something to
-  // remove, so the menu never carries a dead row.
   var owned = commentSeqsForPath(path);
   if (owned.length) {
     items.push({ label: t('menu.clearComments', { n: owned.length }), onSelect: function () {
@@ -325,9 +268,6 @@ function openTreeRowMenu(row) {
   showCustomDropdown(Math.round(r.left + 14), Math.round(r.bottom + 2), items, Math.round(r.top));
 }
 
-// IntelliJ-style file blame: the line-number gutter expands in place to show date + author. Attribution
-// remains attached to its source tab across folding/raw repaints, and clicking an attribution reuses the
-// existing read-only commit-diff workspace instead of opening a second line-history list.
 function buildBlameAgeBuckets(records) {
   var rows = Array.isArray(records) ? records : [];
   var dated = rows.map(function (record) {
@@ -378,11 +318,6 @@ function applySourceBlameIfActive(path) {
     var row = cell.closest('.source-row[data-line-index]');
     var lineIndex = Number(row && row.dataset.lineIndex);
     var record = sourceBlameLines.get(lineIndex + 1);
-    // The number this gutter already shows — from the span that holds it, not from the cell's text.
-    // Read with textContent it also picked up the blame entry this function had written there on an
-    // earlier pass, and wrote the lot back as the "line number": the gutter read `2026-08-11happy-nut1–7`
-    // where it means `1–7`, and grew by one date and author every time it repainted. It repaints often —
-    // sourceRowsCompleted re-runs it as each chunk of a big file arrives.
     var painted = cell.querySelector('.source-line-number');
     var label = painted ? painted.textContent : (cell.textContent || String(lineIndex + 1));
     var numberHtml = '<span class="source-line-number">' + escapeHtml(label) + '</span>';
@@ -411,17 +346,7 @@ function showSourceBlame(path) {
   Promise.resolve(window.kakapoGit.blame({ path: path })).then(function (records) {
     if (seq !== sourceBlameLoadSeq || sourceBlamePath !== path) return;
     var rows = Array.isArray(records) ? records : [];
-    // git has nothing to say about a file it has never seen — an untracked one, most often. Painted
-    // anyway, that produced an empty `.source-blame-entry` on every line: a third of the editor's width
-    // given over to a blank column, with no text, no tooltip and nothing to say why. There is a sentence
-    // for "nothing to show" and this is one of the places that needed it.
     if (!rows.length) {
-      // clearSourceBlamePaint, not hideSourceBlame. Nothing was painted — `sourceBlameLines` is still null
-      // and applySourceBlameIfActive never ran, so the only thing on screen is the loading class. The
-      // heavier one ends in a full openSourceFile, which replaces the body and sends #source-body's
-      // scrollTop to 0: a context-menu item whose entire output is one sentence would have thrown the
-      // reader back to the top of the file. The success path patches cells in place and keeps the caret,
-      // and these two should differ by what they draw, not by where they leave the reader.
       sourceBlamePath = '';
       sourceBlameAges = new Map();
       clearSourceBlamePaint();
@@ -436,13 +361,11 @@ function showSourceBlame(path) {
   });
 }
 
-// Called after source-table repaints (folding, Markdown/raw switching, and watch updates).
 function refreshSourceBlamePaint(path) {
   clearSourceBlamePaint();
   applySourceBlameIfActive(path);
 }
 
-// Files mode (Cmd+1): right-clicking any line number toggles the inline blame columns.
 (function wireSourceLineHistoryMenu() {
   var body = document.getElementById('source-body');
   if (!body) return;
@@ -463,9 +386,6 @@ function refreshSourceBlamePaint(path) {
   });
 })();
 
-// Diff blame uses the same read-only commit workspace, but keeps each logical line number attached to its
-// code edge. The base pane is code | line | date | author; the working pane is date | author | line | code.
-// Loading both revisions avoids attributing base-only lines to the current working tree.
 var diffBlamePath = '';
 var diffBlameLines = { old: null, new: null };
 var diffBlameAges = new Map();
@@ -481,8 +401,6 @@ function diffBlameWrapperPath(wrapper) {
 
 function syncDiffBlameWrapper(wrapper) {
   if (!wrapper || !wrapper.classList) return;
-  // Blame belongs to the live Review workspace only. Commit diffs reuse the same layered diff renderer,
-  // but must open clean instead of inheriting the annotation state of the file that launched them.
   var reviewWrapper = !!(wrapper.closest && wrapper.closest('#diff2html-container'));
   var active = reviewWrapper && diffBlameEnabled(diffBlameWrapperPath(wrapper));
   wrapper.classList.toggle('mc-diff-blame-loading', active && diffBlameLoading);

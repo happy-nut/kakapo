@@ -9,10 +9,6 @@ import type {
 import { performWebSocketRequest } from "./http-socket.js";
 import { readHttpAttachment, saveHttpResponse } from "./http-files.js";
 
-// diff2html + highlight.js, reached through cli.js, cost ~100ms to parse — and the main process needs them
-// for exactly two things, both of which happen long after first paint: rendering one lazily-fetched diff body,
-// and running a .http request. Importing them when the first such request arrives keeps that off cold start.
-// Node caches the module, so only the first call pays anything at all.
 const buildTools = (): Promise<typeof import("./cli.js")> => import("./cli.js");
 import {
   readGitLog, readGitLineLog, readGitBlame,
@@ -34,9 +30,6 @@ import { readReviewDiffContext, type DiffContextRequest } from "./diff-context.j
 import type { ProjectIndexPayload, SourceFile } from "./types.js";
 
 export type ReviewIpcState = {
-  // `baseLabel` is the BRANCH a base was resolved from, and only set-compare-mode sets it — a patch-set
-  // pick clears it, which is how the compare menu tells "the branch point of main" from "commit 1fe2700"
-  // when both arrive here as a sha in `base`.
   options: { root: string; base?: string; baseLabel?: string; target?: string; staged: boolean };
   signature: string;
   bodies: { file: string; offsets: number[] };
@@ -47,39 +40,21 @@ export type ReviewIpcState = {
   reviewBase?: string;
   reviewTarget?: string;
   compareScope?: { sha: string; shortSha: string; subject: string; date: string }[];
-  compareRef?: string; // branch the "All changes" mode measures against (compare-menu pick, else the default)
-  compareTip?: boolean; // compare against compareRef's TIP instead of its merge-base with HEAD (⌥T)
-  // Diff-first startup: the first paint indexed only the changed files. This materializes the full project
-  // index into sourceFiles on demand (idempotent, deduped) so the pull handlers below see every file. It runs
-  // the enumeration in the build worker, so it returns a promise the handlers await.
+  compareRef?: string;
+  compareTip?: boolean;
   ensureFullIndex?: () => void | Promise<void>;
 };
 
 type ReviewIpcEvent = IpcMainEvent | IpcMainInvokeEvent;
 type ReviewStateResolver = (event: ReviewIpcEvent) => ReviewIpcState | undefined;
 
-// Markdown previews reference images with document-relative paths (`![](assets/x.gif)`). The review page is
-// a file:// document under userData, so those paths never resolve there. The renderer joins the path against
-// the document's directory and asks main to inline the bytes as a data: URL — the sandboxed renderer still
-// never learns the repository root, and containment below keeps requests inside it. Only known image types
-// are served (an <img> data: URL cannot execute), with a size cap so a stray large binary can't bloat memory.
 const REVIEW_ASSET_MIME: Record<string, string> = {
   ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif",
   ".webp": "image/webp", ".svg": "image/svg+xml", ".bmp": "image/bmp", ".ico": "image/x-icon",
   ".avif": "image/avif", ".apng": "image/apng",
 };
-const MAX_REVIEW_ASSET_BYTES = 10 * 1024 * 1024; // 10 MiB — covers larger README GIFs/screenshots, rejects accidents
+const MAX_REVIEW_ASSET_BYTES = 10 * 1024 * 1024;
 
-/** Registers read-only review, analysis, search, and history adapters. */
-// Library navigation: following a definition can land on a file the project index does not hold — inside
-// node_modules, which the index deliberately skips, or outside the review root entirely (a stdlib module, a
-// bundled type stub). Those are read on demand, as their own read-only record, and never enter the index:
-// quick-open and the file tree stay the project's own files, which is also what IntelliJ does with library
-// sources.
-//
-// An ABSOLUTE path is served only when a language server actually reported it in this session
-// (isKnownLibraryPath). Following a definition is unrestricted — that is the feature — but the renderer
-// never gets to name a file on its own, so this is not a "read any path" IPC for a compromised renderer.
 function librarySource(root: string, requested: string): SourceFile | null {
   if (isAbsolute(requested)) {
     return isKnownLibraryPath(requested) ? readLibrarySourceFile(requested) : null;
@@ -89,25 +64,14 @@ function librarySource(root: string, requested: string): SourceFile | null {
 }
 
 export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResolver, userData = ""): void {
-  // Read-only here: the compare menu needs the reviewer's read mark to label and offer its row, and the
-  // store it lives in is the same per-workspace settings file main writes it to. The WRITE side is main's
-  // kakapo:mark-read, which is the only thing that moves the mark.
   const preferences = new AppPreferences(userData);
-  // The .http runner. Three handlers, and the split is deliberate: main owns the network, the repository
-  // root and the cookie jar, so the renderer names a request and a repo-relative file and never learns a
-  // path. Containment lives in http-files.ts, because every path here was written in the reviewed repo.
   ipc.handle("kakapo:http-send", async (event, request: HttpSendRequest) => {
     const state = stateFromEvent(event);
     return (await buildTools()).performHttpRequest(request, { root: state?.options.root, userData });
   });
 
-  // `WEBSOCKET ws://…`: the messages the file lists, sent in order, and the transcript handed back.
-  // Node's own WebSocket client does the work, so this costs no dependency (http-socket.ts).
   ipc.handle("kakapo:ws-send", (_event, request: WebSocketSendRequest) => performWebSocketRequest(request));
 
-  // `<@ ./body.json` (a body whose {{variables}} the renderer has to substitute) and `> ./handler.js`
-  // (a script the renderer has to run) are the two cases where the renderer needs the TEXT of a file.
-  // A raw `< ./body.bin` body never comes through here — main reads those bytes in performHttpRequest.
   ipc.handle("kakapo:http-attachment", (event, request: { path?: string }): HttpAttachment => {
     const state = stateFromEvent(event);
     if (!state) return { ok: false, error: "Review window is unavailable" };
@@ -127,8 +91,6 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
     if (!Number.isInteger(index) || index < 0 || index >= reviewBodyCount(state.bodies)) return "";
     const cached = state.bodyCache.get(String(index));
     if (cached !== undefined) return cached;
-    // One slice off the build's bodies file, rendered, and kept only within the cache's budget. Nothing about
-    // this file is held between requests — that is the point of writing it down (review-bodies.ts).
     const body = (await buildTools()).renderLazyDiffBody(
       readReviewBody(state.bodies, index),
       (path) => sourceTextForHighlight(state, path),
@@ -144,8 +106,6 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
     if (!state || !path || path.startsWith("../")) return null;
     let record = state.sourceFiles.get(path);
     if (!record) {
-      // Diff-first: the changed-only index doesn't hold this path (e.g. a restored tab for an unchanged file).
-      // Materialize the full index once (in the worker), then retry before giving up.
       await state.ensureFullIndex?.();
       record = state.sourceFiles.get(path);
     }
@@ -169,19 +129,12 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
     return materialized;
   });
 
-  // Inline a document-relative image for the Markdown preview. `path` arrives already joined against the
-  // markdown file's directory and normalized by the renderer; main is the sole authority on the root and the
-  // containment check, so a crafted `../` path can never escape the reviewed repository.
   ipc.handle("kakapo:get-asset", (event, request: { path?: string }) => {
     const state = stateFromEvent(event);
     const rel = String(request?.path ?? "").replace(/\\/g, "/").replace(/^\.\//, "");
     if (!state || !rel || rel.startsWith("../")) return null;
     const mime = REVIEW_ASSET_MIME[extname(rel).toLowerCase()];
-    if (!mime) return null; // only known image types are inlineable by design
-    // Canonical containment, not lexical: a tracked symlink (`leak.png -> ../../../.ssh/id_rsa`) keeps the
-    // link itself inside the root, and readFileSync follows it. This handler is reached with no gesture
-    // beyond opening a markdown file — the preview fetches every img src it finds — so a crafted repo must
-    // not be able to read a byte outside the review root through it.
+    if (!mime) return null;
     const target = containedRealPath(state.options.root, rel);
     if (!target) return null;
     try {
@@ -194,9 +147,6 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
   ipc.handle("kakapo:get-project-index", async (event): Promise<ProjectIndexPayload | null> => {
     const state = stateFromEvent(event);
     if (!state) return null;
-    // Diff-first: build the full index now (in the worker) if the first paint only carried the changed files.
-    // state.signature is left unchanged so it still matches what the renderer pulled against (the
-    // installProjectIndex guard).
     await state.ensureFullIndex?.();
     return {
       signature: state.signature,
@@ -287,32 +237,24 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
     });
   });
 
-  // The log's filters are applied by git, not by hiding rows: a page holds a few hundred commits, so a
-  // filter over what is already loaded answers "nothing by Ada" when it means "nothing in the last page".
   ipc.handle("kakapo:git-log", (event, request: GitLogFilter) => {
     const state = stateFromEvent(event);
     if (!state) return [];
     try { return readGitLog(state.options.root, request ?? {}); } catch { return []; }
   });
 
-  // Where HEAD has been. The one view that still holds a commit a reset or a rebase dropped.
   ipc.handle("kakapo:git-reflog", (event, request: { limit?: number }) => {
     const state = stateFromEvent(event);
     if (!state) return [];
     try { return readGitReflog(state.options.root, { limit: request?.limit }); } catch { return []; }
   });
 
-  // Read-only, like everything else here: kakapo shows what is stashed, it does not apply or drop it.
-  // A stash IS a commit, so opening one needs no diff reader of its own — its first parent is where HEAD
-  // was when it was made, which is exactly what the review surface already opens for `sha^..sha`.
   ipc.handle("kakapo:git-stashes", (event) => {
     const state = stateFromEvent(event);
     if (!state) return [];
     try { return readGitStashes(state.options.root); } catch { return []; }
   });
 
-  // "Go to hash": what a hash, branch, tag or HEAD~2 typed into the log's box actually names. null is the
-  // answer that tells the box it was holding an ordinary text filter after all.
   ipc.handle("kakapo:git-resolve-rev", (event, request: { query?: string }) => {
     const state = stateFromEvent(event);
     if (!state || !request?.query) return null;
@@ -332,12 +274,10 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
     if (!state || !path || !state.sourceFiles.has(path)) return [];
     const revision = request?.side === "old"
       ? (state.reviewBase ?? state.options.base ?? "HEAD")
-      : (state.reviewTarget ?? state.options.target); // A→B: new-side blame is commit B, else working tree
+      : (state.reviewTarget ?? state.options.target);
     try { return readGitBlame(state.options.root, path, revision); } catch { return []; }
   });
 
-  // IntelliJ's Copy as Patch, for one file. Asked of git rather than rebuilt from the rendered rows: a
-  // folded hunk is not in the DOM, and a patch missing a hunk still looks like a patch.
   ipc.handle("kakapo:file-patch", (event, request: { path?: string }) => {
     const state = stateFromEvent(event);
     const path = typeof request?.path === "string" ? request.path : "";
@@ -361,12 +301,6 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
     }
   });
 
-  // IntelliJ's Compare with Clipboard: what the clipboard holds against what the file holds.
-  //
-  // `git diff --no-index` rather than a diff written here: it is the same engine that produced every other
-  // hunk in this window, so the patch reads the same way, and it is already a dependency. The two sides go
-  // to the app's own temp directory and are removed straight after — the clipboard may hold anything, and
-  // it has no business landing in the reviewed project (AGENTS.md: never write app state into it).
   ipc.handle("kakapo:compare-clipboard", (event, request: { path?: string; text?: string }) => {
     const state = stateFromEvent(event);
     const path = typeof request?.path === "string" ? request.path : "";
@@ -391,43 +325,18 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
     } catch {
       return "";
     } finally {
-      if (dir) { try { rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ } }
+      if (dir) { try { rmSync(dir, { recursive: true, force: true }); } catch { } }
     }
   });
 
-  // Everything the compare dropdown needs, in one round-trip: which of the two modes the review is in, the
-  // branch "All changes" is measured against, and the branch list its target submenu offers. Read-only —
-  // kakapo:set-compare-mode (app-main) is the half that rebuilds.
-  //
-  // The mode is DERIVED rather than remembered. A patch-set pick or a Cmd+9 range moves the review somewhere
-  // neither menu row describes, and a remembered flag would then tick a row that is not what is on screen.
   ipc.handle("kakapo:compare-menu", (event) => {
     const state = stateFromEvent(event);
     if (!state) return null;
     try {
       const root = state.options.root;
       const defaultRef = compareDefaultRef(root);
-      // `baseLabel` before the repository default: a reader who launched `kakapo --base develop` is in "All
-      // changes" mode measured against develop, and answering `origin/main` here put the row the menu ticks
-      // and the refs the pill prints on two different branches.
       const ref = state.compareRef || state.options.baseLabel || defaultRef;
-      // No explicit base AND no resolved one means the build fell through to HEAD-vs-worktree (build.ts's
-      // "local" compare state) — which is the uncommitted row, arrived at automatically rather than picked.
-      // A patch-set pick is the third way to be "somewhere neither row describes", and the only one that
-      // left no trace here: it sets `options.base` to a commit while `compareScope` and `target` stay
-      // empty, so the derivation above it read as "all" and the menu ticked `모든 변경사항 (main 대비)`
-      // while the pill and the patch-set summary both said `1fe2700`. The control a reader opens to find
-      // out what the diff measures against was the one surface that was wrong.
-      //
-      // `baseLabel` is the discriminator the two writers already agree on: set-compare-mode records the
-      // branch it resolved the base from, and set-review-base deliberately clears it because a patch set
-      // names a commit rather than a branch. So an explicit base with no label came from a patch set.
       const explicitBase = Boolean(state.options.base) && !state.options.baseLabel && state.options.base !== "HEAD";
-      // Where the reviewer stopped, and whether the review is sitting on it right now. Unlike tip mode this
-      // needs no remembered flag: the mark is ONE commit, so "is the base that commit" is the whole
-      // question, and every other control that moves the base moves the review out of this mode by itself.
-      // A patch-set pick that lands on the same commit ticks this row, and that is not an ambiguity — the
-      // two rows would describe the same diff, so both answers are the same answer.
       const readMark = resolveReadMark(root, preferences.readReadMark(root));
       const sinceReadMark = Boolean(
         readMark
@@ -442,30 +351,17 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
         ? "other"
         : state.options.staged || state.options.base === "HEAD" || (!state.options.base && !state.reviewBase)
           ? "uncommitted"
-          // Asked, not inferred: tip mode leaves base/baseLabel looking exactly like "all" whenever the ref
-          // is an ancestor of HEAD, so the flag the mode's own writer set is the only thing that knows.
           : state.compareTip
             ? "tip"
             : "all";
-      // Whether `ref` is the reader's own pick or just what the repository resolves to today. The menu's
-      // no-op guard needs the difference: a click on the branch already shown is a rebuild worth screening
-      // ONLY once that branch has been recorded. Screened before that, the pick never reaches
-      // set-compare-mode, so nothing is persisted, and the next time the automatic answer changes — an
-      // upstream appears, the default branch is renamed — the review moves off the branch the reader
-      // chose, with no record that they ever chose it.
       return { mode, ref, defaultRef, readMark, pinned: Boolean(state.compareRef), branches: listBranches(root), remotes: listRemotes(root) };
     } catch { return null; }
   });
 
-  // Patch sets available as diff bases for the compare bar. activeBase reflects the live review options
-  // ("auto" when no explicit base), so the renderer can highlight the current selection. Read-only; the
-  // mutating counterpart (kakapo:set-review-base) lives in app-main because it triggers a rebuild.
   ipc.handle("kakapo:git-patch-sets", (event) => {
     const state = stateFromEvent(event);
     if (!state) return null;
     try {
-      // While a range opened from Cmd+9 is active, the dropdowns pick base/target from THAT range's commits
-      // (so B..D within an opened A..F is selectable), not the local commits-ahead-of-branch-point.
       if (state.compareScope && state.compareScope.length) {
         return {
           activeBase: state.reviewBase ?? state.options.base ?? "auto",
@@ -476,24 +372,12 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
         };
       }
       const list = readPatchSets(state.options.root, state.compareRef);
-      // Highlight against the base the build actually resolved (a SHA), not the raw option. When no
-      // explicit base was set, reviewBase is the automatic merge-base, or undefined → the diff used HEAD.
       list.activeBase = state.reviewBase || list.head;
-      // Right side: a chosen patch set (commit) or the working tree ("worktree" sentinel).
       list.activeTarget = state.reviewTarget ?? state.options.target ?? "worktree";
       return list;
     } catch { return null; }
   });
 
-  /**
-   * Everything the patch-set ledger draws, in one call: the same list the bar shows, what each patch set
-   * actually did, and where the reviewer stopped reading.
-   *
-   * Separate from kakapo:git-patch-sets because that one answers every diff update, and the numbers here
-   * cost a `--numstat` walk of the branch — a per-commit diff. The ledger is opened deliberately and read
-   * for a while, so it pays for its own figures, and a reviewer who never opens it pays nothing. For the
-   * same reason the read mark is resolved here rather than added to the cheap call.
-   */
   ipc.handle("kakapo:patch-set-ledger", async (event) => {
     const state = stateFromEvent(event);
     if (!state) return null;
@@ -515,8 +399,6 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
           read.activeTarget = state.reviewTarget ?? state.options.target ?? "worktree";
           return read;
         })();
-      // The range the figures are for: from whatever the list's first commit is based on, to its last.
-      // Asking per commit would be one git process each; one walk answers all of them.
       const first = list.commits[0];
       const last = list.commits[list.commits.length - 1];
       const from = scoped
@@ -526,22 +408,12 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
       return { ...list, stats, readMark: resolveReadMark(root, preferences.readReadMark(root)) };
     } catch { return null; }
   });
-
 }
 
-// The branch "All changes" falls back to when nothing has been picked: the tracking branch if there is one
-// (the honest answer to "what am I ahead of"), otherwise the repository's default branch. Shared by the
-// compare menu's read side and app-main's set-compare-mode, which is why it lives here rather than inline.
 export function compareDefaultRef(root: string): string {
   return git(root, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"]) || defaultBaseRef(root);
 }
 
-// A single-file component's diff cannot be highlighted from its hunks alone: which block a line is in is a
-// property of the whole file (highlight.ts's markupLanguageByLine). Hand the highlighter that file.
-//
-// Gated on the language so nothing else pays for it. A .ts diff needs no file, and on the lazy path the
-// content is deliberately not in memory — materializing it for every body fetch would undo the deferral this
-// path exists for. One .svelte file being opened is a read the reader already asked for.
 function sourceTextForHighlight(state: ReviewIpcState, path: string): string | undefined {
   if (languageForPath(path) !== "markup") return undefined;
   const record = state.sourceFiles.get(path);

@@ -1,10 +1,3 @@
-// CORE USER FLOW: selecting code with the mouse.
-//
-// Both code views paint a FAKE caret — a span spliced into the line's text nodes — and a click places it.
-// A drag ENDS with a click, so the click handler was repainting the caret on top of the selection the drag
-// had just made, re-splitting the very text nodes that selection was anchored in: dragging across code in
-// the diff or in a source file left nothing selected. A click that arrives while a range is selected is the
-// tail of a drag, not a request to move the caret.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { makeReviewHtml, cleanupFixtures } from "./helpers/fixture.mjs";
@@ -22,9 +15,8 @@ let html;
 before(async () => { html = (await makeReviewHtml(FILES)).html; });
 after(cleanupFixtures);
 
-/** Select some text inside `cell`, the way a drag across it would. */
 function selectInside(v, cell) {
-  const walker = v.document.createTreeWalker(cell, 4 /* SHOW_TEXT */);
+  const walker = v.document.createTreeWalker(cell, 4);
   let node = walker.nextNode();
   while (node && (node.nodeValue || "").trim().length < 2) node = walker.nextNode();
   if (!node) throw new Error("no text to select");
@@ -55,7 +47,6 @@ test("diff: the click that ends a drag leaves the caret (and so the selection) a
   await v.settle(20);
   assert.equal(cursorRow(), placed, "a click carrying a selection does not move the caret");
 
-  // Without a selection the same click still places the caret — the guard is about drags, not about clicks.
   v.window.getSelection().removeAllRanges();
   v.click(cell);
   await v.settle(20);
@@ -84,8 +75,6 @@ test("source: the click that ends a drag leaves the caret (and so the selection)
   v.close();
 });
 
-// A double click that turned into a drag: Chromium has already extended the selection word by word, and
-// replacing that with the single word under the pointer threw the whole gesture away.
 test("selectCodeWord keeps a selection wider than the word it would select", async () => {
   const v = await loadViewer(html);
   await v.openSourceFile("src/app.ts");
@@ -106,13 +95,6 @@ test("selectCodeWord keeps a selection wider than the word it would select", asy
   v.close();
 });
 
-// Dragging a selection OUT is reading, not editing.
-//
-// The diff is deliberately not editable: beforeinput, paste and drop are all blocked on its container so
-// nothing can be typed into it, pasted into it or dropped onto it. `dragstart` was blocked alongside them
-// and does not belong there — it is how a reader carries selected code to another window, and it changes
-// nothing in the diff. Blocked, drag-and-drop of code was dead in the diff and alive in the source view,
-// for no reason either surface states.
 test("a selection can be dragged out of the diff, as it can out of the source view", async () => {
   const v = await loadViewer(html);
   try {
@@ -135,8 +117,6 @@ test("a selection can be dragged out of the diff, as it can out of the source vi
   }
 });
 
-// The three that DO belong there, so removing one of them fails here rather than quietly making the diff
-// editable. This is the half a one-sided change would have dropped.
 test("the diff still refuses to be typed into, pasted into or dropped onto", async () => {
   const v = await loadViewer(html);
   try {

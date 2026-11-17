@@ -1,12 +1,6 @@
-// Caret-local semantic navigation for the single Review renderer. Project analysis still runs through
-// the main-process LSP/regex adapter; this slice only presents multiple locations without opening a
-// second code surface.
 var semanticPeekItems = [];
 var semanticPeekActive = 0;
 
-// Test code, as the PROJECT says rather than as the path looks: 14-project-layout.js asks the declared
-// test roots first (an `.iml`'s `isTestSource`, a Maven `src/test`) and falls back to the path pattern
-// this used to be. Every surface that sorts tests below production code reads it through here.
 function semanticTestPath(path) {
   return projectIsTestPath(path);
 }
@@ -26,14 +20,6 @@ function semanticCommentOnlyLine(text) {
   return /^(?:\/\/|\/\*|\*\/|\*|#|--|<!--|\"\"\"|''')/.test(trimmed);
 }
 
-/**
- * The locations worth showing, in the order worth showing them: documentation and comment-only lines out,
- * tests below production code, the analyzer's own order kept inside each group.
- *
- * `kind` is read for one reason: a list whose answers ARE comments. A region marker (`// region Hooks`) is
- * a comment by construction, so the filter below would drop every row and the list would come up empty —
- * which is what it did the first time. The filter is about noise around an answer, not about answers.
- */
 var SEMANTIC_COMMENT_KINDS = { region: true };
 
 function semanticNavigationLocations(locations, kind) {
@@ -46,8 +32,6 @@ function semanticNavigationLocations(locations, kind) {
     var item = entry.item;
     return item && item.path && !semanticDocumentPath(item.path) && !semanticCommentOnlyLine(item.text);
   }).sort(function (a, b) {
-    // Keep the analyzer/LSP relevance order inside each group, but move test evidence below production
-    // code so a long green test block never interrupts the primary definition/usage scan.
     return Number(a.test) - Number(b.test) || a.index - b.index;
   }).map(function (entry) { return entry.item; });
 }
@@ -69,17 +53,11 @@ function openSemanticPeek(name, locations, response, kind) {
   semanticPeekActive = 0;
   var title = document.getElementById('semantic-peek-title');
   var meta = document.getElementById('semantic-peek-meta');
-  // The noun was built in English by a conditional here, in an app that ships in two languages. It is a
-  // user-facing string, so it lives in i18n.ts with the rest of them.
   var key = kind === 'definition' ? 'peek.definitions' : kind === 'implementation' ? 'peek.implementations' : 'peek.usages';
   if (title) title.textContent = t(key, { n: semanticPeekItems.length }) + ' · ' + name;
   if (meta) {
     var bits = [response && response.confidence || response && response.engine || 'semantic'];
     if (response && response.server) bits.push(response.server + (response.serverSource ? ' (' + response.serverSource + ')' : ''));
-    // No generation counter here. 'g1' is the analysis index's internal revision — it means nothing to a
-    // reader looking for a symbol, and it was taking room from the one thing in this heading that does.
-    // It is still on the response for anyone debugging, and the duration below is the part that tells a
-    // reader whether the answer is fresh or a fallback.
     if (response && Number.isFinite(Number(response.durationMs))) bits.push(Number(response.durationMs).toFixed(1) + 'ms');
     meta.textContent = bits.join(' · ');
     meta.title = response && response.fallbackReason ? String(response.fallbackReason) : '';
@@ -101,8 +79,6 @@ function openAnalysisUsagesFallback(name, locations, kind) {
   showUsages(name, usageItems.length);
 }
 
-// Shared with the caret hint — see caretAnchorElement in 07-comments.js for why the candidate list is
-// gated on which view is showing rather than on geometry.
 function semanticPeekAnchorRect() {
   var el = caretAnchorElement();
   return el && el.getBoundingClientRect ? el.getBoundingClientRect() : null;
@@ -112,14 +88,6 @@ function positionSemanticPeekAtCaret() {
   positionPanelAtCaret(document.getElementById('semantic-peek'));
 }
 
-/**
- * Put a caret-anchored panel where the caret is: below it when there is room, above it when there is not,
- * clamped to the window on both axes.
- *
- * Generalised from the peek's own positioning when Quick Documentation needed the same thing. One
- * function, two panels — the alternative was a second copy of the four-way fallback below, which is the
- * part of this that is actually hard to get right.
- */
 function positionPanelAtCaret(panel) {
   if (!panel || panel.classList.contains('hidden')) return;
   var rect = semanticPeekAnchorRect();
@@ -141,8 +109,6 @@ function positionPanelAtCaret(panel) {
   }
 }
 
-// A usage row shows a line of code, so it reads like code: the same tokenizer the source view uses, keyed
-// off the language of the file the line came from. A path the review has no entry for stays plain text.
 function semanticCodeHtml(path, code) {
   var file = typeof sourceByPath !== 'undefined' ? sourceByPath.get(path) : null;
   var language = (file && file.language) || '';
@@ -155,13 +121,6 @@ function renderSemanticPeekResults() {
   if (!results) return;
   if (!semanticPeekItems.length) { results.innerHTML = '<div class="quick-open-empty">' + escapeHtml(t('monaco.noResults')) + '</div>'; return; }
   results.innerHTML = semanticPeekItems.map(function (item, index) {
-    // Each row needs an id so the listbox can point at the active one: focus stays on the list while the
-    // arrows move the selection, so without aria-activedescendant a screen reader heard "Semantic
-    // locations, listbox" and then nothing at all as the reader arrowed through it — and Enter opened a
-    // row they were never told about.
-    // Which module, in a workspace where two files share a name — the same tag every other list here
-    // carries (14-project-layout.js). The test is already said by `is-test`, so only the module. The row
-    // claims its third grid track only when it has something to put in it.
     var tags = projectRowTagsHtml(item.path, 'module');
     return '<button type="button" role="option" id="semantic-peek-item-' + index + '" aria-selected="' + (index === semanticPeekActive ? 'true' : 'false')
       + '" class="semantic-peek-item' + (item.isTest ? ' is-test' : '') + (tags ? ' has-tags' : '') + (index === semanticPeekActive ? ' active' : '') + '" data-index="' + index + '" title="' + escapeHtml(item.path + ':' + (item.lineIndex + 1)) + '">'
@@ -170,7 +129,6 @@ function renderSemanticPeekResults() {
       + tags
       + '</button>';
   }).join('') + '<div class="semantic-peek-list-hint">' + escapeHtml(t('monaco.peekHint')) + '</div>';
-  // Rebuilt every time the selection moves, so the pointer is reset with it.
   if (semanticPeekItems.length) results.setAttribute('aria-activedescendant', 'semantic-peek-item-' + semanticPeekActive);
   else results.removeAttribute('aria-activedescendant');
 }
@@ -186,10 +144,6 @@ function showSemanticPeekItem(index) {
 function closeSemanticPeek() {
   var panel = document.getElementById('semantic-peek');
   if (!panel) return;
-  // Hand the keyboard back. The panel takes focus when it opens and never gave it up: Escape left
-  // document.activeElement on <body>, so the next Tab started from the top of the document and an
-  // assistive technology's cursor went with it. The CSS two rules up has always said "Escape returns to
-  // the original caret"; this is the half of that which was missing.
   var hadFocus = panel.contains(document.activeElement);
   panel.classList.add('hidden');
   panel.style.left = panel.style.top = panel.style.bottom = panel.style.width = panel.style.maxHeight = '';

@@ -1,8 +1,3 @@
-// The review build runs in a worker thread so it never blocks the Electron main loop. These pin the worker
-// contract: a worker build produces a snapshot equivalent to a direct build, writes the HTML file itself
-// (the ~780KB string never crosses back), serves the full on-demand index, and correlates concurrent
-// requests correctly. The main-process wiring that consumes this (buildReview/ensureFullProjectIndex) lives
-// in app-main; the diff-first pull wiring is covered in diff-first.test.mjs.
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -27,8 +22,6 @@ function makeRepo() {
   writeFileSync(join(dir, "src/mod0/file0.ts"), "// edited\nexport const c = 1;\n");
   return dir;
 }
-// review targets live OUTSIDE the repo (like the app's userData mirror) so a written file is not itself an
-// untracked change that would perturb the very diff being built.
 const out = mkdtempSync(join(tmpdir(), "kakapo-rb-out-"));
 dirs.push(out);
 
@@ -62,7 +55,6 @@ test("worker index returns the full tree; concurrent requests are correlated cor
   assert.equal(full.length, collectReviewSourceIndex(options).length, "worker full index matches direct count");
   assert.ok(full.length > changed.sourceFiles.length, "full index is a superset of the changed-only set");
 
-  // Many builds in flight at once must each resolve to their own correct result (id correlation).
   const results = await Promise.all(Array.from({ length: 8 }, (_, k) => builder.build(join(out, `r${k}.html`), options, "t", false)));
   assert.ok(results.every((r) => r.signature === results[0].signature && r.sourceFiles.length === full.length), "all concurrent full builds agree");
 });

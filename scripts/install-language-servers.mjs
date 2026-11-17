@@ -64,20 +64,10 @@ export const SERVER_VERSIONS = Object.freeze({
   phpactor: "2026.06.25.0",
 });
 
-/**
- * Does what is on disk match the pin — for the one family whose archive has a clock in it.
- *
- * intellij-server writes its build into `build.txt` ("ILS-263.7084.0"), which is the only cheap, local
- * way to tell an expired install from a current one. Everything else here is version-stable, so an
- * existing directory is taken at face value; being wrong about those costs a stale binary, while being
- * wrong about Kotlin costs an expired one that exits 7 and degrades navigation to the regex index.
- */
 function installedVersionMatches(family, output, pinned) {
   if (family !== "kotlin" || !pinned) return true;
   const marker = join(output, "build.txt");
-  if (!existsSync(marker)) return true; // an older layout; leave it and let the canary test speak
-  // An unreadable marker is a reason to reinstall, not to abort the run: throwing here would take every
-  // other family down with it over a file this check is only consulting.
+  if (!existsSync(marker)) return true;
   try { return readFileSync(marker, "utf8").trim().endsWith(String(pinned)); }
   catch { return false; }
 }
@@ -94,7 +84,6 @@ const RUST_ARCHIVES = Object.freeze({
   "darwin-arm64": ["rust-analyzer-aarch64-apple-darwin.gz", "9c6b3ebf06480e2c95a7b01750fa68d77834bffa34da81e4eb00cef3cdff4613"],
 });
 
-// Checksums are upstream's own, from the .sha256 published beside each file in the same archive directory.
 const RUSTUP_ARCHIVES = Object.freeze({
   "darwin-x64": ["x86_64-apple-darwin", "259e2b84274434085163fe8d556510571772cda2aa6d87ca6aa664f57bc644e3"],
   "darwin-arm64": ["aarch64-apple-darwin", "ec1b9233e7f72990ecd8e62063fa7f6c3dfc2bec8e97f88bff165f9100ac696a"],
@@ -159,7 +148,7 @@ export async function download(url, expectedSha, cacheDir, {
       if (!response.ok || !response.body) {
         const error = new Error(`Download failed (${response.status}): ${url}`);
         error.retryable = response.status === 408 || response.status === 429 || response.status >= 500;
-        try { await response.body?.cancel(); } catch { /* best effort */ }
+        try { await response.body?.cancel(); } catch { }
         throw error;
       }
       await pipeline(Readable.fromWeb(response.body), createWriteStream(path));
@@ -377,10 +366,6 @@ export async function installLanguageServers({
       && (family !== "php" || existsSync(join(output, "php")))
       && installedVersionMatches(family, output, pinned);
     if (complete) {
-      // Say WHICH version is sitting there, and say it only when it was READ. A bare "already installed"
-      // is what makes a pin bump look like it worked — the pin moves, this prints the same reassuring
-      // line, nothing is downloaded — and printing the pin for a family whose installed version nobody
-      // checked would make it worse: the new number quoted back as evidence of an old binary.
       const verified = family === "kotlin" && pinned;
       process.stdout.write(`${family}: already installed${verified ? ` (${pinned})` : ""}\n`);
       continue;

@@ -1,37 +1,11 @@
-// ===== Compare dropdown: the two questions a reader actually switches between ========================
-// The toolbar pill says what the diff is comparing; this makes it a control. Two rows — everything on this
-// branch, and what is not committed yet — plus the branch the first of them is measured against.
-//
-// It does NOT replace the patch-set bar below it. That bar picks a base/target PAIR out of the branch's
-// commits, which is the right tool once you are reading a specific commit's work; this is the tool for the
-// two states you leave the app sitting in. Overlapping controls, different granularity, on purpose.
-//
-// Electron only: window.kakapoGit.compareMenu is the git process behind it, and a static export has none.
 
-var compareMenuState = null; // last { mode, ref, defaultRef, pinned, branches[] } from main
+var compareMenuState = null;
 var compareMenuBranchFilter = '';
-// Which set of refs the branch panel is listing: null while it is asking WHICH set, otherwise 'local' or a
-// remote's name. `listBranches` hands over local refs and then every remote-tracking one in a single list,
-// up to 600 of them, and `main` and `origin/main` sit in it as two unrelated rows — which is correct (they
-// are different commits the moment either side moves) and unreadable. Asking where first turns one long
-// list into two short ones, and makes the distinction the list could not express into the question.
 var compareMenuBranchScope = null;
 
-/**
- * Put the two refs into the pill's own tooltip.
- *
- * Below 1000px `.diff-toolbar-meta .compare-refs` is display:none (viewer.css), so the control whose whole
- * job is answering "what am I looking at" shrinks to the word "Comparing" — and the tooltip it had said only
- * "What this diff is comparing", which describes the control instead of answering it. The refs are read back
- * off the pill rather than passed in because the right-hand side is sometimes a translated word
- * ("Working tree" / "Index") and sometimes a ref, and by the time this runs applyI18n has already put the
- * right language in those spans.
- */
 function paintComparePillTitle() {
   document.querySelectorAll('.compare-pill').forEach(function (pill) {
     var refs = pill.querySelector('.compare-refs');
-    // textContent of the two spans and the arrow runs them together ("HEAD~3→Working tree"), so the parts
-    // are read individually and joined with the spacing the pill itself shows.
     var detail = refs
       ? Array.prototype.map.call(refs.children, function (c) { return (c.textContent || '').trim(); })
         .filter(Boolean).join(' ')
@@ -49,28 +23,14 @@ function compareMenuAvailable() {
   return !!(window.kakapoGit && typeof window.kakapoGit.compareMenu === 'function');
 }
 
-// Rows currently reachable by arrow keys: the mode rows and the branch opener, or the branch list once that
-// panel is showing. Rebuilt on each keystroke rather than cached — the branch list is filtered as you type.
 function compareMenuRows() {
   var el = compareMenuEl();
   if (!el) return [];
   var branches = document.getElementById('compare-menu-branches');
   var inBranches = branches && !branches.classList.contains('hidden');
-  // `:not(.hidden)` because the since row is in the markup whether or not there is a mark to offer, and a
-  // row the reader cannot see is not a place the arrow keys should stop.
   return Array.prototype.slice.call(el.querySelectorAll(inBranches ? '.compare-branch-item' : '.compare-menu-main .compare-menu-row:not(.hidden)'));
 }
 
-// The branch these rows ACT on, which is not the same question as what the review is currently measured
-// against — and blanking it in `other` mode, which two rounds of this did, answered the wrong one.
-//
-// `#compare-menu-against` is a note INSIDE the `data-mode="all"` row and `#compare-menu-ref` is the note on
-// the branch-opener row: each says what its own row would do if picked. test/compare-menu.test.mjs has said
-// so since the menu shipped — it asserts the "all" row still names `origin/main` while the review is in
-// UNCOMMITTED mode. What the review is on is the `aria-checked` tick a few lines below, and in `other` mode
-// that correctly ticks nothing. Blanked, a reader inside a ⌘9 range saw "모든 변경사항" with no branch, an
-// empty `비교 대상` and thirty branches with nothing marked — in the one state where what the exits do is
-// the thing they came here to find out.
 function compareMenuActiveRef() {
   return String((compareMenuState && compareMenuState.ref) || '');
 }
@@ -79,15 +39,10 @@ function renderCompareMenu() {
   if (!el || !compareMenuState) return;
   var data = compareMenuState;
   var against = document.getElementById('compare-menu-against');
-  // "vs main" / "main 대비" — the ref rides inside the phrase because the two languages put it on opposite
-  // sides of the word, so a bare span glued on either end would read wrong in one of them.
   var activeRef = compareMenuActiveRef();
   if (against) against.textContent = activeRef ? t('compare.menu.against').replace('{ref}', activeRef) : '';
   var refEl = document.getElementById('compare-menu-ref');
   if (refEl) refEl.textContent = activeRef;
-  // The read-mark row shows itself only when there IS a mark and the branch has moved past it; main decides
-  // that (resolveReadMark) and sends the answer or nothing, so the menu never offers a comparison against a
-  // commit that was rebased off the branch.
   var sinceRow = el.querySelector('.compare-menu-since');
   if (sinceRow) {
     var mark = data.readMark;
@@ -118,8 +73,6 @@ function branchScopeOf(name) {
   return 'local';
 }
 
-// The scopes present in THIS repository, local first, then remotes in the order the list mentions them.
-// Derived rather than assumed: a repository can have no remote, or three, and "origin" is a convention.
 function compareBranchScopes() {
   var seen = {};
   var out = [];
@@ -140,8 +93,6 @@ function compareScopeLabel(scope) {
   return scope === 'local' ? t('compare.menu.scopeLocal') : scope;
 }
 
-// The rows that ask WHICH set. One scope is not a question — a repository with no remote goes straight to
-// its branches rather than making the reader confirm the only answer there is.
 function renderCompareScopeRows(list, scopes) {
   list.innerHTML = scopes.map(function (scope) {
     return '<button type="button" class="compare-branch-item compare-branch-scope" role="option"'
@@ -159,25 +110,19 @@ function renderCompareBranchList() {
   var needle = compareMenuBranchFilter.toLowerCase();
   var activeRef = compareMenuActiveRef();
   var scopes = compareBranchScopes();
-  // A typed query searches every scope and goes straight to the matches. The step is there to shorten a
-  // list, and a reader who already knows the name does not need it shortened — made to pick a side first,
-  // they would be made to guess which side holds the branch they can already spell.
   if (!needle && compareMenuBranchScope === null && scopes.length > 1) {
     renderCompareScopeRows(list, scopes);
     return;
   }
   var branches = (compareMenuState.branches || []).filter(function (name) {
     if (needle) return name.toLowerCase().indexOf(needle) >= 0;
-    if (compareMenuBranchScope === null) return true; // the single-scope repository above
+    if (compareMenuBranchScope === null) return true;
     return branchScopeOf(name) === compareMenuBranchScope;
   });
   if (!branches.length) {
     list.innerHTML = '<div class="compare-branch-empty">' + escapeHtml(t('compare.menu.noBranch')) + '</div>';
     return;
   }
-  // Back out of a scope the same way you came in. A row rather than a corner affordance because the panel is
-  // driven by arrow keys, and `compareMenuRows()` collects `.compare-branch-item` — so this is reachable
-  // from the keyboard by being built the same as everything else here, not by a second mechanism.
   var back = !needle && compareMenuBranchScope !== null && scopes.length > 1
     ? '<button type="button" class="compare-branch-item compare-branch-back" role="option" aria-selected="false" data-back="1">'
       + '<span class="compare-menu-chevron" aria-hidden="true">\u2039</span>'
@@ -186,8 +131,6 @@ function renderCompareBranchList() {
     : '';
   list.innerHTML = back + branches.map(function (name) {
     var current = !!activeRef && name === activeRef;
-    // The repository's own default is worth marking: it is the answer you get back by picking nothing, and
-    // without the mark a list of thirty branches gives no clue which one that is.
     var note = name === compareMenuState.defaultRef ? '<span class="compare-branch-note">' + escapeHtml(t('compare.menu.default')) + '</span>' : '';
     return '<button type="button" class="compare-branch-item' + (current ? ' active' : '') + '" role="option"'
       + ' aria-selected="' + (current ? 'true' : 'false') + '" data-ref="' + escapeHtml(name) + '">'
@@ -198,9 +141,6 @@ function renderCompareBranchList() {
   }).join('');
 }
 
-// Keep the popover inside the window. It hangs off the toolbar's meta group, which sits well to the right on
-// a wide window, and opening the branch panel adds another 326px to its right edge — enough to run off the
-// screen on a 1440-wide window and put the branch list where it cannot be clicked.
 function positionCompareMenu() {
   var el = compareMenuEl();
   if (!el || el.classList.contains('hidden')) return;
@@ -217,15 +157,13 @@ function showCompareBranchPanel(show) {
   if (opener) opener.setAttribute('aria-expanded', show ? 'true' : 'false');
   if (!show) { positionCompareMenu(); return; }
   compareMenuBranchFilter = '';
-  compareMenuBranchScope = null; // every open asks where again; a remembered side is a stale answer
+  compareMenuBranchScope = null;
   var search = document.getElementById('compare-branch-search');
   if (search) { search.value = ''; setTimeout(function () { search.focus(); }, 0); }
   renderCompareBranchList();
   positionCompareMenu();
 }
 
-// Move between the two stages. The search box keeps the keyboard: it is where typing goes while this panel
-// is up, and taking focus to a row would make the next keystroke navigate instead of filter.
 function enterCompareBranchScope(scope) {
   compareMenuBranchScope = scope;
   compareMenuBranchFilter = '';
@@ -237,9 +175,6 @@ function enterCompareBranchScope(scope) {
 
 function closeCompareMenu() {
   var el = compareMenuEl();
-  // Blind-callable: the direct-pick shortcuts (⌥A / ⌥U) route through applyCompareMode whether or not the
-  // menu is up, and pulling focus onto the pill from a keystroke that opened nothing would take the caret
-  // out of the diff.
   if (!el || el.classList.contains('hidden')) return;
   el.classList.add('hidden');
   showCompareBranchPanel(false);
@@ -254,7 +189,6 @@ function openCompareMenu() {
   showCompareBranchPanel(false);
   var pill = document.getElementById('compare-pill');
   if (pill) pill.setAttribute('aria-expanded', 'true');
-  // Paint from the last known state immediately so the menu never opens empty, then correct it from git.
   renderCompareMenu();
   positionCompareMenu();
   var rows = compareMenuRows();
@@ -270,60 +204,30 @@ function refreshCompareMenu() {
   }).catch(function () { return compareMenuState; });
 }
 
-// What the keyboard says a compare key did. Shared by the press that changed something and the press that
-// found it already so, because a reader cannot tell those apart from the screen and both are answers.
-//
-// Only where the ref MEANS something. `kakapo:set-compare-mode` returns a ref unconditionally, including
-// for "uncommitted" — where it sets the base to HEAD and the ref is not consulted at all — so appending it
-// there announced a baseline this diff is not measured against.
 function announceCompareMode(settled, ref) {
-  // Both of the modes that are measured against a branch name it. "Uncommitted" is measured against HEAD,
-  // which is not a branch and not worth saying.
   var against = (settled === 'all' || settled === 'tip') ? (ref || '') : '';
   showToast(t('compare.menu.' + settled)
     + (against ? ' · ' + t('compare.menu.against').replace('{ref}', against) : ''));
 }
-// Apply a pick. The diff repaints through the normal kakapo:diff-update path, so nothing here touches it.
 function applyCompareMode(mode, ref, announce) {
   if (!window.kakapoGit || typeof window.kakapoGit.setCompareMode !== 'function') return;
-  // ⌥N can be pressed with no mark to go to — the reviewer has not handed anything off in this worktree,
-  // or an agent rebased the commit they stopped at off the branch. The row hides itself in both cases, but
-  // the key reaches here either way, and a key that answers by doing nothing is indistinguishable from one
-  // that does not work. Say which of the two it is.
   if (mode === 'since' && !(compareMenuState && compareMenuState.readMark)) {
     closeCompareMenu();
     showToast(t('compare.menu.sinceNone'));
     return;
   }
-  // Asking for the mode the review is already in rebuilds the whole thing — a git diff and a source
-  // re-index — for a state that does not change. The patch-set bar screens that click; ⌥A and the menu
-  // row reach this same action and did not, so the guard was on one of two routes to one thing.
-  // `pinned` is why the ref half is not just an equality check. The branch list marks one row as the
-  // repository's default, and when nothing has been picked the effective ref IS that default — so a click
-  // on it matched here and was screened, and `state.compareRef` was never written. The reader's explicit
-  // choice of the branch they were already on left no trace, and the next time the automatic answer moved,
-  // the review moved with it. An unrecorded pick is not a no-op: it is the one click that has work to do.
   var sameRef = !ref || (compareMenuState && compareMenuState.ref === ref && compareMenuState.pinned);
   if (compareMenuState && compareMenuState.mode === mode && sameRef) {
     closeCompareMenu();
-    // Screened from the REBUILD, not from the answer. ⌥A and ⌥U are two keys rather than one toggle
-    // because the reader is not sure which mode the review is in — that is this function's own stated
-    // reason, below — so a press that answers the question with silence is indistinguishable from a
-    // shortcut that does not work. It costs nothing to say where you already are.
     if (announce) announceCompareMode(mode, compareMenuState.ref);
     return;
   }
-  requestDiffViewOnNextCompare(); // switch back to the diff for the rebuild, as the patch-set bar does
-  // Optimistic: the row ticks now rather than after a rebuild that can take a second on a large tree —
-  // and is put back if the call fails. That used to be cosmetic (the comment further down notes the same
-  // staleness, and handled it for the announcement only), but the guard above READS this state to screen
-  // a click that would change nothing: left claiming a mode the review never reached, it would answer the
-  // reader's retry with silence. A failure you cannot try again is worse than no optimism at all.
+  requestDiffViewOnNextCompare();
   var previous = compareMenuState
     ? { mode: compareMenuState.mode, ref: compareMenuState.ref, pinned: compareMenuState.pinned }
     : null;
   var restore = function () {
-    cancelDiffViewOnNextCompare(); // the rebuild it was armed for is not coming
+    cancelDiffViewOnNextCompare();
     if (!compareMenuState || !previous) return;
     compareMenuState.mode = previous.mode;
     compareMenuState.ref = previous.ref;
@@ -332,10 +236,6 @@ function applyCompareMode(mode, ref, announce) {
   };
   if (compareMenuState) {
     compareMenuState.mode = mode;
-    // Pinned optimistically for the same reason the ref is: the menu repaints from this state before
-    // main answers, and a tick that says "picked" while the state says "not recorded" is a row that
-    // contradicts itself. It does mean an immediate retry of the SAME branch is screened — which is
-    // what the guard is for, since the request is already in flight.
     if (ref) { compareMenuState.ref = ref; compareMenuState.pinned = true; }
     renderCompareMenu();
   }
@@ -344,44 +244,22 @@ function applyCompareMode(mode, ref, announce) {
     if (res && res.ok && compareMenuState) {
       compareMenuState.mode = res.mode || mode;
       compareMenuState.ref = res.ref || compareMenuState.ref;
-      if (ref) compareMenuState.pinned = true; // main has written it now
+      if (ref) compareMenuState.pinned = true;
       renderCompareMenu();
     } else if (res && res.error === 'no-read-mark') {
-      // The mark went away between the menu being painted and the click: an agent committing in this
-      // worktree rebases often, and main re-resolves rather than trusting the copy the menu is holding.
       restore();
       showToast(t('compare.menu.sinceNone'));
     } else if (!res || !res.ok) {
       restore();
-      // Nothing to say by name any more. The one refusal that used to arrive here was
-      // "compare-ref-not-ahead", for a ref holding commits HEAD does not have — which is now an ordinary
-      // comparison and not a refusal at all (see set-compare-mode). What is left is a git failure, and the
-      // restore above is the whole answer to one: the review stays where it was.
     }
-    // The menu shows the tick; the keyboard shows nothing, and what it changed is not a small thing. The
-    // resolved answer rather than the asked-for one: `--base main` is served from origin/main whenever the
-    // local branch is behind, so a key press that read "All changes" silently moved the baseline a dozen
-    // commits. Said once, with the ref that actually got used.
-    //
-    // Only on success, and only where the ref MEANS something. `kakapo:set-compare-mode` returns a ref
-    // unconditionally, including for "uncommitted" — where it sets the base to HEAD and the ref is not
-    // consulted at all — so appending it there announced a baseline this diff is not measured against.
-    // And a rejected call left `mode` as the asked-for value, so a failure announced the change it had
-    // just failed to make.
     if (!announce || !pageAlive()) return;
     if (!res || !res.ok) return;
     announceCompareMode(res.mode || mode, res.ref);
   }).catch(restore);
 }
 
-// ⌥A / ⌥U: go straight to a mode without opening anything. Two keys rather than one toggle, because a toggle
-// only tells you where you end up if you already know where you started — and the whole reason to reach for
-// this is that you are not sure which of the two the review is currently showing.
 function pickCompareMode(mode) {
   if (!compareMenuAvailable()) return;
-  // `compareMenuState` is filled by OPENING the menu and by nothing else, so on the keyboard path it was
-  // null — and the guard in applyCompareMode, written for exactly these two keys, could never fire. Ask
-  // once; after that the diff-update hook keeps it current for the rest of the window.
   if (!compareMenuState) {
     refreshCompareMenu().then(function () { applyCompareMode(mode, undefined, true); });
     return;
@@ -389,25 +267,18 @@ function pickCompareMode(mode) {
   applyCompareMode(mode, undefined, true);
 }
 
-// ⌥C: open the menu with the branch list already showing and the filter focused. Choosing the branch is the
-// one thing here that needs typing, so the key that opens it should land you where you can type.
 function openCompareBranchPicker() {
   if (!compareMenuAvailable()) return;
   if (!compareMenuOpen()) openCompareMenu();
-  // The branch list is filled from compareMenuState; on the first press that is still in flight, so show the
-  // panel once the data lands rather than opening an empty one.
   if (compareMenuState) showCompareBranchPanel(true);
   else refreshCompareMenu().then(function () { if (compareMenuOpen()) showCompareBranchPanel(true); });
 }
 
-// Keyboard while the menu is up. Registered in KEY_OWNERS (05-keymap.js), above the general focus guard, so
-// Esc and the arrows work whether the focus sits on a row or in the branch search field.
 function handleCompareMenuKey(event) {
   if (!compareMenuOpen()) return false;
   if (event.key === 'Escape') {
     event.preventDefault();
     var panel = document.getElementById('compare-menu-branches');
-    // Esc backs out one level at a time: the branch panel first, the menu second.
     if (panel && !panel.classList.contains('hidden')) { showCompareBranchPanel(false); var rows0 = compareMenuRows(); if (rows0.length) rows0[rows0.length - 1].focus(); }
     else closeCompareMenu();
     return true;
@@ -438,11 +309,7 @@ function handleCompareMenuKey(event) {
       return true;
     }
   }
-  // Typing goes to the branch filter whenever that panel is up, even from a focused row.
   if (event.key === 'Enter' && document.activeElement && document.activeElement.id === 'compare-branch-search') {
-    // `[data-ref]`, not the first item: with the stage rows in the same list and the same class, the first
-    // `.compare-branch-item` can be a scope or the back row, and Enter would have called applyCompareMode
-    // with a null ref — which reads as "pick the default" and silently changes the review.
     var first = document.querySelector('.compare-branch-item[data-ref]');
     if (first) { event.preventDefault(); applyCompareMode('all', first.getAttribute('data-ref')); }
     return true;
@@ -451,12 +318,6 @@ function handleCompareMenuKey(event) {
 }
 
 function initCompareMenu() {
-  // No availability gate here on purpose: the listeners are inert without the pill (a static export never
-  // renders one), and gating the WIRING on window.kakapoGit would lose the menu whenever the bridge lands
-  // after DOMContentLoaded — which is exactly what happens under test. The actions gate themselves.
-  // Delegated on the toolbar: the pill is re-rendered from scratch on every watch tick (09-views-update.js
-  // replaces .review-status wholesale), so a handler bound to the button itself would survive exactly one
-  // refresh.
   document.addEventListener('click', function (event) {
     var closest = event.target.closest;
     if (!closest) return;
@@ -465,8 +326,6 @@ function initCompareMenu() {
       if (compareMenuOpen()) closeCompareMenu(); else openCompareMenu();
       return;
     }
-    // The two stage rows come first: they re-render the panel rather than picking anything, so they must
-    // not fall through to the data-ref case, and a scope row carries no data-ref to fall through WITH.
     var scopeRow = event.target.closest('.compare-branch-item[data-scope]');
     if (scopeRow) { enterCompareBranchScope(scopeRow.getAttribute('data-scope')); return; }
     if (event.target.closest('.compare-branch-item[data-back]')) { enterCompareBranchScope(null); return; }
@@ -480,8 +339,6 @@ function initCompareMenu() {
   });
   var search = document.getElementById('compare-branch-search');
   if (search) search.addEventListener('input', function () { compareMenuBranchFilter = search.value || ''; renderCompareBranchList(); });
-  // The mode can change without anyone touching this menu — commit your work and "uncommitted" empties out.
-  // Only worth subscribing where there is a menu to keep current.
   if (compareMenuEl() && window.kakapoMenu && typeof window.kakapoMenu.onDiffUpdate === 'function') {
     window.kakapoMenu.onDiffUpdate(function () { if (compareMenuState) refreshCompareMenu(); });
   }

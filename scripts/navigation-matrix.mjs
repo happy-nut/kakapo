@@ -1,28 +1,3 @@
-// Code and library navigation, kakapo against IntelliJ, as a table you can re-run.
-//
-// navigation-smoke.mjs asks "does this key still work". This asks the question that one cannot: "does it
-// still do what IntelliJ does". The two are not the same — ⌘B worked perfectly for a year and showed the
-// usages popup on a reference, which IntelliJ never does, and no check that only pressed the key could
-// have seen it. A row here fails when kakapo's answer stops matching IntelliJ's, including when kakapo
-// answers something perfectly reasonable.
-//
-// Every expectation carries where it came from. They are not recalled: the behaviour is read out of the
-// installed IDE's own classes, decompiled with the FernFlower it ships
-// (Contents/plugins/java-decompiler), and the chords out of the keymaps inside the same jar.
-//
-//   unzip -qo "<IDEA>/Contents/lib/app-client.jar" 'com/intellij/codeInsight/navigation/*' -d <dir>
-//   "<IDEA>/Contents/jbr/Contents/Home/bin/java" \
-//     -cp "<IDEA>/Contents/plugins/java-decompiler/lib/java-decompiler.jar" \
-//     org.jetbrains.java.decompiler.main.decompiler.ConsoleDecompiler -dgs=1 <dir>/com <out>
-//
-// It is app-client.jar, not app.jar: the 2025 frontend/backend split moved the whole UI there. `rea`
-// cannot read any of it — `rea capabilities` (6.7.0) has no JVM provider — but `rea inspect-artifact`
-// does pin WHICH build an expectation was read from, which is why the sha is recorded below.
-//
-// Three rows are expected to differ, and say so rather than being left out. A matrix that lists only the
-// agreements is a matrix nobody can use to decide what to do next.
-//
-// Run it with `npm run nav:matrix`. Like the smoke, it refuses while a Kakapo from this checkout is open.
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync as write } from "node:fs";
 import { tmpdir } from "node:os";
@@ -30,15 +5,8 @@ import { dirname, join } from "node:path";
 import { PORT, checkoutElectronPids, launchApp, portHolder, preflightPort, readyPage, sleep, stopApp }
   from "./lib/app-harness.mjs";
 
-// The build every IntelliJ expectation below was read from. `rea inspect-artifact <path>` prints it.
 const IDEA_BUILD = "app-client.jar sha256 092c52b2e4b470027506bb8de6c07af07969258cc91f6f9052267a282111e039";
 
-// ---- the project ---------------------------------------------------------------------------------
-// Small, but not a toy: it has the four shapes the navigation questions are actually asked about — a
-// method with an override, an interface with two implementations, a reference in another file, and a
-// dependency that ships typings and no readable implementation. That last one is electron's shape, and
-// it is the one that was broken: `main` points at a CommonJS launcher, `types` at a .d.ts, and the
-// declaration a reader wants is in the .d.ts.
 function fixtureRepo() {
   const repo = mkdtempSync(join(tmpdir(), "kakapo-nav-matrix-"));
   const git = (args) => execFileSync("git", args, { cwd: repo, stdio: "pipe" });
@@ -56,61 +24,56 @@ function fixtureRepo() {
   }));
 
   put("src/store.ts", [
-    "export class Store {",                 // 1
-    "  private total = 0;",                 // 2
-    "",                                     // 3
-    "  bump(): number {",                   // 4
-    "    this.total += 1;",                 // 5
-    "    return this.total;",               // 6
-    "  }",                                  // 7
-    "}",                                    // 8
-    "",                                     // 9
-    "export function makeStore(): Store {", // 10
-    "  return new Store();",                // 11
-    "}",                                    // 12
+    "export class Store {",
+    "  private total = 0;",
+    "",
+    "  bump(): number {",
+    "    this.total += 1;",
+    "    return this.total;",
+    "  }",
+    "}",
+    "",
+    "export function makeStore(): Store {",
+    "  return new Store();",
+    "}",
     "",
   ].join("\n"));
   put("src/use-store.ts", [
-    "import { makeStore, Store } from \"./store\";", // 1
-    "",                                              // 2
-    "export function run(): number {",               // 3
-    "  const store: Store = makeStore();",           // 4
-    "  return store.bump();",                        // 5
-    "}",                                             // 6
+    "import { makeStore, Store } from \"./store\";",
+    "",
+    "export function run(): number {",
+    "  const store: Store = makeStore();",
+    "  return store.bump();",
+    "}",
     "",
   ].join("\n"));
-  // Two implementations, so Go to Implementation has something to choose between, and a super to walk up
-  // to. Both are what IntelliJ's own actions are for; a single-implementation fixture proves nothing.
   put("src/shape.ts", [
-    "export interface Shape {",             // 1
-    "  area(): number;",                    // 2
-    "}",                                    // 3
-    "",                                     // 4
-    "export class Circle implements Shape {", // 5
-    "  area(): number { return 3; }",       // 6
-    "}",                                    // 7
-    "",                                     // 8
-    "export class Square implements Shape {", // 9
-    "  area(): number { return 4; }",       // 10
-    "}",                                    // 11
+    "export interface Shape {",
+    "  area(): number;",
+    "}",
+    "",
+    "export class Circle implements Shape {",
+    "  area(): number { return 3; }",
+    "}",
+    "",
+    "export class Square implements Shape {",
+    "  area(): number { return 4; }",
+    "}",
     "",
   ].join("\n"));
   put("src/app.ts", [
-    "import { widget, Panel } from \"widget\";", // 1
-    "import { run } from \"./use-store\";",       // 2
-    "",                                           // 3
-    "export function main(): void {",             // 4
-    "  widget.start();",                           // 5
-    "  const panel = new Panel();",                // 6
-    "  panel.show(run());",                        // 7
-    "}",                                           // 8
+    "import { widget, Panel } from \"widget\";",
+    "import { run } from \"./use-store\";",
+    "",
+    "export function main(): void {",
+    "  widget.start();",
+    "  const panel = new Panel();",
+    "  panel.show(run());",
+    "}",
     "",
   ].join("\n"));
-  // The name collision that used to decide whether a library answer survived: this project declares
-  // `widget` too, in a file that has nothing to do with the dependency.
   put("test/fixture.ts", "const widget = 1;\nexport default widget;\n");
 
-  // A dependency shaped like electron: an entry that is a launcher shim, and typings beside it.
   put("node_modules/widget/package.json", JSON.stringify({
     name: "widget", version: "1.0.0", main: "index.js", types: "index.d.ts",
   }));
@@ -121,28 +84,27 @@ function fixtureRepo() {
     "",
   ].join("\n"));
   put("node_modules/widget/index.d.ts", [
-    "declare namespace Widget {",                    // 1
-    "  interface Thing {",                           // 2
-    "    start(): void;",                            // 3
-    "  }",                                           // 4
-    "  interface PanelLike {",                       // 5
-    "    show(value: number): void;",                // 6
-    "  }",                                           // 7
-    "}",                                             // 8
-    "",                                              // 9
-    "declare module \"widget\" {",                   // 10
-    "  const widget: Widget.Thing;",                 // 11
-    "  class Panel implements Widget.PanelLike {",   // 12
-    "    show(value: number): void;",                // 13
-    "  }",                                           // 14
-    "  export { widget, Panel };",                   // 15
-    "}",                                             // 16
+    "declare namespace Widget {",
+    "  interface Thing {",
+    "    start(): void;",
+    "  }",
+    "  interface PanelLike {",
+    "    show(value: number): void;",
+    "  }",
+    "}",
+    "",
+    "declare module \"widget\" {",
+    "  const widget: Widget.Thing;",
+    "  class Panel implements Widget.PanelLike {",
+    "    show(value: number): void;",
+    "  }",
+    "  export { widget, Panel };",
+    "}",
     "",
   ].join("\n"));
 
   git(["add", "-A"]);
   git(["commit", "-qm", "baseline"]);
-  // A change, so the app opens a review rather than the welcome screen.
   put("src/store.ts", [
     "export class Store {",
     "  private total = 1;",
@@ -161,10 +123,6 @@ function fixtureRepo() {
   return repo;
 }
 
-// ---- reading the app -----------------------------------------------------------------------------
-// What a navigation key did, in one string. Deliberately coarse: the question is "did kakapo do what
-// IntelliJ does", and IntelliJ's answers are coarse too — it navigated, it opened a chooser, it opened
-// the usage view, it said there was nowhere to go.
 const STATE = `(() => {
   const shown = (id) => {
     const el = document.getElementById(id);
@@ -204,9 +162,6 @@ async function settled(page, predicate, capMs = 9000) {
   return state;
 }
 
-// ---- the matrix ----------------------------------------------------------------------------------
-// `intellij` is what the IDE does and `source` is where that was read. `expect` turns the measured state
-// into the same sentence, so a row reads as one claim rather than as two numbers to compare by eye.
 const CHORD = {
   "⌘B": ["b", "KeyB", 66, 4],
   "⌘⇧B": ["b", "KeyB", 66, 4 + 8],
@@ -227,7 +182,6 @@ const MACKEYS = "keymaps/Mac OS X 10.5+.xml";
 const DEFKEYS = "keymaps/$default.xml";
 
 const ROWS = [
-  // ---- code navigation ---------------------------------------------------------------------------
   {
     group: "code",
     action: "Go to Declaration",
@@ -370,7 +324,6 @@ const ROWS = [
     expect: (s) => (s.quick && s.quickRows > 0 ? "lists where the caret has been" : "nothing"),
   },
 
-  // ---- library navigation ------------------------------------------------------------------------
   {
     group: "library",
     action: "Go to Declaration",
@@ -432,19 +385,12 @@ const ROWS = [
     expect: (s) => (!s.quick ? "nothing"
       : /index|인덱스/.test(s.quickLabel) ? "falls back to the text index"
       : "answers with the project's usages"),
-    // Matches HERE and not always in the wild, which is why it is called out rather than left as a tick.
-    // This fixture's dependency is small enough that tsserver keeps it in the project. A real one is not:
-    // asked for references from node_modules/electron/electron.d.ts in this repository, tsserver answers
-    // with references inside node_modules and nothing else, and kakapo falls back to the text index and
-    // labels the answer `index`. IntelliJ answers that from an index of the libraries themselves, which
-    // kakapo does not have.
     differs: "matches on a small dependency; on a real one (electron in this repo) tsserver answers with "
       + "references inside node_modules only, and kakapo falls back to the text index and says so. "
       + "IntelliJ answers from an index of the libraries, which kakapo does not have.",
   },
 ];
 
-// ---- running it ------------------------------------------------------------------------------------
 async function place(page, [path, line, symbol]) {
   await page.key(...CHORD.Escape);
   await page.evaluate(`(() => { openSourceFile(${JSON.stringify(path)}); return true; })()`);
@@ -505,7 +451,6 @@ async function run() {
     rmSync(repo, { recursive: true, force: true });
   }
 
-  // ---- the table -----------------------------------------------------------------------------------
   const verdict = (m) => (m.got === m.row.intellij ? "✅" : m.row.differs ? "⚠️" : "❌");
   const out = [];
   out.push(`# Code and library navigation: kakapo vs IntelliJ\n`);

@@ -1,7 +1,3 @@
-// Main hands the keyboard back to the page with webContents.focus() (a dialog closing, the app being
-// re-activated). The page regains focus, the focused ELEMENT never changes — and macOS' input method, which
-// let go of the field when the window lost focus, never picks it up again: 한글 comes out as separated jamo
-// until you click another field and back. That manual round trip is what this pins, minus the clicking.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { makeReviewHtml, cleanupFixtures } from "./helpers/fixture.mjs";
@@ -15,8 +11,6 @@ before(async () => {
 });
 after(cleanupFixtures);
 
-// The refocus is deliberately a frame later than the blur — in one frame the renderer's input state ends
-// where it started and nothing is published, which is the entire point of the round trip.
 const nextFrame = (window) => new Promise((resolve) => window.requestAnimationFrame(() => setTimeout(resolve, 0)));
 
 test("the page regaining focus blurs the focused field and focuses it again a frame later", async () => {
@@ -46,7 +40,7 @@ test("it never steals focus from whatever the user clicked on the way back in", 
   first.focus();
 
   window.dispatchEvent(new window.Event("focus"));
-  second.focus(); // the click that brought the view back landed in another field
+  second.focus();
   await nextFrame(window);
   assert.equal(window.document.activeElement, second, "the field the user chose keeps the keyboard");
   v.close();

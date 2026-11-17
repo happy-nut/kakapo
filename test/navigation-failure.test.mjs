@@ -1,10 +1,3 @@
-// What a failed jump SAYS. Following code is only easy if a dead end tells you which dead end it is: a
-// symbol that genuinely has no definition is a different situation from a language server that has not
-// finished reading the project, and the second one is worth waiting a second and pressing the key again.
-//
-// The analysis response already carries that distinction (`engine`, `fallbackReason`); the message the
-// reviewer gets at the caret — where they are actually looking — used to throw it away and say
-// "Definition not found" either way. A cold server is not hypothetical: it took a release down.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { makeReviewHtml, cleanupFixtures } from "./helpers/fixture.mjs";
@@ -20,7 +13,6 @@ before(async () => {
 
 after(cleanupFixtures);
 
-// Stands in for main's analysis bridge with whatever answer the test is about.
 function installAnalysis(v, response) {
   v.window.kakapoAnalysis = {
     query: () => Promise.resolve(Object.assign({ ok: true, generation: 0, locations: [] }, response)),
@@ -49,8 +41,6 @@ async function jump(v) {
 test("a server that has not finished reading the project does not report a missing definition", async () => {
   const v = await loadViewer(html);
   try {
-    // The shape of a cold server: the query succeeded, nothing came back, and the engine says it answered
-    // from the regex index because the language server could not.
     installAnalysis(v, { engine: "index", confidence: "heuristic", locations: [], fallbackReason: "typescript-language-server timed out during textDocument/definition" });
     await jump(v);
 
@@ -69,7 +59,6 @@ test("a server that has not finished reading the project does not report a missi
 test("a symbol that really has no definition still says so", async () => {
   const v = await loadViewer(html);
   try {
-    // A ready language server, asked, and there is genuinely nothing to go to.
     installAnalysis(v, { engine: "lsp", confidence: "semantic", locations: [], server: "typescript-language-server" });
     await jump(v);
     assert.match(
@@ -82,15 +71,12 @@ test("a symbol that really has no definition still says so", async () => {
   }
 });
 
-// A cold language server has eight seconds to answer (REQUEST_TIMEOUT_MS). The "looking for X…" hint faded
-// after two of them, so the reviewer got six seconds of a screen that looked like the key was never
-// pressed — on the first jump after opening a project, which is exactly when the server is cold.
 test("the searching hint stays up for as long as the answer takes", async () => {
   const v = await loadViewer(html);
   try {
     let answer;
     v.window.kakapoAnalysis = {
-      query: () => new Promise((resolve) => { answer = resolve; }), // never resolves on its own
+      query: () => new Promise((resolve) => { answer = resolve; }),
       diagnostics: () => Promise.resolve({ ok: true, generation: 0, diagnostics: [] }),
       status: () => Promise.resolve({ phase: "starting", generation: 0 }),
       onStatus: () => {},
@@ -99,14 +85,13 @@ test("the searching hint stays up for as long as the answer takes", async () => 
     await v.clickSourceLine(1);
     v.key("ArrowDown", { metaKey: true, code: "ArrowDown" });
 
-    await v.settle(400); // past the 250ms delay that puts the hint up
+    await v.settle(400);
     assert.ok(hintShown(v), "the hint appears while the answer is outstanding");
     assert.match(hintText(v), /찾는 중|Looking for/i, "and it says what is being looked for");
 
-    await v.settle(2600); // past the 2s fade that used to take it away mid-request
+    await v.settle(2600);
     assert.ok(hintShown(v), `the hint is still up while the request is still out (got: ${hintText(v)})`);
 
-    // …and it comes down when the answer finally arrives, rather than sitting over the destination.
     answer({ ok: true, generation: 0, engine: "lsp", confidence: "semantic", locations: [] });
     await v.settle(80);
     assert.match(hintText(v), /찾지 못했|not found/i, "the outcome replaces the wait");
@@ -115,13 +100,9 @@ test("the searching hint stays up for as long as the answer takes", async () => 
   }
 });
 
-// The indexing window, named. Opening a project starts a language server that answers `initialize` in
-// milliseconds and then spends real time building its model; until it has one, the regex index answers
-// instead. Three things follow from that, and all three used to be silent.
 test("an answer from the regex index during indexing is marked as partial", async () => {
   const v = await loadViewer(html);
   try {
-    // The status chip is what says a server is still coming up.
     const chip = v.document.createElement("span");
     chip.id = "analysis-status";
     chip.dataset.phase = "indexing";
@@ -182,7 +163,6 @@ test("finishing the indexing is announced, and only on the transition", async ()
       `becoming ready is said out loud (got: ${JSON.stringify(toasts())})`,
     );
 
-    // A second ready push is not news — the reviewer was already told.
     const before = toasts().length;
     v.window.renderAnalysisStatus({ phase: "ready", generation: 0, updatedAt: new Date().toISOString() });
     await v.settle(40);
@@ -192,12 +172,6 @@ test("finishing the indexing is announced, and only on the transition", async ()
   }
 });
 
-// A revision is a THIRD situation, and it splits in two: the revision could not be read (a dead end that
-// must not look like "no definition"), or it was read and answered (an answer that must not look like
-// "still indexing", because no better one is coming — a revision has no language server).
-//
-// Asserted through the viewer rather than against the bundle text: a `declinedForRevision` that always
-// returns false passes every text-shaped check, and did.
 test("a revision that could not be read says so instead of reporting a missing definition", async () => {
   const v = await loadViewer(html);
   try {
@@ -217,8 +191,6 @@ test("a revision that could not be read says so instead of reporting a missing d
 test("an answer found IN a revision is labelled as name-matched, not as still indexing", async () => {
   const v = await loadViewer(html);
   try {
-    // The production shape: answered from the index, with a fallbackReason, because no server can be
-    // pointed at a revision. That reason is what used to make it read as "still indexing".
     installAnalysis(v, {
       ok: true,
       engine: "index",
@@ -236,8 +208,6 @@ test("an answer found IN a revision is labelled as name-matched, not as still in
   } finally { v.close(); }
 });
 
-// The control for the test above: with the same fixture and the same keystroke, an ordinary empty answer
-// still reports a missing definition. Without this, a decline message shown unconditionally would pass.
 test("an ordinary empty answer still reports a missing definition", async () => {
   const v = await loadViewer(html);
   try {
@@ -249,10 +219,6 @@ test("an ordinary empty answer still reports a missing definition", async () => 
   } finally { v.close(); }
 });
 
-// The third case, and the one that was being swallowed by the first. A server that REPLIED with nothing
-// has answered: "still reading the project — try again in a moment" is then advice that will never come
-// good, and the status bar beside it says "Semantic analysis ready". The boundary marks the difference
-// (`serverAnswered`, src/analysis.ts) rather than the viewer guessing from the reason's English.
 test("a server that answered with nothing says so, instead of 'try again in a moment'", async () => {
   const v = await loadViewer(html);
   try {
@@ -271,7 +237,6 @@ test("a server that answered with nothing says so, instead of 'try again in a mo
   }
 });
 
-// ...and the two must not be confusable: the SAME shape without the flag is still "not yet".
 test("without serverAnswered the same shape is still a cold server", async () => {
   const v = await loadViewer(html);
   try {
@@ -287,12 +252,6 @@ test("without serverAnswered the same shape is still a cold server", async () =>
   }
 });
 
-// A caret in the diff's BASE pane, on a line that exists only there, is a position no language server can
-// read: the only text on disk is the new file. The analyzer declines the server by name for it and lets the
-// index answer the token, so the reply arrives with a fallbackReason and no locations — which is also the
-// shape of a server that has not finished starting. Read that way, the app said "try again in a moment",
-// forever, about the one case where waiting is exactly what does not help. `baseSide` separates them, and
-// what the sentence has to do is point at the move that DOES change the answer.
 test("a base-pane line says to step across, not to wait", async () => {
   const v = await loadViewer(html);
   try {
@@ -314,9 +273,6 @@ test("a base-pane line says to step across, not to wait", async () => {
       /찾지 못했|not found/i,
       `and nothing was searched, so nothing was missing (got: ${message})`,
     );
-    // It used to advise ⇧Tab. On the line this is usually said about — one that exists only in the base —
-    // the new side has no code row opposite it, so that key answers "there is no counterpart in the
-    // working tree": advice the very next keystroke refuses. It states the reason instead.
     assert.doesNotMatch(message, /⇧Tab/, "it does not advise a key that declines on this line");
     assert.match(message, /기준 쪽|only in the base/i, "it says why no server answered");
   } finally {
@@ -324,17 +280,6 @@ test("a base-pane line says to step across, not to wait", async () => {
   }
 });
 
-// "This IS the declaration of X — there is nowhere else to go" is a claim about the TOKEN, and it used to
-// be checked against the LINE. A language server resolves a position to the declaration that position is
-// part of, so a caret anywhere on `export function helper() {` got that function's declaration back — same
-// path, same line — and the page said it about `export` and about `function`, confident sentences about
-// keywords. It is reachable on the first press after any jump, because F7, Alt+Down and the file step all
-// park the caret at column 0.
-//
-// The column cannot simply be compared either: Cmd+B pressed in the MIDDLE of a declaration's own name
-// must still read as "already there", which is the whole point of the branch. The answer has to land in
-// the token the caret is on, so both halves are asserted here — the fix is a distinction, and a test for
-// only one side of it would pass just as well for a key that never says anything.
 const DECLARATION = { path: FILE, lineIndex: 0, column: 16, name: "helper", text: "export function helper() { return 1; }" };
 
 async function pressGoTo(v, column) {
@@ -342,7 +287,7 @@ async function pressGoTo(v, column) {
   v.window.setSourceCursor(FILE, 0, column, false, -1);
   await v.settle(20);
   const hint = v.$(".mc-caret-hint");
-  if (hint) { hint.textContent = ""; } // the text outlives its `show` class, so a stale one would read as this answer
+  if (hint) { hint.textContent = ""; }
   v.key("b", { metaKey: true, altKey: true, code: "KeyB" });
   await v.settle(60);
   return hintText(v);
@@ -352,11 +297,8 @@ test("'this IS the declaration' is said about the name, not about the line", asy
   const v = await loadViewer(html);
   try {
     installAnalysis(v, { engine: "lsp", confidence: "semantic", locations: [DECLARATION], server: "typescript-language-server" });
-    // `helper` spans columns 16-22; the caret is inside it, which is how a reader reaches its declaration.
     assert.match(await pressGoTo(v, 18), /여기가|IS the declaration/i,
       "the caret is on the declaration's own name, so there is genuinely nowhere else to go");
-    // `function` spans 7-15. The server answers with the same declaration, because that is what the
-    // position is part of — and saying "this IS the declaration of function" would be false twice over.
     assert.doesNotMatch(await pressGoTo(v, 7), /여기가|IS the declaration/i,
       "a keyword is not a declaration, however the position resolved");
   } finally {

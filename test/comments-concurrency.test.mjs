@@ -6,11 +6,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { commentsFilePath, knowledgeFilePath, readThread, registerCommentsIpc } from "../dist/comments-file.js";
 
-// Two writers share one conversation file: this renderer, and an agent appending answers to it from the
-// reader's own terminal. Both allocate ids from the same counter the file header advertises, so they pick the
-// same number as a matter of course — and whatever main does on write has to keep both records. These tests
-// drive the real IPC handlers, because the bug they cover lived entirely in the write handler's idea of
-// "what has the renderer already seen".
 function harness() {
   const root = mkdtempSync(join(tmpdir(), "kakapo-thread-"));
   execFileSync("git", ["init", "-q"], { cwd: root });
@@ -41,9 +36,7 @@ test("an agent's answer survives a comment that claimed the same id", () => {
   const h = harness();
   try {
     h.write([{ id: 1, path: "src/a.ts", line: 1, text: "why a CLI?" }]);
-    // The header now advertises NEXT FREE ID: 2 and the agent follows it.
     appendFileSync(h.state.commentsFile, `${JSON.stringify({ id: 2, re: 1, by: "agent", text: "It ships as one binary." })}\n`);
-    // Before the next poll the reviewer writes a second comment; the renderer allocates 2 as well.
     const result = h.write([
       { id: 1, path: "src/a.ts", line: 1, text: "why a CLI?" },
       { id: 2, path: "src/a.ts", line: 9, text: "and this?" },
@@ -73,7 +66,6 @@ test("a save in one worktree keeps shared notes about another worktree's files",
       { id: 1, by: "agent", kind: "note", path: "here.ts", line: 1, text: "about a file this workspace has" },
       { id: 2, by: "agent", kind: "note", path: "only/in/another/worktree.ts", line: 9, text: "about one it does not" },
     ]);
-    // A fresh renderer in this workspace: the read filters note 2 out, so it never learns that id.
     const fresh = harness();
     fresh.state.commentsFile = h.state.commentsFile;
     fresh.state.knowledgeFile = h.state.knowledgeFile;
@@ -130,11 +122,6 @@ test("saving twice in a row does not duplicate the conversation", () => {
 });
 
 test("an agent's follow-up to its own note keeps pointing at that note", () => {
-  // The file header tells an agent how to reply (`"re":<id you are answering>`), so an agent that leaves a
-  // note AND a follow-up to it leaves two records this window has never seen, one pointing at the other.
-  // Renumbering the parent out of a collision used to move it alone: the child's `re:` stayed on a number
-  // that now belonged to one of the REVIEWER's comments, and the follow-up appeared — silently, and
-  // plausibly — under something it was never about.
   const h = harness();
   try {
     h.write([{ id: 1, path: "src/a.ts", line: 1, text: "reviewer question" }]);
@@ -142,7 +129,6 @@ test("an agent's follow-up to its own note keeps pointing at that note", () => {
       `${JSON.stringify({ id: 2, by: "agent", kind: "note", path: "src/a.ts", line: 5, text: "the note" })}\n`);
     appendFileSync(h.state.commentsFile,
       `${JSON.stringify({ id: 3, re: 2, by: "agent", text: "a follow-up to my own note" })}\n`);
-    // The reviewer allocated 2 and 3 from the same counter, which is the ordinary case.
     h.write([
       { id: 1, path: "src/a.ts", line: 1, text: "reviewer question" },
       { id: 2, path: "src/b.ts", line: 1, text: "reviewer comment two" },
@@ -156,7 +142,6 @@ test("an agent's follow-up to its own note keeps pointing at that note", () => {
     assert.notEqual(note.id, 2, "the collision was renumbered");
     assert.equal(followUp.re, note.id,
       `the follow-up still answers the note, not "${all.find((r) => r.id === followUp.re)?.text}"`);
-    // And the reviewer's own records are untouched: what the renderer sent means the ids it sent.
     assert.equal(all.find((record) => record.text === "reviewer follow-up").re, 1);
   } finally {
     h.cleanup();

@@ -42,10 +42,6 @@ test("regex symbol index recognizes cross-language declarations without a render
 });
 
 test("codeLines masks on demand and survives eviction — it no longer retains a masked copy of the project", () => {
-  // codeLines used to be a Map holding every indexed file's masked source as per-line strings — a second
-  // full copy of the project (77MB on a 6k-file repo) behind an accessor that reads one path at a time.
-  // It is now recomputed per file behind a 32-entry LRU, so the risk moved from memory to cache behavior:
-  // a wrong or stale answer after eviction would silently misplace every symbol lookup.
   const files = Array.from({ length: 40 }, (_, i) => ({
     path: `src/f${String(i).padStart(2, "0")}.ts`,
     content: `// export function decoy${i}() {}\nexport function real${i}() {}\n`,
@@ -56,12 +52,10 @@ test("codeLines masks on demand and survives eviction — it no longer retains a
   assert.equal(first[0].trim(), "", "the comment line is masked out");
   assert.match(first[1], /export function real0\(\)/, "the code line survives masking verbatim");
 
-  // Walk past the cache size so the first entry is evicted, then read it again.
   for (const file of files) index.codeLines.get(file.path);
   assert.deepEqual(index.codeLines.get("src/f00.ts"), first, "a re-derived entry matches the original");
   assert.deepEqual(index.codeLines.get("src/f39.ts"), index.codeLines.get("src/f39.ts"), "repeat reads agree");
 
-  // Masking is what keeps commented-out code from becoming a symbol; prove it still holds after the change.
   assert.equal(index.definitions.has("decoy0"), false, "commented declarations stay out of the index");
   assert.equal(index.definitions.get("real0")?.[0].path, "src/f00.ts");
   assert.equal(index.codeLines.get("src/nope.ts"), undefined, "an unindexed path has no lines");
@@ -186,8 +180,6 @@ process.stdin.on('data', (chunk) => {
   try {
     await client.workspaceSymbols("app");
     const options = JSON.parse(readFileSync(seen, "utf8"));
-    // The typings installer is a third process that npm-installs @types and watches node_modules — for a
-    // read-only review.
     assert.equal(options?.disableAutomaticTypingAcquisition, true, "automatic type acquisition stays off");
   } finally {
     client.dispose();
@@ -299,10 +291,6 @@ process.stdin.on('data', (chunk) => {
   }
 });
 
-// A server found INSIDE the repository being reviewed is code the reviewer has not read yet, and the analysis
-// prewarm starts one without being asked — so running it takes an explicit say-so. Without the opt-in the
-// answer is "no server", which is what a reader of untrusted code should get; with it, a source checkout can
-// still use its own binaries.
 test("a project-local language server runs only when the reviewer opted in", () => {
   const root = tempProject();
   const executable = join(root, "node_modules", ".bin", "gopls");
@@ -321,8 +309,6 @@ test("a project-local language server runs only when the reviewer opted in", () 
   assert.equal(optedIn?.source, "project");
 });
 
-// A definition outside the review root is a library location: it keeps its absolute path and opens read-only,
-// rather than being dropped as it used to be.
 test("a definition outside the review root comes back as a library location", () => {
   const root = tempProject();
   const outside = normalizeLocationResult({
@@ -481,17 +467,6 @@ test("a language server that falls over is restarted, not condemned for the rest
   timeout: 30_000,
   skip: process.platform === "win32",
 }, async () => {
-  // The defect this is the negative control for, measured in the real app on this repo: ask one .ts file
-  // for an implementation and the answer comes back `engine: "lsp"`; ask the next three and every one of
-  // them answers `No language server is available for <path>`, with the status chip reading "heuristic"
-  // for the rest of the window. Reversing the order moved the failure to whichever file was asked later,
-  // so it was never about the file — one request had timed out, `transportFailure` matched `/timed out/`,
-  // and `quarantine` put the server in a set that nothing ever took it out of. ⌘B, ⌘⌥B, ⌥F7 and ⌘U all
-  // answered off the regex index from then on, which is exactly "navigation stopped working".
-  //
-  // The server here falls the same way a real one does — the process goes away mid-request — and then
-  // runs correctly, which is what a restarted tsserver does. One ask must fail and a later ask must be
-  // semantic; a server kept in quarantine can never produce the second.
   const root = tempProject();
   write(root, "src/target.ts", "export function target() { return 42; }\n");
   write(root, "src/app.ts", "import { target } from './target';\nexport const value = target();\n");
@@ -544,8 +519,6 @@ process.stdin.on('data', (chunk) => {
     const first = await analysis.query({ kind: "definition", path: "src/app.ts", line: 1, column: 23, symbol: "target" });
     assert.notEqual(first.engine, "lsp", "the first ask is the one the server falls on");
 
-    // Poll rather than sleep past the backoff: the wait is a real clock, so the only honest question is
-    // whether a later ask gets a semantic answer at all, not whether it does so by a particular instant.
     const deadline = Date.now() + 20_000;
     let later = first;
     while (Date.now() < deadline && later.engine !== "lsp") {
@@ -580,13 +553,9 @@ test("mapLspDiagnostics normalizes severity and ranges and drops unusable entrie
 
 test("mapLspDiagnostics drops environment-dependent import-resolution noise but keeps real defects", () => {
   const mapped = mapLspDiagnostics([
-    // Pyright reportMissingImports on an installed package — false positive without a configured venv.
     { range: { start: { line: 32, character: 7 }, end: { line: 32, character: 13 } }, severity: 1, code: "reportMissingImports", message: 'Import "pandas" could not be resolved', source: "Pyright" },
-    // tsserver "cannot find module" (code as { value }) — also environment-dependent.
     { range: { start: { line: 1, character: 0 }, end: { line: 1, character: 20 } }, severity: 1, code: { value: 2307, target: "x" }, message: "Cannot find module 'orjson'." },
-    // A message-only import-resolution hit (server version without a matching code) is still dropped.
     { range: { start: { line: 2, character: 0 }, end: { line: 2, character: 5 } }, severity: 1, message: 'Import "config" could not be resolved' },
-    // A genuine defect that needs no environment survives.
     { range: { start: { line: 10, character: 4 }, end: { line: 10, character: 9 } }, severity: 1, code: "reportUndefinedVariable", message: '"total" is not defined', source: "Pyright" },
   ]);
   assert.equal(mapped.length, 1, "only the environment-independent defect survives");
@@ -656,11 +625,6 @@ test("project diagnostics report available:false when no language server covers 
   }
 });
 
-// Go-to-definition asks the language server about a POSITION, and the position it asked about used to be
-// recomputed as `line.indexOf(name)` — the first place that name appears in the line, not the place the
-// caret is. Any identifier that also sits inside an earlier one on the same line therefore answered about
-// the wrong symbol: `Locale` in `normalizeLocale(...): Locale` resolved to normalizeLocale, and so did
-// `Path` in `filePath`. Found by comparing kakapo's answers against a SCIP index of its own source.
 test("the identifier under the caret keeps its own column, even when its name hides inside an earlier one", async () => {
   const root = tempProject();
   const files = [
@@ -683,14 +647,6 @@ test("the identifier under the caret keeps its own column, even when its name hi
   }
 });
 
-// A cold server answers its first questions only after it has read the project, and REQUEST_TIMEOUT_MS lets
-// one question sit there for eight seconds. Every navigation key pressed during that window paid the whole
-// wait — and then usually got the regex index's answer anyway, because the server had nothing yet. So until
-// the server reports `ready`, a question stops waiting at coldQueryBudgetMs and the index answers instead.
-//
-// The fake server here never replies to a navigation request at all, which is the honest shape of "still
-// indexing": without the deadline this query waits the full REQUEST_TIMEOUT_MS, so the budget is what makes
-// it return at all within this test's own timeout.
 test("a question asked while the server is still indexing is answered by the index, not waited out", { timeout: 20_000 }, async () => {
   const root = tempProject();
   const files = [
@@ -739,21 +695,12 @@ process.stdin.on('data', (chunk) => {
       "and it is a real answer, not an empty one dressed up as a fallback",
     );
     assert.match(definition.fallbackReason, /still reading the project/, "which the reviewer is told is partial");
-    // Generous against a loaded CI box, but far under the 8s a waited-out request costs.
     assert.ok(elapsed < 4_000, `the question came back in ${elapsed}ms instead of waiting out the request timeout`);
   } finally {
     analysis.dispose();
   }
 });
 
-// Go-to-definition that lands on `import { thing } from …` has not answered the question. The follow-through
-// that fixes it used to fire only when the server returned exactly one location AND a regex matched that one
-// line as an import statement — which misses the shape that turns up most: a binding inside a multi-line
-// import, whose line is just `  target,` and looks like nothing at all.
-//
-// The fake server answers every definition request with that binding line, so without the follow-through the
-// answer IS the import. It is also the control for the follow: the second request arrives at a different
-// position, and only then does it hand back the declaration.
 test("a definition that lands on an import binding is followed to the declaration", { timeout: 10_000 }, async () => {
   const root = tempProject();
   const files = [
@@ -809,15 +756,6 @@ process.stdin.on('data', (chunk) => {
   }
 });
 
-// A JVM language server answers for anything outside the project with a URI that is not a file: a class
-// inside the JDK image (`jrt:`) or inside a dependency archive (`jar:`). That was read as a PATH — and
-// resolve() treats "jrt:/…/Instant.class" as relative, so it became "<cwd>/jrt:/…/Instant.class", a path
-// that exists nowhere. The empty read that followed left the location with no text, and the
-// "does this line have visible characters" filter dropped it. So Kotlin and Java reported "definition not
-// found" for every stdlib and dependency symbol, while the server had answered correctly every time.
-//
-// Measured against the real bundled Kotlin server before the fix: raw answer
-// `jrt:/…/jbr/Contents/Home!/java.base/java/time/Instant.class`, result after filtering `[]`.
 test("a definition inside a JDK image or a dependency jar survives as an answer", async () => {
   const root = tempProject();
   const files = [{ path: "src/app.ts", content: "export const value = target();\n" }];
@@ -871,22 +809,11 @@ test("an external location is named by what it is, not by where the archive sits
   assert.equal(externalLocationLabel("jdt://contents/rt.jar/java.lang/String.class"), "contents/rt.jar/java.lang/String.class");
 });
 
-// A definition OUTSIDE the review root carries an absolute path — a stdlib header, a gem, a crate in
-// ~/.cargo, site-packages, GOROOT, a type stub. join(root, "/usr/include/x.h") silently produces
-// "<root>/usr/include/x.h", a path that exists nowhere, so every read of a library location failed, which
-// left it with no text, which got it dropped by the "does this line have visible characters" filter. The
-// server had answered with a real file on disk and the reviewer was told the definition was not found.
-//
-// Every language with dependencies outside the project was affected. Measured with the real bundled
-// pyright, same file, same query: `Path` and `dataclass` returned `engine=index []` before and resolve
-// into pathlib and dataclasses after; gopls reached GOROOT the same way. The JVM `jrt:`/`jar:` case was
-// this same failure reached by a different route.
 test("a definition in a file outside the review root is an answer, not a dead end", async () => {
   const root = tempProject();
   const files = [{ path: "src/app.ts", content: "export const value = target();\n" }];
   for (const file of files) write(root, file.path, file.content);
 
-  // A real file on disk, deliberately outside the root — that is the whole point of the test.
   const outside = mkdtempSync(join(tmpdir(), "kakapo-outside-"));
   const libFile = join(outside, "stdlib.d.ts");
   writeFileSync(libFile, "export declare function target(): number;\n");
@@ -924,20 +851,6 @@ process.stdin.on('data', (chunk) => { buffer = Buffer.concat([buffer, chunk]);
   }
 });
 
-// A server that is still reading the project does not stay that way, and the proof that it has finished is
-// that it answered. The deadline above keeps the first keystroke responsive by abandoning the WAIT at
-// coldQueryBudgetMs — but the request itself keeps running, and when it came back with a perfectly good
-// answer, `if (done) return` threw it away. Nothing recorded that the server had started answering, so the
-// NEXT keystroke was deadlined too, and the one after that, for as long as warm-up had not independently
-// decided the server was ready.
-//
-// That independent decision is a diagnostics publish for one file, bounded at 90 seconds. A real session
-// trace on this repository sat at `indexing` for 90,002ms twice — a round number, so a timeout, not work —
-// and every navigation key pressed inside those windows was answered by the regex index while a capable
-// server sat idle beside it.
-//
-// This server answers definitions, just later than the deadline. One fallback is the price of a cold
-// server; the second question is the one that must come back semantic.
 test("the answer that arrives after the deadline still reports the server as ready", { timeout: 20_000 }, async () => {
   const root = tempProject();
   const files = [
@@ -983,7 +896,6 @@ process.stdin.on('data', (chunk) => {
   const analysis = new ProjectAnalysis(root, {
     files,
     coldQueryBudgetMs: 150,
-    // Long on purpose: warm-up must not be what promotes this server. The question has to.
     indexBudgetMs: 60_000,
     resolveServer: () => ({
       family: "typescript",
@@ -996,8 +908,6 @@ process.stdin.on('data', (chunk) => {
     const first = await analysis.query({ kind: "definition", path: "src/app.ts", line: 0, column: 23, symbol: "target" });
     assert.equal(first.engine, "index", "the first question is still answered by the index, as it must be");
 
-    // Give the abandoned request time to land. Polling the status rather than sleeping a fixed amount, so
-    // a slow box lengthens the wait instead of failing the test.
     const deadline = Date.now() + 10_000;
     while (analysis.getStatus().phase !== "ready" && Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 25));
@@ -1013,10 +923,6 @@ process.stdin.on('data', (chunk) => {
   }
 });
 
-// Rebuilding the whole symbol index because one file changed cost 210ms per save on this repository, and
-// ~1,900ms of scan alone on a 3,000-file one — in the main process, measured. Patching it in place is only
-// allowed to be faster if what it leaves behind is exactly right, and the dangerous half is removal: a
-// record left pointing at a line that no longer exists is a jump into nothing, which is worse than slow.
 test("patching the index removes the records of what changed, not just adds the new ones", () => {
   const index = buildRegexSymbolIndex([
     { path: "src/a.ts", content: "export function alpha() {}\nexport function doomed() {}\n" },
@@ -1036,7 +942,6 @@ test("patching the index removes the records of what changed, not just adds the 
     "and the stored content is the new revision");
 });
 
-// A symbol can be defined in two files. Removing one file's record must not take the other's with it.
 test("patching one file leaves another file's record for the same symbol alone", () => {
   const index = buildRegexSymbolIndex([
     { path: "src/a.ts", content: "export function shared() {}\n" },
@@ -1050,7 +955,6 @@ test("patching one file leaves another file's record for the same symbol alone",
   assert.deepEqual(shared.map((r) => r.path), ["src/b.ts"], "only the patched file's record went");
 });
 
-// Deleting a file has to take its records with it, or navigation offers a jump into a file that is not there.
 test("patching drops the records of a removed file", () => {
   const index = buildRegexSymbolIndex([
     { path: "src/a.ts", content: "export function alpha() {}\n" },
@@ -1063,9 +967,6 @@ test("patching drops the records of a removed file", () => {
   assert.ok(index.definitions.get("alpha"), "its neighbour is untouched");
 });
 
-// codeLines keeps masked copies keyed by path, behind an LRU. Re-indexing in place has to evict that entry
-// or every later lookup — which is how the index decides whether a line is a real declaration — reads the
-// previous revision.
 test("patching evicts the masked line cache for the file it re-indexed", () => {
   const index = buildRegexSymbolIndex([{ path: "src/a.ts", content: "const before = 1;\n" }]);
   assert.match(index.codeLines.get("src/a.ts").join("\n"), /before/, "the masked copy is cached");
@@ -1077,8 +978,6 @@ test("patching evicts the masked line cache for the file it re-indexed", () => {
   assert.doesNotMatch(lines, /before/, "and not the one it replaced");
 });
 
-// The index holds code, not documents or images; listProjectFiles filters ripgrep's output that way and the
-// patch has to apply the same rule, or a save would smuggle a README into it.
 test("patching admits only the files the full build would have indexed", () => {
   const index = buildRegexSymbolIndex([{ path: "src/a.ts", content: "export function alpha() {}\n" }]);
   patchProjectIndex(index, [
@@ -1090,13 +989,6 @@ test("patching admits only the files the full build would have indexed", () => {
   assert.equal(index.definitions.get("alsoNotCode"), undefined, "whatever directory it sits in");
 });
 
-// The rebuild path used to call invalidate(), which threw the index away so the next question rebuilt it:
-// ripgrep walk, read every file, scan every line. syncIndex instead compares the review's own signatures
-// against what the index holds and re-indexes only what moved.
-//
-// `outcome` is asserted on every one of these, because every assertion below would ALSO pass if syncIndex
-// quietly fell back to a full rebuild — which is exactly the behaviour being replaced. Without it the tests
-// would prove nothing.
 function state(path, content, signature) {
   return { path, content, signature };
 }
@@ -1113,7 +1005,6 @@ test("syncIndex re-indexes only the file whose signature moved", async () => {
     assert.equal(await analysis.syncIndex([state("src/a.ts", files[0].content, "a1"), state("src/b.ts", files[1].content, "b1")]),
       "seeded", "the first sync only records what the build is about to produce");
 
-    // Force the index to exist, the way the first navigation question does.
     const before = await analysis.query({ kind: "definition", path: "src/a.ts", line: 1, column: 16, symbol: "doomed" });
     assert.deepEqual(before.locations.map((l) => l.path), ["src/a.ts"], "the doomed symbol is findable first");
 
@@ -1148,10 +1039,6 @@ test("syncIndex does no work when nothing moved", async () => {
   }
 });
 
-// An unchanged file whose signature moved is one the build read and then dropped to stay inside its byte
-// budget — its content is not in the snapshot, so syncIndex reads that one file itself. One batch of those
-// is worth doing inline; past that the builder's batched, yielding read is the better tool, and saying so
-// out loud is what keeps a branch switch from becoming thousands of serial reads.
 test("syncIndex reads a file the snapshot did not carry, and hands back a big set to the builder", async () => {
   const root = tempProject();
   const files = [
@@ -1164,14 +1051,12 @@ test("syncIndex reads a file the snapshot did not carry, and hands back a big se
     await analysis.syncIndex([state("src/a.ts", files[0].content, "a1"), state("src/b.ts", files[1].content, "b1")]);
     await analysis.query({ kind: "definition", path: "src/a.ts", line: 0, column: 16, symbol: "alpha" });
 
-    // No content, only a moved signature: the deferred shape.
     write(root, "src/b.ts", "export function gamma() {}\n");
     assert.equal(await analysis.syncIndex([state("src/a.ts", files[0].content, "a1"), { path: "src/b.ts", signature: "b2" }]),
       "patched", "a single missing content is one disk read, done inline");
     const found = await analysis.query({ kind: "definition", path: "src/b.ts", line: 0, column: 16, symbol: "gamma" });
     assert.deepEqual(found.locations.map((l) => l.path), ["src/b.ts"], "and it read the file off disk to do it");
 
-    // 33 contentless moved signatures: one more than the inline bound.
     const many = Array.from({ length: 33 }, (_, i) => ({ path: `src/g${i}.ts`, signature: `g${i}` }));
     assert.equal(await analysis.syncIndex([...many]), "rebuilt",
       "past one batch it goes back to the builder instead of reading them one at a time");
@@ -1180,8 +1065,6 @@ test("syncIndex reads a file the snapshot did not carry, and hands back a big se
   }
 });
 
-// A document path is not in the index, so it must not count as a change either — otherwise every README
-// save would patch an index that never held it.
 test("syncIndex ignores files the index does not hold", async () => {
   const root = tempProject();
   const files = [{ path: "src/a.ts", content: "export function alpha() {}\n" }];
@@ -1197,15 +1080,6 @@ test("syncIndex ignores files the index does not hold", async () => {
   }
 });
 
-// Rebuilds arrive as fast as files are saved, and syncIndex is fired off without being awaited. The hazard
-// is not the patching — applying the same content twice is harmless — it is the signature each run records
-// afterwards. One run has the file's content in hand and finishes in microtasks; another has only a
-// signature and must read the file, so it finishes after real I/O. Unserialized, the slow one lands LAST and
-// stamps its own signature over the revision the fast one actually put in the index. Nothing is visibly
-// wrong at that moment, and the next save compares against that wrong signature and skips a file that moved.
-//
-// Ordered deliberately so the loss is deterministic rather than lucky: the contentless run is started first
-// and is the one that has to wait for the disk.
 test("a sync that has to read the disk cannot stamp its signature over a later revision", async () => {
   const root = tempProject();
   const files = [{ path: "src/a.ts", content: "export function v0() {}\n" }];
@@ -1218,15 +1092,14 @@ test("a sync that has to read the disk cannot stamp its signature over a later r
     const second = "export function v2() {}\n";
     write(root, "src/a.ts", second);
     const outcomes = await Promise.all([
-      analysis.syncIndex([{ path: "src/a.ts", signature: "s1" }]),                    // no content: reads disk
-      analysis.syncIndex([{ path: "src/a.ts", content: second, signature: "s2" }]),   // content in hand
+      analysis.syncIndex([{ path: "src/a.ts", signature: "s1" }]),
+      analysis.syncIndex([{ path: "src/a.ts", content: second, signature: "s2" }]),
     ]);
     assert.deepEqual(outcomes, ["patched", "patched"], "both ran as patches, one after the other");
 
     const latest = await analysis.query({ kind: "definition", path: "src/a.ts", line: 0, column: 16, symbol: "v2" });
     assert.deepEqual(latest.locations.map((l) => l.path), ["src/a.ts"], "the index holds the revision on disk");
 
-    // The decisive one: the signature left behind has to be the one belonging to what the index now holds.
     assert.equal(await analysis.syncIndex([{ path: "src/a.ts", content: second, signature: "s2" }]),
       "unchanged", "re-offering that same revision is a no-op, so no later change can be missed");
 
@@ -1242,16 +1115,6 @@ test("a sync that has to read the disk cannot stamp its signature over a later r
 });
 
 test("a library declaration is the answer, not the package's JavaScript entry", async () => {
-  // The shape this is about, verbatim from a real project: `import { app } from "electron"`. tsserver
-  // answers textDocument/definition with `const app: App;` in electron.d.ts — correctly — and answers
-  // _typescript.goToSourceDefinition with node_modules/electron/index.js line 1, the CommonJS launcher
-  // shim, because the package ships typings and no readable implementation. Asking the second question
-  // and keeping its answer sent every ⌘B on a library value to a file of no interest.
-  //
-  // The project declares `widget` too, in a test fixture, which is what used to decide this: the old gate
-  // asked the regex index whether the target "is a declaration", a library file is in no index, so the
-  // test collapsed into "does this project happen to declare the same name" — and electron's `app` was
-  // discarded while electron's `BrowserWindow`, a name nothing here declares, was kept.
   const root = tempProject();
   write(root, "src/app.ts", "import { widget } from \"widget\";\nwidget.start();\n");
   write(root, "test/fixture.ts", "const widget = 1;\nexport default widget;\n");

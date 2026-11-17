@@ -1,11 +1,3 @@
-// Two ways a real change used to go missing from a review.
-//
-// 1. Several ordinary changes produce no hunks — a 100%-similarity rename, `chmod +x`, an added empty file —
-//    and the parser dropped every file that had none. `git mv` plus `chmod +x` painted "No diff to review",
-//    which reads as "the agent did nothing".
-// 2. git C-quotes a path containing `"`, `\`, a tab or a newline whatever core.quotePath says. Left raw, the
-//    leading quote hid the `b/` prefix, the file read as absent from the working tree, and because that is
-//    the exact string commentFileIsKnownMissing matches, every comment on it was deleted.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
@@ -71,8 +63,6 @@ test("a path git had to quote is read back as its real name", () => {
     assert.equal(file.oldPath, name);
     assert.equal(file.newPath, name);
 
-    // The point of the fix: the record resolves on disk, so it is not reported missing — which is what
-    // caused comments on it to be deleted.
     const sources = collectSourceFiles(parse(r.root), r.root);
     const record = sources.find((entry) => entry.path === name);
     assert.ok(record, "the file is in the source index under its real name");
@@ -86,7 +76,6 @@ test("git's C-quoting is decoded, including multi-byte escapes", () => {
   assert.equal(unquoteGitPath('"quo\\"te.ts"'), 'quo"te.ts');
   assert.equal(unquoteGitPath('"tab\\there.ts"'), "tab\there.ts");
   assert.equal(unquoteGitPath('"back\\\\slash.ts"'), "back\\slash.ts");
-  // One escape per BYTE: decoding them individually would mangle every multi-byte character.
   assert.equal(unquoteGitPath('"\\354\\225\\210\\353\\202\\264.md"'), "안내.md");
   assert.equal(unquoteGitPath('"mixed \\354\\225\\210 and \\"quote\\".md"'), 'mixed 안 and "quote".md');
   assert.equal(unquoteGitPath("plain.ts"), "plain.ts", "an unquoted path is left exactly as it is");
@@ -95,15 +84,6 @@ test("git's C-quoting is decoded, including multi-byte escapes", () => {
   assert.equal(stripDiffPath("/dev/null"), "/dev/null");
 });
 
-// 3. A path with a SPACE in it is not quoted — git has no reason to — but its `---`/`+++` header lines carry
-//    a trailing TAB, git's column separator, which it omits for a quoted path because the quotes already
-//    delimit it. Left on, the tab was part of the path and travelled out through every map keyed by one: the
-//    file rendered in the diff and then reported "file is not present in the working tree" when opened, the
-//    language server was asked about a path that does not exist, and because the `diff --git` line spells it
-//    correctly while `+++` did not, the SAME file appeared twice in Quick Open and twice in the tree.
-//
-//    Driven through a real repository rather than a hand-written patch: the tab is git's doing, and a
-//    fixture written here would be a restatement of what this test exists to pin down.
 test("a path with a space keeps git's column tab out of its name", () => {
   const r = repo();
   try {
@@ -118,7 +98,6 @@ test("a path with a space keeps git's column tab out of its name", () => {
     assert.equal(file.displayPath, name, "the name is the name — no trailing tab");
     assert.equal(file.oldPath, name, "`---` agrees with it");
     assert.equal(file.newPath, name, "and so does `+++`");
-    // The duplicate rows came from the two spellings disagreeing, so that is asserted as the one fact it is.
     assert.equal(new Set([file.displayPath, file.oldPath, file.newPath]).size, 1,
       "one file, one spelling: two of them is what listed it twice");
 
@@ -132,22 +111,12 @@ test("a path with a space keeps git's column tab out of its name", () => {
 test("stripDiffPath cuts the column tab, and only that", () => {
   assert.equal(stripDiffPath("a/plain space.txt\t"), "plain space.txt");
   assert.equal(stripDiffPath("b/plain space.txt\t"), "plain space.txt");
-  // Unified diffs may print a timestamp after the separator; it is not part of the name either.
   assert.equal(stripDiffPath("a/x y.txt\t2026-11-01 12:00:00.000000000 +0900"), "x y.txt");
   assert.equal(stripDiffPath("a/no-space.txt"), "no-space.txt", "nothing to cut, nothing cut");
-  // Cut BEFORE unquoting, or the closing quote is no longer last and the value comes back raw.
   assert.equal(stripDiffPath('"b/quo\\"te.ts"\t'), 'quo"te.ts');
   assert.equal(stripDiffPath("/dev/null"), "/dev/null");
 });
 
-// 4. A symlink is its own object. Git stores it as a blob holding its TARGET PATH, and the diff shows
-//    exactly that — but collectSourceFiles stated the path with statSync, which FOLLOWS the link, so the
-//    Files view read the target's bytes and its size and printed them under the link's name: `link.txt
-//    93 B` with six lines of another file's text under it, and nothing saying which of the two you were
-//    looking at. A comment written there anchored to a line that does not exist in the file it names.
-//
-//    The two halves of the app are asserted together on purpose: the defect was not that either one was
-//    wrong on its own, it was that they disagreed about what `link.txt` contains.
 test("a symlink reads as the link, in the diff and in the source alike", () => {
   const r = repo();
   try {
@@ -173,23 +142,14 @@ test("a symlink reads as the link, in the diff and in the source alike", () => {
   }
 });
 
-// 5. `skippedReason` is an English sentence written for a log, and the source view puts it on screen —
-//    so `skippedKind` travels beside it as the half that can be translated. Tagging the eager collector
-//    and stopping there left the lazy paths untagged, which are the ones the app actually uses: a file
-//    absent from a revision still printed "file is not present in this revision" inside a Korean
-//    sentence. This counts the two against each other rather than listing the sites, because the defect
-//    IS a site that was missed, and a test that listed them would have been written from the same list.
 test("every skip that has a reason also has a kind", () => {
   const source = readFileSync(new URL("../dist/diff.js", import.meta.url), "utf8")
     + readFileSync(new URL("../dist/library-source.js", import.meta.url), "utf8");
-  // A skip RECORD is `skippedReason` followed by `signature:` in the same object literal. The first
-  // version of this counted bare occurrences and so counted a helper's PARAMETER LIST as a record,
-  // reporting a site that does not exist — the shape has to be the record's, not the word's.
   const records = [];
   for (let at = source.indexOf("skippedReason,"); at >= 0; at = source.indexOf("skippedReason,", at + 1)) {
     const window = source.slice(at, at + 160);
     const ends = window.indexOf("signature:");
-    if (ends < 0) continue; // not a record — a parameter, a destructure, a mention in prose
+    if (ends < 0) continue;
     records.push(window.slice(0, ends));
   }
   assert.ok(records.length >= 10, `found ${records.length} skip records — has the shape changed?`);
@@ -197,7 +157,6 @@ test("every skip that has a reason also has a kind", () => {
   assert.deepEqual(untagged, [],
     `${untagged.length} skip record(s) name a reason with no kind beside it`);
 
-  // And every kind the code can produce has a sentence in both locales, or the page prints the key.
   const kinds = new Set(Array.from(source.matchAll(/skippedKind: "([a-zA-Z]+)"/g), (hit) => hit[1]));
   assert.ok(kinds.size >= 6, `found ${kinds.size} kinds`);
   for (const kind of kinds) {

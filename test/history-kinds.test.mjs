@@ -1,9 +1,3 @@
-// The history overlay as a reader of three read-only Git histories: the commit log (filtered by git), the
-// reflog, and the stash list — plus going to a commit by hash and copying the one that is selected.
-//
-// What these guard is the boundary rather than the chrome: which bridge call each kind makes, what the
-// filter row actually sends, and that a reload while someone is typing does not take the keyboard away
-// from the box they are typing in.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { makeReviewHtml, cleanupFixtures } from "./helpers/fixture.mjs";
@@ -26,7 +20,6 @@ const COMMITS = [
   { hash: "b".repeat(40), parents: [], author: "Grace", email: "grace@test", date: "2026-05-31T10:00:00+09:00", refs: "", subject: "older commit" },
 ];
 
-/** Opens History with every read-only bridge recorded, so a test can say which call a gesture made. */
 async function openHistory(options = {}) {
   const v = await loadViewer(html);
   const asked = { log: [], reflog: [], stashes: 0, resolve: [], compare: [] };
@@ -62,12 +55,11 @@ async function openHistory(options = {}) {
   return { v, asked, clipboard };
 }
 
-/** Types into one of the filter inputs the way a person does — one input event, then the debounce. */
 async function type(host, id, value) {
   const field = host.v.$(`#${id}`);
   field.value = value;
   field.dispatchEvent(new host.v.window.Event("input", { bubbles: true }));
-  await host.v.settle(320); // past the 220ms debounce
+  await host.v.settle(320);
 }
 
 test("the log is the opening kind, and its rows carry the graph", async () => {
@@ -205,7 +197,7 @@ test("a hash already on screen is selected rather than offered as a jump", async
 });
 
 test("ordinary words stay a text filter even though the box also resolves revisions", async () => {
-  const host = await openHistory(); // resolveRevision answers null, as it does for words
+  const host = await openHistory();
   await type(host, "history-search", "older");
   assert.equal(host.v.$("#hsel-goto"), null);
   assert.equal(host.asked.log[host.asked.log.length - 1].text, "older");
@@ -245,7 +237,6 @@ test("a file's history is the log with its path, followed through renames", asyn
   assert.equal(request.follow, true, "a rename does not end the story");
   assert.equal(host.v.$("#history-scope").textContent, "src/a.ts");
   assert.equal(host.v.$("#history-scope").classList.contains("hidden"), false);
-  // A scoped history is one file's story: the repository-wide kinds and filters do not apply to it.
   assert.equal(host.v.$(".history-kinds").classList.contains("hidden"), true);
   assert.equal(host.v.$("#history-filter-toggle").classList.contains("hidden"), true);
   host.v.close();

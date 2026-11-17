@@ -41,8 +41,6 @@ test("ripgrep JSON parser ignores summary and malformed stream messages", () => 
 });
 
 test("project search normalizes extension filters and excludes comments and test files", async () => {
-  // IntelliJ's mask, not a bare extension: a plain `ts` still means `*.ts` (that is what the field always
-  // took), a glob passes through, `!` excludes, and a path is still not a mask — that is what the scope is.
   assert.deepEqual(normalizeProjectSearchMasks([".TS", "*.py", "ts", "bad/path"]), ["*.ts", "*.py"]);
   assert.deepEqual(normalizeProjectSearchMasks(["*Service*.java", "!*.min.js"]), ["*service*.java", "!*.min.js"]);
   assert.ok(projectSearchMaskAllows("src/api/UserService.java", ["*service*.java"]));
@@ -69,22 +67,18 @@ test("project search normalizes extension filters and excludes comments and test
   }
 });
 
-// IntelliJ's three Find in Files modifiers. One ripgrep flag each, so what is worth testing is that each
-// flag reaches ripgrep and changes the answer — and that a pattern ripgrep rejects comes back as an error
-// rather than as "nothing matched", which is the one way this could be wrong and look right.
 test("match case, whole words and regex each change what project search finds", async () => {
   const root = await mkdtemp(join(tmpdir(), "kakapo-search-mods-"));
   try {
     await mkdir(join(root, "src"), { recursive: true });
     await writeFile(join(root, "src", "a.ts"), [
-      "const Needle = 1;",      // 1  capital
-      "const needles = 2;",     // 2  lower, longer word
-      "const needle = 3;",      // 3  lower, exact word
+      "const Needle = 1;",
+      "const needles = 2;",
+      "const needle = 3;",
     ].join("\n") + "\n");
     const lines = async (options) =>
       (await searchProject(root, options.query ?? "needle", 50, options)).matches.map((m) => m.line);
 
-    // Off: smart-case, literal, anywhere in the line — a lower-case query finds the capital too.
     assert.deepEqual(await lines({}), [1, 2, 3]);
     assert.deepEqual(await lines({ matchCase: true }), [2, 3], "`Cc` stops it matching Needle");
     assert.deepEqual(await lines({ wholeWords: true }), [1, 3], "`W` stops it matching needles");

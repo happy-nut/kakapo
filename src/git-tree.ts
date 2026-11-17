@@ -1,12 +1,3 @@
-// Reading a whole tree at a revision, for the symbol index.
-//
-// kakapo already reads single files at a revision (diff.ts: readTargetBlobSource) with one `git show` per
-// file, and at diff scale — a handful of changed files — that is the right primitive. At tree scale it is
-// not: measured on a 3,058-file repository, `git show` per file costs 14.7 ms each, which is 44.9 SECONDS
-// for the tree, while one `git cat-file --batch` answers all 3,058 in 548 ms. The 82× is not git being
-// slow; it is fork/exec and repository setup paid 3,058 times instead of once.
-//
-// So this module owns exactly two operations — enumerate, and read in bulk — and nothing else.
 import { spawn } from "node:child_process";
 import { git, workspaceGitPrefix, RAW_PATHS } from "./git.js";
 
@@ -68,8 +59,6 @@ export function readRevisionBlobs(
     // positional. git echoes the spec only on a miss, and a spec can contain spaces, so it is not a
     // reliable key to parse back out.
     let next = 0;
-    // Annotated: Buffer.alloc narrows to Buffer<ArrayBuffer>, Buffer.concat widens to ArrayBufferLike, and
-    // the two do not assign to each other.
     let buf: Buffer<ArrayBufferLike> = Buffer.alloc(0);
     let at = 0;
 
@@ -91,21 +80,17 @@ export function readRevisionBlobs(
           continue;
         }
         const bodyEnd = newline + 1 + size;
-        if (buf.length < bodyEnd + 1) break; // +1 for the record's trailing newline
+        if (buf.length < bodyEnd + 1) break;
         const path = paths[next];
         next += 1;
         if (path !== undefined && size <= maxBytes) {
           const content = buf.toString("utf8", newline + 1, bodyEnd);
-          // A NUL means binary, and the index has nothing to say about it. Checked here rather than left to
-          // indexableContent so the string is dropped at once instead of travelling further.
           if (!content.includes("\0")) take({ path, content });
         }
         at = bodyEnd + 1;
       }
     };
 
-    // Carry only the unconsumed tail into the next chunk. Keeping one growing buffer instead would hold the
-    // whole tree — 27 MB on the repository this was measured against — alive until the process closed.
     child.stdout.on("data", (chunk: Buffer) => {
       buf = at === buf.length ? chunk : Buffer.concat([buf.subarray(at), chunk]);
       at = 0;
@@ -113,7 +98,7 @@ export function readRevisionBlobs(
     });
     child.once("error", () => resolve(out));
     child.once("close", () => { drain(); resolve(out); });
-    child.stdin.on("error", () => { /* a closed pipe ends the read; whatever arrived is still usable */ });
+    child.stdin.on("error", () => { });
     child.stdin.end(paths.map((path) => `${revision}:${prefix ? prefix + "/" : ""}${path}`).join("\n") + "\n");
   });
 }
