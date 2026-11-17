@@ -90,5 +90,5 @@ ticks the row describing the diff the window is actually built from. Six fields,
 derivation, and nothing presses two of those controls in a row anywhere in the suite — which is the only
 way the fields can disagree. Run it before and after changing anything that writes `options.base`,
 `options.baseLabel`, `options.target`, `options.staged`, `state.compareScope` or `state.compareTip`, or
-the `mode` derivation in `kakapo:compare-menu`. It reports two open findings today; its SKILL.md says
-what they are and what the fix is not.
+the `mode` derivation in `kakapo:compare-menu`. It holds today, and its SKILL.md records the two
+findings it was written for — including the wider fix the model refuted.

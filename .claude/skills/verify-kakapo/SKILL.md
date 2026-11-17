@@ -53,6 +53,8 @@ arrived since. Copy it and change the fixture and the checks:
 node .claude/skills/verify-kakapo/example.mjs
 KAKAPO_VERIFY_LOCALE=ko node .claude/skills/verify-kakapo/example.mjs   # the same run, in Korean
 node .claude/skills/verify-kakapo/ledger.mjs                            # the patch-set ledger (CMP-8)
+node .claude/skills/verify-kakapo/caret-chords.mjs                      # what each caret chord selects (READ-8)
+node .claude/skills/verify-kakapo/compare-tip.mjs                       # the compare menu tells the truth (CMP-3/7)
 ```
 
 `drive()` does, in order:

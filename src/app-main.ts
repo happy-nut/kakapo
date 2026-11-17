@@ -320,11 +320,30 @@ const COMPARE_REF_KEY = "kakapo-compare-ref";
 // a reader off to read the wrong diff. Persisted next to the ref for the same reason the ref is: without
 // it a restart answers a question nobody asked.
 const COMPARE_TIP_KEY = "kakapo-compare-tip";
+/**
+ * The one writer of compareTip, so the flag cannot be set in one place and forgotten in another.
+ *
+ * It is a claim about what options.base currently IS, which means every handler that rewrites
+ * options.base has to say something here. Three of the four did not, and the compare menu went on
+ * ticking `tip` for diffs that were nothing of the kind.
+ */
+function setCompareTip(state: WinState, tip: boolean): void {
+  state.compareTip = tip;
+  preferences.setRendererSetting(state.options.root, COMPARE_TIP_KEY, tip);
+}
+
 function restoreCompareRef(state: WinState): void {
   const workspace = preferences.readWorkspace(state.options.root);
   const saved = workspace[COMPARE_REF_KEY];
   state.compareRef = typeof saved === "string" && saved ? saved : undefined;
-  state.compareTip = Boolean(state.compareRef) && workspace[COMPARE_TIP_KEY] === true;
+  // The ref comes back; the MODE does not. Both callers run restoreCompareRef after the review has been
+  // built — the cold boot at the end of the first build, the folder switch before a build that takes its
+  // base from compareSelectionFor — so neither build ever used the ref's tip as its base. Restoring the
+  // flag therefore only made the menu claim a mode the window was not in, from the first frame, with no
+  // interaction at all. Saying "all changes" and showing all changes is the honest pair; ⌥T is one key
+  // away. Making the launch genuinely resume tip mode is a different change: the base would have to be
+  // resolved before the first build, and it would have to yield to --base and --staged.
+  state.compareTip = false;
 }
 const UI_SCALE_KEY = "kakapo-ui-scale";
 function uiScale(): number {
@@ -410,6 +429,13 @@ ipcMain.handle("kakapo:set-review-base", async (event, payload: { ref?: unknown 
     }
     state.options.baseLabel = undefined; // a patch-set pick names a commit; the pill shows the SHA it is
     state.options.staged = false; // --staged takes precedence over --base in readUnifiedDiff; clear it
+    // compareTip is a claim ABOUT options.base — "this base is a ref's tip, not a merge-base with it" —
+    // and this handler has just rewritten options.base. Leaving it set made the compare menu tick `tip`
+    // for a diff that is no longer one: ⌥A, ⌥T, then the patch-set bar's "All" option put the window on
+    // the automatic base with the menu still saying tip, while the bar beside it said "all changes · main".
+    // Found by the model in .claude/skills/formal-compare-mode, which also refuted the wider fix — see
+    // set-review-target below, which must NOT do this.
+    setCompareTip(state, false);
     await rebuildAndPushUpdate(state, true);
     return { ok: true, activeBase: state.options.base ?? "auto" };
   } catch (error) {
@@ -479,6 +505,8 @@ ipcMain.handle("kakapo:set-review-compare", async (event, payload: { base?: unkn
     state.options.target = rawTarget === "worktree" ? undefined : validateReviewBase(state.options.root, rawTarget);
     if (rawBase === "auto" || rawTarget === "worktree") state.compareScope = undefined; // exiting compare clears the scope
     state.options.staged = false;
+    setCompareTip(state, false); // this writes options.base too — see set-review-base
+
     await rebuildAndPushUpdate(state, true);
     return { ok: true, activeBase: state.options.base ?? "auto", activeTarget: state.options.target ?? "worktree" };
   } catch (error) {
@@ -520,8 +548,7 @@ ipcMain.handle("kakapo:open-pull-request", async (event, payload: { text?: unkno
 
     state.compareScope = undefined;
     state.compareRef = undefined;
-    state.compareTip = false;
-    preferences.setRendererSetting(root, COMPARE_TIP_KEY, false);
+    setCompareTip(state, false);
     state.options.staged = false;
     state.options.base = base;
     state.options.baseLabel = base;
@@ -577,8 +604,7 @@ ipcMain.handle("kakapo:set-compare-mode", async (event, payload: { mode?: unknow
     state.compareScope = undefined; // leaving any Cmd+9 range the pill cannot describe
     state.options.target = undefined;
     state.options.staged = false;
-    state.compareTip = mode === "tip";
-    preferences.setRendererSetting(state.options.root, COMPARE_TIP_KEY, state.compareTip);
+    setCompareTip(state, mode === "tip");
     if (mode === "uncommitted") {
       state.options.base = "HEAD";
       state.options.baseLabel = undefined;

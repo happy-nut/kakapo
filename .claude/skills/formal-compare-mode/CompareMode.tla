@@ -28,11 +28,12 @@ CONSTANTS
     \* Does resolveReadMark answer right now? (src/patch-sets.ts) FALSE models a repository nobody has
     \* handed a review off from, or one where the agent rebased the mark off the branch.
     MarkUsable,
-    \* Did this window open with compareTip restored from the workspace file? restoreCompareRef
-    \* (app-main.ts:323) sets it from COMPARE_TIP_KEY, and it runs AFTER the first build — so TRUE models
-    \* "the last thing you did in this worktree was Alt+T, and then you closed the window". A constant
-    \* rather than `tip \in BOOLEAN` at Init, so that a violation present in the very first state cannot
-    \* hide the ones that need a sequence of controls to reach.
+    \* Did this window open with compareTip set? It cannot any more: restoreCompareRef (app-main.ts)
+    \* brings the REF back and deliberately leaves the mode alone, because both of its callers run after
+    \* the review has been built and neither build ever used the ref's tip as its base — so restoring the
+    \* flag only made the menu claim a mode the window was not in, from the first frame.
+    \* TRUE is still checked, and still fails. That is the record of why the restore was removed: if this
+    \* arm ever starts holding, someone has put the restore back AND made the first build honour it.
     RestoredTip
 
 (***************************************************************************)
@@ -123,9 +124,9 @@ MenuMode ==
 MenuTellsTheTruth == MenuMode = BuiltMode
 
 (***************************************************************************)
-(* The initial state: a window that has just opened. app-main.ts:1275      *)
-(* starts compareTip FALSE; restoreCompareRef (app-main.ts:323) may set it *)
-(* back to TRUE from the workspace file, so both are explored.             *)
+(* The initial state: a window that has just opened. app-main.ts starts    *)
+(* compareTip FALSE and restoreCompareRef leaves it there; RestoredTip is  *)
+(* the counterfactual, kept because it is the finding that removed it.     *)
 (***************************************************************************)
 Init ==
     /\ base = "auto"
@@ -175,19 +176,23 @@ SetCompareModeSince ==
 (* kakapo:set-review-base — app-main.ts:399. The patch-set bar's numbers   *)
 (* and its "All" option, and Alt+] / Alt+[.                                *)
 (*                                                                         *)
-(* It clears baseLabel and staged. It does NOT touch target, scope or tip. *)
+(* It clears baseLabel, staged and — because it REWRITES options.base, and  *)
+(* compareTip is a claim about that value — the tip flag, through           *)
+(* setCompareTip. It still leaves target and scope alone.                   *)
 (***************************************************************************)
 SetReviewBaseAuto ==                                       \* the bar's "All" option, :406
     /\ base' = "auto"
     /\ label' = FALSE
     /\ staged' = FALSE
-    /\ UNCHANGED <<target, scope, tip>>
+    /\ tip' = FALSE                                        \* setCompareTip: this handler rewrote options.base
+    /\ UNCHANGED <<target, scope>>
 
 SetReviewBaseCommit ==                                     \* a numbered patch set, :409
     /\ base' = "commit"
     /\ label' = FALSE
     /\ staged' = FALSE
-    /\ UNCHANGED <<target, scope, tip>>
+    /\ tip' = FALSE                                        \* setCompareTip: this handler rewrote options.base
+    /\ UNCHANGED <<target, scope>>
 
 (***************************************************************************)
 (* kakapo:set-review-target — app-main.ts:423. The bar's right-hand group. *)
@@ -214,7 +219,7 @@ SetReviewCompareRange ==                                   \* a Cmd+9 A..F range
     /\ target' = TRUE
     /\ scope' = TRUE
     /\ staged' = FALSE
-    /\ UNCHANGED tip
+    /\ tip' = FALSE
 
 SetReviewCompareExit ==                                    \* the bar's reset button, :477-481
     /\ base' = "auto"
@@ -222,11 +227,11 @@ SetReviewCompareExit ==                                    \* the bar's reset bu
     /\ target' = FALSE
     /\ scope' = FALSE
     /\ staged' = FALSE
-    /\ UNCHANGED tip
+    /\ tip' = FALSE
 
 (***************************************************************************)
 (* kakapo:open-pull-request — app-main.ts:504. Lands as an A->B compare,   *)
-(* and is the ONE sibling of set-compare-mode that clears tip (:523-524).  *)
+(* and clears tip like every other writer of options.base.                 *)
 (***************************************************************************)
 OpenPullRequest ==
     /\ base' = "commit"

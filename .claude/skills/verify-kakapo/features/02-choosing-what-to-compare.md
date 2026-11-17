@@ -73,6 +73,10 @@ very close to `⌥U` and `⌥A` is what widens it (see `OPEN-1`).
   Observe: the mode in force is the one with `aria-checked="true"`, and it is the mode you just pressed.
 - `CMP-5` patch sets — `window.__kakapoPatchSet` is the handle; `⌥]` is
   `page.key("Dead", "BracketRight", 221, 1)`. Observe: `pill()` turns into a sha with no branch name.
+- `CMP-3`/`CMP-7` the tip flag — driven by [`../compare-tip.mjs`](../compare-tip.mjs), which walks the
+  counterexample `formal-compare-mode` found (⌥A, ⌥T, then the bar's "All") and asks the menu what it
+  thinks after each step. It also drives the half the model refuted: a target change does not move the
+  base, so tip mode survives it.
 - `CMP-8` the ledger — driven end to end by [`../ledger.mjs`](../ledger.mjs); run that rather than
   re-writing it. `node .claude/skills/verify-kakapo/ledger.mjs`, and with `KAKAPO_VERIFY_LOCALE=ko` for
   the Korean pass. It builds three patch sets that each did a visibly different amount — so the figures
@@ -98,8 +102,13 @@ very close to `⌥U` and `⌥A` is what widens it (see `OPEN-1`).
   any option is touched. If a future change moves that refusal down into the mode chain, the scope,
   target and staged flag are already cleared when it fires and the window shows a diff its own options no
   longer describe. Assert the pill is unchanged after a refusal, not just that a toast appeared.
-- **`⌥T` is remembered with a flag** (`kakapo-compare-tip`), unlike `since`. A fixture that reopens the
-  same workspace inherits it.
+- **`⌥T` is remembered with a flag** (`kakapo-compare-tip`), unlike `since` — but a window does NOT open
+  in tip mode: `restoreCompareRef` brings the ref back and deliberately leaves the mode alone, because it
+  runs after the first build. A fixture that reopens the same workspace comes back saying "all changes".
+- **The flag is a claim about `options.base`.** Every handler that rewrites the base clears it
+  (`setCompareTip`); `set-review-target`, which does not, must not — clearing it there makes the menu
+  claim "all" for a diff that is still a tip diff. The model in `.claude/skills/formal-compare-mode`
+  proves both halves; `compare-tip.mjs` shows this app doing them.
 - **The ledger re-opens itself on a diff update**, so that a commit landing while it is up does not leave
   a list that no longer describes the branch. That re-render re-focuses a row *asynchronously* — so a key
   sent right after a commit lands on whatever had focus a moment ago, and `Esc` looks broken. Wait for

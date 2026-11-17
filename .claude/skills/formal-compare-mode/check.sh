@@ -1,5 +1,5 @@
 #!/bin/sh
-# Check CompareMode.tla in all eight of the repository shapes the model's constants stand for.
+# Check CompareMode.tla in all four of the repository shapes the model's constants stand for.
 #
 #   .claude/skills/formal-compare-mode/check.sh
 #
@@ -29,7 +29,15 @@ cp "$here/CompareMode.tla" "$work/"
 failed=0
 for auto in TRUE FALSE; do
   for mark in TRUE FALSE; do
-   for restored in FALSE TRUE; do
+   # FALSE only. restoreCompareRef leaves compareTip alone now, so a window cannot open with it set and
+   # TRUE models a launch the code no longer has. It is kept as a CONSTANT rather than deleted because it
+   # is the shape of the finding that removed the restore — run it by hand to see that failure again:
+   #
+   #   RestoredTip = TRUE in CompareMode.cfg, then: java -cp "$jar" tlc2.TLC CompareMode.tla
+   #
+   # Not run here, because a check that is expected to fail cannot tell anyone when it stops failing, and
+   # a runner that always exits 1 is no gate at all.
+   for restored in FALSE; do
     cat > "$work/Run.cfg" <<EOF
 SPECIFICATION Spec
 CONSTANTS
@@ -67,7 +75,7 @@ done
 
 if [ "$failed" -eq 0 ]; then
   echo
-  echo "MenuTellsTheTruth holds in all eight shapes."
+  echo "MenuTellsTheTruth holds in all four shapes."
 else
   echo
   echo "MenuTellsTheTruth is violated — read the trace above as a sequence of handler calls."

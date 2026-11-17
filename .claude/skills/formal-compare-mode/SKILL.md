@@ -48,7 +48,7 @@ and `BuiltMode` is the truth, and the invariant asks whether the claim is kept u
 .claude/skills/formal-compare-mode/check.sh
 ```
 
-Exit 0 = the promise holds in all eight shapes. Exit 1 = at least one violated, and the trace above the
+Exit 0 = the promise holds in all four shapes. Exit 1 = at least one violated, and the trace above the
 summary is a sequence of the handler names in the table. Runs in a few seconds; the state space is tens
 of states.
 
@@ -63,10 +63,10 @@ mkdir -p ~/.cache/kakapo-formal && curl -sL -o ~/.cache/kakapo-formal/tla2tools.
 Read every result with `/devkit:statechart`: it turns a violation into the shortest path in plain words,
 and draws how the controls move between modes when the check passes.
 
-## The eight shapes
+## The shapes
 
-Three constants, because all eight combinations are ordinary situations and the answer differs between
-them.
+Three constants. The first two are checked both ways, because both are ordinary situations and the answer
+differs between them; the third is pinned (see finding 2).
 
 - `AutoResolves` — does the automatic base resolution find a base? `resolveAutomaticReviewBase`
   (`src/review-base.ts`) returns nothing the moment `git status` says anything. **TRUE** = a clean
@@ -74,46 +74,50 @@ them.
   **FALSE** = a dirty worktree.
 - `MarkUsable` — does `resolveReadMark` (`src/patch-sets.ts`) answer? FALSE = nothing handed off yet, or
   the agent rebased the mark off the branch.
-- `RestoredTip` — did the window open with `compareTip` restored from the workspace file? TRUE = the last
-  thing done in this worktree was ⌥T.
+- `RestoredTip` — did the window open with `compareTip` set? Pinned FALSE: the code no longer restores
+  it. Kept as the record of finding 2 below.
 
-## Current result: the promise does not hold
+## Current result: the promise holds
 
-**Two findings, both real, neither fixed** — this skill reports, it does not change product code.
+`check.sh` exits 0 in all four shapes. It did not when this model was written, and what it found is worth
+keeping, because both were invisible to every test in the suite.
 
-### 1. `compareTip` outlives the base it describes
+### 1. `compareTip` outlived the base it described — fixed
 
-Violated in every shape with `AutoResolves = TRUE`. The counterexample is four steps:
+Four steps: open the window, **⌥A**, **⌥T**, then the patch-set bar's **"All"** option. The base went
+back to automatic and `compareTip` was left TRUE, so the window showed "all changes" while the menu
+ticked **tip** — and the patch-set bar beside it said "all changes · main" at the same time. Only on a
+clean worktree with commits ahead, which is this product's own workflow.
 
-1. open the window
-2. **⌥A** — base becomes the merge-base with the branch, labelled with its name, `compareTip := FALSE`
-3. **⌥T** — base becomes the ref's tip, `compareTip := TRUE`
-4. **the patch-set bar's "All" option** (`kakapo:set-review-base` with `"auto"`) — base goes back to
-   automatic and the label is cleared, **and `compareTip` is left TRUE**
+The flag was cleared by two of its four writers. It is now written in one place, `setCompareTip`
+(`src/app-main.ts`), and every handler that rewrites `options.base` calls it — because the flag is a
+claim *about* that value.
 
-The window is now showing "all changes"; the compare menu ticks **tip**. The patch-set bar beside it says
-"all changes · main" at the same time.
+**The obvious wider fix was wrong, and the model said so in two steps.** Clearing the flag in all three
+siblings of `set-compare-mode` makes it worse: `set-review-target` does not move the base, so after ⌥T
+the diff is still a tip diff and clearing the flag there makes the menu claim "all" for it. The mirror
+image of the bug being fixed. `set-review-target` still leaves the flag alone, on purpose.
 
-`compareTip` is cleared by exactly two writers — `set-compare-mode` (`app-main.ts:580`) and
-`open-pull-request` (`app-main.ts:523`). `set-review-base`, `set-review-target` and `set-review-compare`
-all leave it. It is persisted (`COMPARE_TIP_KEY`), so the wrong tick survives a restart.
+### 2. A restored `compareTip` described a build that never used it — fixed
 
-**What the fix is not.** Clearing the flag in all three siblings makes it worse, and the model says so in
-two steps: `set-review-target` does not move the base, so after ⌥T the diff is *still* tip mode and
-clearing the flag there makes the menu claim "all" for a tip diff. The flag has to be cleared exactly
-where the base is rewritten — `set-review-base` and `set-review-compare`, not `set-review-target`. With
-that narrower change the model holds in six of the eight shapes (the two left are finding 2).
+`restoreCompareRef` brought the flag back from the workspace file, so a worktree whose last action was ⌥T
+opened violating the promise in its first frame, with no interaction at all. Both of that function's
+callers run *after* the review has been built — the cold boot at the end of the first build, the folder
+switch before a build that takes its base from `compareSelectionFor` — so neither build ever used the
+ref's tip as its base. The restore is gone: the ref comes back, the mode does not.
 
-### 2. A restored `compareTip` describes a build that never used it
+Nothing that worked was lost. Before, a reopened worktree *claimed* tip and showed all-changes; now it
+says all-changes and shows all-changes, and ⌥T is one key away. Making a launch genuinely resume tip mode
+is a different change — the base would have to be resolved before the first build, and it would have to
+yield to `--base` and `--staged`.
 
-Violated in both shapes with `RestoredTip = TRUE` and `AutoResolves = TRUE`, **in the initial state**,
-with no interaction at all. `restoreCompareRef` (`app-main.ts:323`) runs *after* the first build, so a
-window whose workspace file remembers ⌥T opens showing the automatic base while the menu ticks tip.
+`RestoredTip` survives as a constant, pinned FALSE by `check.sh`. Set it TRUE in `CompareMode.cfg` and
+run TLC by hand to see that failure again; it is the shape of the finding, not a claim about today's code.
 
 ## Changing the code this covers
 
-1. Run the check first, unchanged, and note the result. Four violations today; a fifth means the change
-   introduced something.
+1. Run the check first, unchanged. It exits 0 today, so a failure before you have changed anything means
+   the model has drifted from code someone else moved — read it before you read your own change.
 2. Make the change.
 3. Decide which of these the change is, and act accordingly:
    - **No effect on the model.** It does not write any field in the table and does not touch the `mode`
