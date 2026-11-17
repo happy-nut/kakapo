@@ -394,8 +394,8 @@ export function renderDiffHtml(input: {
         ? '<div class="tab-panel hidden" id="files-panel" data-project-index="deferred"></div>'
         : `<div class="tab-panel hidden" id="files-panel"></div><script type="text/html" id="files-tree-html">${sourceNav}</script>`
       : `<div class="tab-panel" id="files-panel">${sourceNav}</div>`,
-    '<div id="archive-panel" class="archive-panel hidden" data-i18n-aria="a11y.archivedReviews" aria-label="Archived reviews"></div>',
     "</div>",
+    '<div id="archive-panel" class="archive-panel hidden" data-i18n-aria="a11y.archivedReviews" aria-label="Archived reviews"></div>',
     "",
     `<div class="sidebar-tools">${analysisStatus}<span class="sidebar-tools-spacer"></span>${settingsButton}${revealButton}</div>`,
     "</aside>",
