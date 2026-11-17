@@ -72,3 +72,23 @@ is showing is read only by `sourceOpenPath()`, Quick Open's active-row clamp / e
 occurrences only by `scanUsageLine()`, and a typed query's match only by `matchesQueryVariants()`. Reach
 for the accessor rather than the DOM or the formula; if you genuinely need a second reader, change the
 rule in that test and say why there.
+
+Two checks live outside the suite because the suite cannot reach what they answer, and both are project
+skills under `.claude/skills/`.
+
+`verify-kakapo` drives the real app over CDP: launch, a doctor, a feature map of what a user can do, and
+screenshots kept under `.kakapo-verify/`. Use it to show a change working rather than asserting that it
+does — `npm test` is jsdom against a stubbed main process, so it cannot say whether a chord reaches the
+renderer on macOS, whether a mark is painted at all, or what a label looks like in Korean, and each of
+those has shipped broken with the suite green. Two things it will cost you otherwise: the smoke scripts
+want `KAKAPO_DEV=1` or they write into your real Kakapo state, and nothing may drive the app while
+`npm test` runs — `test/menu-accelerators.test.mjs` spawns the real Electron out of this same
+`node_modules`, and taking the app down takes that with it and invalidates the run silently.
+
+`formal-compare-mode` model-checks the compare controls against one promise: the compare menu always
+ticks the row describing the diff the window is actually built from. Six fields, five handlers and one
+derivation, and nothing presses two of those controls in a row anywhere in the suite — which is the only
+way the fields can disagree. Run it before and after changing anything that writes `options.base`,
+`options.baseLabel`, `options.target`, `options.staged`, `state.compareScope` or `state.compareTip`, or
+the `mode` derivation in `kakapo:compare-menu`. It reports two open findings today; its SKILL.md says
+what they are and what the fix is not.
