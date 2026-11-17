@@ -17,7 +17,9 @@ place across a long review.
 - `READ-6` **the overview stripe** — the painted minimap beside the diff. *(Already driven by
   `review:smoke`; see that script rather than re-writing it.)*
 - `READ-7` **`⌘⇧W` whitespace**, the Diff menu's context size, `⌥W` line wrap, `⇧⌥A` align changes.
-- `READ-8` **the caret** — `↑` / `↓` move it; clicking a line puts it there; `⌘L` goes to a line.
+- `READ-8` **the caret and its selections** — `↑` `↓` `←` `→` move it, `⌥←` `⌥→` by word, `⌘←` `⌘→` to
+  the line edge; `⇧` added to any of those selects instead. Clicking a line puts the caret there; `⌘L`
+  goes to a line.
 
 ## How to get to it (user POV)
 
@@ -71,6 +73,15 @@ line case (the one that was broken) is not exercised.
   `diffCursor` is a top-level `let`, so it is not on `window`. Read it through something that prints it
   — press `?` and read the composer's prefilled target label (`CMT-1`), or `⌘K` and read the clipboard.
 
+- `READ-8`'s selections are driven end to end by [`../caret-chords.mjs`](../caret-chords.mjs) — run that
+  rather than re-writing it:
+  ```bash
+  node .claude/skills/verify-kakapo/caret-chords.mjs
+  ```
+  It presses `⇧→`, `⇧⌥→`, `⌘⇧→`, `⌘→` and `⌥→` on a known line and reads
+  `window.getSelection().toString()` after each, then checks that `⌘⌥→` still steps files. `⌘→` and
+  `⌥→` selecting nothing is the correct answer — they move the caret.
+
 - Screenshot: `h.shot("reading-diff")` after an `F7` pass, with the stripe and sidebar in frame.
 
 ## Gotchas
@@ -86,5 +97,12 @@ line case (the one that was broken) is not exercised.
 - **The two sidebar tabs are not symmetric.** `#changes-panel` is rendered with the review;
   `#files-panel` is hydrated on first use from the `#files-tree-html` script island. A project tree that
   is empty immediately after launch is not yet a bug.
+- **A chord can be owned by something else entirely, and jsdom cannot see it.** The suite dispatches a
+  `KeyboardEvent` straight at the page, so it never asks who claimed the key first. `⌘⇧→` was bound to
+  `diffFileStep` while the editor's select-to-line-edge branch sat below it — correct, commented, and
+  unreachable, because `runShortcut` consumed the key and returned. Ask the page itself:
+  `shortcutHits(new KeyboardEvent('keydown', {...}))` is a top-level function and returns the ids that
+  claim a chord. An undeclared claim is invisible to `test/shortcut-registry.test.mjs`'s collision guard,
+  so an implemented-but-undeclared gesture is exactly where this goes wrong.
 - **`⌘1`/`⌘2` are window-scope shortcuts** (`WINDOW_SHORTCUT_IDS`), so they fire even from a focused text
   field. If a test wants to prove a text field swallows a key, pick a content-scope one.

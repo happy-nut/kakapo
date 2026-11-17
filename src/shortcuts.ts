@@ -283,7 +283,14 @@ export const SHORTCUTS: ShortcutDef[] = [
   // IntelliJ's Compare Next / Previous File, which is what its diff viewer calls stepping through the
   // stack of changed files, on the chords `$default.xml` gives them (⌃⇧→ / ⌃⇧←). F7 steps the CHANGES;
   // this steps the files, which is the question "what else did it touch" rather than "what else here".
-  { id: "diffFileStep", keys: ["⌘⇧→", "⌘⇧←"], where: "code", i18n: "kbd.diffFileStep" },
+  // ⌘⌥→ / ⌘⌥←, not ⌘⇧→ / ⌘⇧←. The second pair is "select to the start/end of the line" in every editor
+  // on this platform, and this app implements that gesture too (05-keymap.js, the line-edge branch, whose
+  // comment describes it exactly) — but THIS row is the only dispatched one of the two, so it consumed the
+  // key in runShortcut and the editor branch below was never reached. Measured in the running app: ⌘⇧→
+  // resolved to diffFileStep and selected nothing, on every file, while ⇧→ and ⇧⌥→ selected normally.
+  // Stepping files keeps the arrows and joins ⌘⌥↓ / ⌘⌥↑ (next/previous occurrence), which is the same
+  // "step through the thing under the caret" family and was free.
+  { id: "diffFileStep", keys: ["⌘⌥→", "⌘⌥←"], where: "code", i18n: "kbd.diffFileStep" },
   { id: "prevNextTab", keys: ["⌘⇧[", "⌘⇧]"], where: "code", i18n: "kbd.prevNextTab" },
   { id: "cursorBackForward", keys: ["⌘[", "⌘]"], where: "code", i18n: "kbd.cursorBackForward" },
 
@@ -292,6 +299,17 @@ export const SHORTCUTS: ShortcutDef[] = [
   { id: "wordJump", keys: ["⌥←", "⌥→"], where: "code", i18n: "kbd.wordJump", fixed: "structural" },
   { id: "lineStartEnd", keys: ["⌘←", "⌘→"], where: "code", i18n: "kbd.lineStartEnd", fixed: "structural" },
   { id: "extendSelection", keys: ["⇧←↑↓→"], where: "code", i18n: "kbd.extendSelection", fixed: "structural" },
+  // The two modified selection gestures, declared because they are IMPLEMENTED (05-keymap.js: the
+  // word branch passes event.shiftKey, the line-edge branch reads it) and were claimed by nothing here.
+  // An undeclared chord is one the collision guard in test/shortcut-registry.test.mjs cannot compare
+  // against anything — which is how ⌘⇧→ came to be owned by `diffFileStep` while the editor's
+  // select-to-line-end branch sat below it, correct, commented, and unreachable.
+  //
+  // Structural, like the caret rows they belong to: the surface owns them, they have no SHORTCUT_ACTIONS
+  // entry, so `runShortcut` finds the row, finds no action, and declines — which is precisely what lets
+  // the key fall through to the editor. A dispatched row in this slot would swallow it again.
+  { id: "selectByWord", keys: ["⇧⌥←", "⇧⌥→"], where: "code", i18n: "kbd.selectByWord", fixed: "structural" },
+  { id: "selectToLineEdge", keys: ["⌘⇧←", "⌘⇧→"], where: "code", i18n: "kbd.selectToLineEdge", fixed: "structural" },
   { id: "selectEditor", keys: ["⌘A"], where: "code", i18n: "kbd.selectEditor" },
   { id: "copyLocation", keys: ["⌘K"], where: "code", i18n: "kbd.copyLocation" },
   // IntelliJ's Copy as Patch, which it keeps on the Changes context menu with no chord of its own. ⇧⌥P
@@ -429,7 +447,7 @@ export const SHORTCUT_GROUPS: { i18n: string; ids: string[] }[] = [
     "excludeSearchNoise",
   ] },
   { i18n: "settings.kbd.cat.editor", ids: [
-    "moveCaret", "wordJump", "lineStartEnd", "extendSelection", "selectEditor", "copyLocation",
+    "moveCaret", "wordJump", "lineStartEnd", "extendSelection", "selectByWord", "selectToLineEdge", "selectEditor", "copyLocation",
     "pageUpDown", "expandDiffFold", "copyAsPatch", "compareClipboard", "runHttp", "runHttpAll", "copyHttpCurl", "toggleRendered",
     "toggleLineWrap", "showWhitespace", "indentGuides", "stickyLines", "focusMode",
     "essentialHighlighting", "alignChanges", "codeVision", "inlayHints", "closeTab",

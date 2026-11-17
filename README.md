@@ -180,7 +180,8 @@ else's repository behind their back is a worse thing to do than making them type
 | `⇧⌥S` / `⇧⌥F` | Show sticky lines / highlight only the current declaration |
 | `⇧⌥E` / `⇧⌥A` | Essential highlighting (errors only) / align changes in the side-by-side diff |
 | `⇧⌥V` / `⇧⌥H` | Code Vision / inlay hints — what the language server would have written |
-| `⌘⇧→` / `⌘⇧←` | Next / previous file in the diff |
+| `⌘⌥→` / `⌘⌥←` | Next / previous file in the diff |
+| `⇧←↑↓→` | Extend the selection — `⇧⌥←→` by word, `⌘⇧←→` to the start / end of the line |
 | `⌥D` | In the find bar: search only the lines this review changed |
 | `⇧⌥P` / `⇧⌥C` | Copy this file as a patch / compare it with the clipboard |
 | `⌘⇧Backspace` | Jump to this file's last change |
