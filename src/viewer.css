@@ -3263,11 +3263,18 @@ body.dock-maximized .dock-panel { inset: 0; width: auto; max-height: none; trans
   font-size: 12px;
   margin-top: 2px;
 }
-.archive-panel { flex: 0 1 auto; min-height: 0; overflow: auto; padding: 0 10px 8px;
-  border-top: 1px solid var(--chrome-border); background: var(--chrome-bg); max-height: 34%; }
+.archive-panel { flex: 0 1 auto; min-height: 0; overflow: hidden; padding: 0 10px;
+  border-top: 1px solid var(--chrome-border); background: var(--chrome-bg); }
+.archive-panel.is-open { overflow: auto; max-height: 40%; padding-bottom: 8px; }
+.archive-panel:not(.is-open) .archive-row { display: none; }
 .archive-head { position: sticky; top: 0; z-index: 1; background: var(--chrome-bg);
-  display: flex; align-items: center; gap: 6px; padding: 8px 12px 6px;
+  width: 100%; border: 0; cursor: pointer; text-align: left; font-family: inherit;
+  display: flex; align-items: center; gap: 6px; padding: 9px 12px;
   font-size: 10px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--chrome-muted); }
+.archive-head:hover { color: var(--chrome-text); }
+.archive-head::after { content: "\25B8"; margin-left: auto; font-size: 11px; opacity: 0.7; }
+.archive-panel.is-open .archive-head { padding-bottom: 6px; }
+.archive-panel.is-open .archive-head::after { content: "\25BE"; }
 .archive-count { font-variant-numeric: tabular-nums; opacity: 0.8; }
 .archive-row { display: grid; gap: 1px; width: 100%; padding: 4px 12px; border: 0; background: none;
   text-align: left; cursor: pointer; color: var(--chrome-muted); }
@@ -3299,7 +3306,7 @@ body.dock-maximized .dock-panel { inset: 0; width: auto; max-height: none; trans
   .mc-diff-connectors { display: none; }
   #mc-toasts { left: 16px; max-width: calc(100vw - 32px); }
   .sidebar-resizer { display: none; }
-  .archive-panel { max-height: 12vh; }
+  .archive-panel.is-open { max-height: 16vh; }
   .dock-panel { top: 2vh; bottom: 2vh; width: calc(100vw - 4vw); }
   .mc-inline-editor-host { width: min(920px, calc(100% - 40px)); }
 }

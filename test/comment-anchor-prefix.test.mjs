@@ -62,6 +62,8 @@ test("the handed-over list shows the words, not the path twice", async () => {
     (v.$("#mc-merged-panel .mc-copy-all") || v.$(".mc-copy-all")).click();
     await v.settle(60);
 
+    v.$("#archive-panel .archive-head").click();
+    await v.settle(30);
     const row = v.$("#archive-panel .archive-row");
     assert.ok(row, "the hand-off put it in the list");
     assert.match(row.querySelector(".archive-where").textContent, /app\.ts:\d+ · \S/,
@@ -84,6 +86,8 @@ test("the archive goes back through the one path that knows where a comment is",
     (v.$("#mc-merged-panel .mc-copy-all") || v.$(".mc-copy-all")).click();
     await v.settle(60);
     const seq = v.window.archivedComments[0].seq;
+    v.$("#archive-panel .archive-head").click();
+    await v.settle(30);
 
     const asked = [];
     const real = v.window.revealComment;

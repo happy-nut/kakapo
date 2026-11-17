@@ -842,15 +842,19 @@ function applyCommentSelectionHighlight() {
     }
   }
 }
+var archiveOpen = false;
 function renderArchivePanel() {
   var panel = document.getElementById('archive-panel');
   if (!panel) return;
   var roots = archivedComments.filter(function (c) { return c.replyTo == null; });
   panel.classList.toggle('hidden', roots.length === 0);
+  if (!roots.length) archiveOpen = false;
+  panel.classList.toggle('is-open', archiveOpen);
   if (!roots.length) { panel.innerHTML = ''; return; }
   roots.sort(function (a, b) { return String(b.archivedAt || '').localeCompare(String(a.archivedAt || '')); });
-  panel.innerHTML = '<div class="archive-head">' + escapeHtml(t('archive.title'))
-    + '<span class="archive-count">' + roots.length + '</span></div>'
+  panel.innerHTML = '<button type="button" class="archive-head" aria-expanded="' + (archiveOpen ? 'true' : 'false')
+    + '">' + escapeHtml(t('archive.title'))
+    + '<span class="archive-count">' + roots.length + '</span></button>'
     + roots.map(function (c) {
       var where = c.path ? sourceTabLabel(c.path) + ':' + c.line : '';
       var when = c.archivedAt ? patchSetShortDate(c.archivedAt) : '';
@@ -864,6 +868,8 @@ function renderArchivePanel() {
     }).join('');
 }
 document.addEventListener('click', function (event) {
+  var head = event.target && event.target.closest ? event.target.closest('#archive-panel .archive-head') : null;
+  if (head) { archiveOpen = !archiveOpen; renderArchivePanel(); return; }
   var row = event.target && event.target.closest ? event.target.closest('#archive-panel .archive-row') : null;
   if (!row) return;
   var seq = Number(row.dataset.seq);

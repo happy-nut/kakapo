@@ -166,6 +166,8 @@ test("the sidebar lists what was handed over and can put it back", async () => {
 
     const panel = v.$("#archive-panel");
     assert.ok(panel && !panel.classList.contains("hidden"), "the archive appears once something is in it");
+    v.$("#archive-panel .archive-head").click();
+    await v.settle(30);
     const rows = v.$all("#archive-panel .archive-row");
     assert.equal(rows.length, 1, "one row per handed-over thread");
     assert.match(rows[0].textContent, /why this change\?/, "the row says which review it was");
