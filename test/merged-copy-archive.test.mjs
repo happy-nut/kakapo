@@ -332,3 +332,54 @@ test("Cmd+A then Cmd+C hands over the whole panel and empties it", async () => {
     v.close();
   }
 });
+
+// Handing the review over is also where the reviewer's READ MARK is set — HEAD as of this moment, so the
+// compare menu can later offer "what arrived since you last read". This is the only writer: a timer, a
+// scroll position, or simply having the window open would all mark unread work as read, and the next
+// compare would then hide the very commits it exists to show.
+test("handing the review over records where the reviewer stopped reading", async () => {
+  const v = await withComment("why this change?");
+  try {
+    installClipboard(v);
+    let marks = 0;
+    v.window.kakapoGit = { markRead: () => { marks += 1; return Promise.resolve({ ok: true }); } };
+
+    await v.openMergedView();
+    assert.equal(marks, 0, "opening the panel is not a hand-off");
+
+    copyButton(v).click();
+    await v.settle(60);
+    assert.equal(marks, 1, "the hand-off set the mark");
+  } finally {
+    v.close();
+  }
+});
+
+test("a hand-off whose mark cannot be written is still a hand-off", async () => {
+  // The clipboard write is what makes a hand-off real, and it has already succeeded by the time the mark is
+  // written. A rejected mark — no git repository, a branch with no commits — must not turn a completed
+  // hand-off into an error, or the reviewer loses a review they have already pasted somewhere.
+  const v = await withComment("why this change?");
+  try {
+    const clipboard = installClipboard(v);
+    // Thrown rather than rejected: a rejection is swallowed by the .catch, but a synchronous throw — which
+    // is what a torn-down bridge gives — would escape into the middle of the archive and leave the review
+    // half filed. The try/catch around the call is what this asserts.
+    v.window.kakapoGit = { markRead: () => { throw new Error("no repository"); } };
+
+    await v.openMergedView();
+    copyButton(v).click();
+    await v.settle(60);
+
+    assert.match(String(clipboard.text), /why this change\?/, "the review reached the clipboard");
+    assert.equal(v.window.reviewComments.length, 0, "and left the active review as usual");
+    assert.equal(v.window.archivedComments.length, 1, "filed away, not lost");
+    // Asserted on the LAST thing the hand-off does, not the first. jsdom reports a throw inside a click
+    // listener instead of propagating it, so a throw that escaped here would leave every assertion above
+    // this one true — `archiveComments` has already run by then — and the test green over a hand-off that
+    // stopped halfway. The confirmation is what a reviewer actually waits for.
+    assert.match(v.$("#mc-toasts").textContent, /archived|보관/i, "and said so, so the hand-off finished");
+  } finally {
+    v.close();
+  }
+});

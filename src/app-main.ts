@@ -18,7 +18,7 @@ import { workspaceDataDirectory, workspaceReviewFile, workspaceSymbolCacheFile }
 import { kakapoIconCssVariable, kakapoIconHtml } from "./brand.js";
 import { reviewBodyCount, reviewDiffSignature } from "./review-bodies.js";
 import { ReviewBuilder, type BuildSnapshot } from "./review-builder.js";
-import { usableCompareBase } from "./patch-sets.js";
+import { resolveReadMark, usableCompareBase } from "./patch-sets.js";
 import { handoffRoot } from "./handoff.js";
 import { localRevisionFor, lookupPullRequest, parsePullRequestRef, remoteSlug } from "./github-pr.js";
 import { decideWatchTick, shouldPushUpdate } from "./watch-decision.js";
@@ -533,14 +533,42 @@ ipcMain.handle("kakapo:open-pull-request", async (event, payload: { text?: unkno
   }
 });
 
+// Record where the reviewer stopped reading. Called by the hand-off (the merged dock's copy-and-archive,
+// 08-dock.js) and by nothing else: handing a review to an agent is the one moment in this workflow that
+// genuinely means "I am done with everything up to here". A timer, a scroll position or simply having the
+// window open would all mark unread work as read, which is the one failure this must not have — the next
+// compare would then hide the very commits it exists to show.
+ipcMain.handle("kakapo:mark-read", async (event) => {
+  const state = stateFromEvent(event);
+  if (!state || state.win.isDestroyed()) return { ok: false };
+  const head = git(state.options.root, ["rev-parse", "HEAD"]);
+  if (!head) return { ok: false }; // not a repository, or a branch with no commits yet
+  preferences.setReadMark(state.options.root, head);
+  return { ok: true, sha: head };
+});
+
 ipcMain.handle("kakapo:set-compare-mode", async (event, payload: { mode?: unknown; ref?: unknown }) => {
   const state = stateFromEvent(event);
   if (!state || state.win.isDestroyed()) return { ok: false };
   const mode = payload?.mode === "uncommitted" ? "uncommitted"
     : payload?.mode === "tip" ? "tip"
+    : payload?.mode === "since" ? "since"
     : "all";
   const rawRef = typeof payload?.ref === "string" ? payload.ref.trim() : "";
   try {
+    // Resolved BEFORE anything is touched. Everything below mutates the window's options on the way to a
+    // rebuild, so a refusal taken down there would already have cleared a ⌘9 range, an A→B target and the
+    // staged flag — leaving the window showing a diff its own options no longer describe, until the next
+    // watch tick quietly rebuilt it into something the reader never asked for.
+    //
+    // Resolved rather than trusted: the menu's copy of the mark was read when the menu was opened, and an
+    // agent that rebased in between leaves it naming a commit that is no longer on the branch. Refusing is
+    // the honest answer — a base that is not an ancestor of HEAD produces a diff that reads as the
+    // reviewer's own deletions.
+    const sinceBase = mode === "since"
+      ? resolveReadMark(state.options.root, preferences.readReadMark(state.options.root))?.sha
+      : undefined;
+    if (mode === "since" && !sinceBase) return { ok: false, error: "no-read-mark" };
     if (rawRef) {
       const picked = validateReviewBase(state.options.root, rawRef);
       state.compareRef = picked;
@@ -553,6 +581,14 @@ ipcMain.handle("kakapo:set-compare-mode", async (event, payload: { mode?: unknow
     preferences.setRendererSetting(state.options.root, COMPARE_TIP_KEY, state.compareTip);
     if (mode === "uncommitted") {
       state.options.base = "HEAD";
+      state.options.baseLabel = undefined;
+    } else if (mode === "since") {
+      // The commits that arrived while the reviewer was away. No branch and no ref: the base is the mark
+      // the last hand-off left, so this is the one mode that does not need the reader to know which commit
+      // or branch to name — which is the point, since what they want is "the part I have not seen".
+      state.options.base = sinceBase;
+      // No label, for the same reason a patch-set pick clears it: this base is a commit, not a branch, and
+      // the pill should print the sha the diff actually measures against.
       state.options.baseLabel = undefined;
     } else if (mode === "tip") {
       // The ref's own tip, with no merge-base reduction — the one mode where a commit the ref has and HEAD

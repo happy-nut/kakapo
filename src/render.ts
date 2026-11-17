@@ -524,6 +524,17 @@ export function renderDiffHtml(input: {
         + '<div class="compare-menu-main" role="group">'
         // The key rides INSIDE the row. data-keyhint would have been the house style, but that attribute is
         // what the hover tooltip reads, and a tooltip that covers the menu it describes is worse than no hint.
+        // First because it is the question you come back WITH. In this workflow an agent works in a worktree
+        // while the reviewer is elsewhere, so returning to it, "what arrived since I handed off" is asked
+        // before anything else — and it is the one question here that needs no branch and no commit picked.
+        // Hidden until a hand-off has left a mark and the branch has moved past it (21-compare-menu.js), so
+        // a review nobody has handed off sees the menu it always had.
+        + '<button type="button" class="compare-menu-row compare-menu-since hidden" role="menuitemradio" aria-checked="false" data-mode="since">'
+        + '<span class="compare-menu-label" data-i18n="compare.menu.since">Since you last read</span>'
+        + '<span class="compare-menu-note" id="compare-menu-since-note"></span>'
+        + '<kbd class="compare-menu-key">\u2325N</kbd>'
+        + '<span class="compare-menu-check" aria-hidden="true"></span>'
+        + '</button>'
         + '<button type="button" class="compare-menu-row" role="menuitemradio" aria-checked="false" data-mode="all">'
         + '<span class="compare-menu-label" data-i18n="compare.menu.all">All changes</span>'
         + '<span class="compare-menu-note" id="compare-menu-against"></span>'

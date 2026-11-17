@@ -20,7 +20,8 @@ import {
 } from "./git-log.js";
 import { defaultBaseRef, git, listBranches, listRemotes } from "./git.js";
 import { readUnifiedDiff } from "./diff.js";
-import { readPatchSets } from "./patch-sets.js";
+import { readPatchSets, resolveReadMark } from "./patch-sets.js";
+import { AppPreferences } from "./app-preferences.js";
 import { materializeDeferredSourceFile } from "./diff.js";
 import { containedRealPath, languageForPath } from "./util.js";
 import { isKnownExternalUri, isKnownLibraryPath } from "./lsp.js";
@@ -88,6 +89,10 @@ function librarySource(root: string, requested: string): SourceFile | null {
 }
 
 export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResolver, userData = ""): void {
+  // Read-only here: the compare menu needs the reviewer's read mark to label and offer its row, and the
+  // store it lives in is the same per-workspace settings file main writes it to. The WRITE side is main's
+  // kakapo:mark-read, which is the only thing that moves the mark.
+  const preferences = new AppPreferences(userData);
   // The .http runner. Three handlers, and the split is deliberate: main owns the network, the repository
   // root and the cookie jar, so the renderer names a request and a repo-relative file and never learns a
   // path. Containment lives in http-files.ts, because every path here was written in the reviewed repo.
@@ -418,7 +423,22 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
       // branch it resolved the base from, and set-review-base deliberately clears it because a patch set
       // names a commit rather than a branch. So an explicit base with no label came from a patch set.
       const explicitBase = Boolean(state.options.base) && !state.options.baseLabel && state.options.base !== "HEAD";
-      const mode = state.compareScope?.length || state.options.target || explicitBase
+      // Where the reviewer stopped, and whether the review is sitting on it right now. Unlike tip mode this
+      // needs no remembered flag: the mark is ONE commit, so "is the base that commit" is the whole
+      // question, and every other control that moves the base moves the review out of this mode by itself.
+      // A patch-set pick that lands on the same commit ticks this row, and that is not an ambiguity — the
+      // two rows would describe the same diff, so both answers are the same answer.
+      const readMark = resolveReadMark(root, preferences.readReadMark(root));
+      const sinceReadMark = Boolean(
+        readMark
+        && !state.compareScope?.length
+        && !state.options.target
+        && !state.options.baseLabel
+        && state.options.base === readMark.sha,
+      );
+      const mode = sinceReadMark
+        ? "since"
+        : state.compareScope?.length || state.options.target || explicitBase
         ? "other"
         : state.options.staged || state.options.base === "HEAD" || (!state.options.base && !state.reviewBase)
           ? "uncommitted"
@@ -433,7 +453,7 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
       // set-compare-mode, so nothing is persisted, and the next time the automatic answer changes — an
       // upstream appears, the default branch is renamed — the review moves off the branch the reader
       // chose, with no record that they ever chose it.
-      return { mode, ref, defaultRef, pinned: Boolean(state.compareRef), branches: listBranches(root), remotes: listRemotes(root) };
+      return { mode, ref, defaultRef, readMark, pinned: Boolean(state.compareRef), branches: listBranches(root), remotes: listRemotes(root) };
     } catch { return null; }
   });
 

@@ -82,11 +82,14 @@ The toolbar pill says what the diff is comparing, and opens the two states you s
 | `⌥A` | Everything on this branch, measured against its merge-base with the branch you pick |
 | `⌥U` | Only what is not committed yet |
 | `⌥T` | How this working tree differs from that branch's tip |
+| `⌥N` | What arrived since you last handed the review over |
 | `⌥C` | Pick that branch — local branches and each remote's, asked a side at a time |
 | `⌥L` | Open a pull request from its link |
 | `⌥]` / `⌥[` | Next / previous patch set |
 
 "All changes" uses the **merge-base**, not the branch tip: `git diff main` against a `main` that has moved on shows other people's commits as your deletions.
+
+`⌥N` is the one that needs no branch at all. Handing a review to an agent — the merged panel's copy — records HEAD as where you stopped reading, and `⌥N` then diffs that commit against the branch as it stands now: *what did it do while I was away*. The row names how many commits arrived and shows itself only once there is a mark to go to, so a repository you have never handed off from sees the menu it always had. An agent that rebased the commit you stopped at off the branch leaves a mark that is no longer an ancestor of HEAD; comparing against one of those would read as your own deletions, so the row disappears instead and `⌥N` says why.
 
 `⌥T` is the question that needs the tip: *how does my tree differ from `origin/main`*, including the commits on it that I have not pulled. Reduced to a merge-base that diff comes back empty — their commits vanish into the shared ancestor — so the two modes are not the same question with a setting between them. `⌥A` for what this branch has done, `⌥T` for how it stands against another.
 
@@ -153,6 +156,7 @@ else's repository behind their back is a worse thing to do than making them type
 | `⌥S` | In Find in Files: the scope — the project, production files, test files, this module, changed files |
 | `⌘E` | Recent files — the list on its own, press again to close. Type to filter (Korean typing is read as the QWERTY keys that made it) |
 | `⌥A` / `⌥U` | All changes on the branch / only what is not committed yet |
+| `⌥N` | What arrived since you last handed the review over |
 | `⌥C` | Choose the branch "all changes" is measured against |
 | `⌘⌥F7` | Who uses this — the flat list at the caret (IntelliJ's Show Usages) |
 | `⌥F7` | Find usages — the same answer, grouped by what each usage *is* |

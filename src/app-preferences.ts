@@ -5,6 +5,10 @@ import { workspaceDataDirectory } from "./workspace-data.js";
 export type RecentProject = { path: string; name: string; openedAt: number };
 
 const RECENT_KEY = "kakapo-recent-projects";
+// Where the reviewer stopped reading: HEAD at the moment they handed their review to an agent. Per
+// WORKSPACE rather than global — a reading position belongs to the worktree it was taken in, and this
+// workflow gives each agent task a worktree of its own, each at its own commit.
+const READ_MARK_KEY = "kakapo-read-mark";
 const RECENT_MAX = 12;
 const GLOBAL_SETTING_KEYS = new Set([
   "kakapo-locale",
@@ -57,6 +61,15 @@ export class AppPreferences {
     const settings = this.readWorkspace(root);
     settings[key] = value;
     this.writeJson(this.workspaceFile(root), settings, true);
+  }
+
+  readReadMark(root: string): string | undefined {
+    const saved = this.readWorkspace(root)[READ_MARK_KEY];
+    return typeof saved === "string" && saved ? saved : undefined;
+  }
+
+  setReadMark(root: string, sha: string): void {
+    this.setRendererSetting(root, READ_MARK_KEY, sha);
   }
 
   readRecentProjects(): RecentProject[] {

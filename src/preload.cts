@@ -118,6 +118,8 @@ contextBridge.exposeInMainWorld("kakapoGit", {
   compareClipboard: (path: string, text: string): Promise<unknown> => ipcRenderer.invoke("kakapo:compare-clipboard", { path, text }),
   // Patch-set compare bar: list selectable bases, and switch the diff base to one (or "auto").
   patchSets: (): Promise<unknown> => ipcRenderer.invoke("kakapo:git-patch-sets"),
+  // Hand-off: record HEAD as where the reviewer stopped reading, so the compare menu can offer "since".
+  markRead: (): Promise<unknown> => ipcRenderer.invoke("kakapo:mark-read"),
   setReviewBase: (ref: string): Promise<unknown> => ipcRenderer.invoke("kakapo:set-review-base", { ref }),
   setReviewTarget: (ref: string): Promise<unknown> => ipcRenderer.invoke("kakapo:set-review-target", { ref }),
   // Open a two-commit range from the history view as the main review's A→B compare (both sides at once).

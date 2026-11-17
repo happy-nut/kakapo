@@ -56,7 +56,9 @@ function compareMenuRows() {
   if (!el) return [];
   var branches = document.getElementById('compare-menu-branches');
   var inBranches = branches && !branches.classList.contains('hidden');
-  return Array.prototype.slice.call(el.querySelectorAll(inBranches ? '.compare-branch-item' : '.compare-menu-main .compare-menu-row'));
+  // `:not(.hidden)` because the since row is in the markup whether or not there is a mark to offer, and a
+  // row the reader cannot see is not a place the arrow keys should stop.
+  return Array.prototype.slice.call(el.querySelectorAll(inBranches ? '.compare-branch-item' : '.compare-menu-main .compare-menu-row:not(.hidden)'));
 }
 
 // The branch these rows ACT on, which is not the same question as what the review is currently measured
@@ -83,6 +85,16 @@ function renderCompareMenu() {
   if (against) against.textContent = activeRef ? t('compare.menu.against').replace('{ref}', activeRef) : '';
   var refEl = document.getElementById('compare-menu-ref');
   if (refEl) refEl.textContent = activeRef;
+  // The read-mark row shows itself only when there IS a mark and the branch has moved past it; main decides
+  // that (resolveReadMark) and sends the answer or nothing, so the menu never offers a comparison against a
+  // commit that was rebased off the branch.
+  var sinceRow = el.querySelector('.compare-menu-since');
+  if (sinceRow) {
+    var mark = data.readMark;
+    sinceRow.classList.toggle('hidden', !mark);
+    var sinceNote = document.getElementById('compare-menu-since-note');
+    if (sinceNote) sinceNote.textContent = mark ? t('compare.menu.sinceNote', { n: mark.commits }) : '';
+  }
   el.querySelectorAll('.compare-menu-row[data-mode]').forEach(function (row) {
     var on = row.getAttribute('data-mode') === data.mode;
     row.classList.toggle('active', on);
@@ -274,6 +286,15 @@ function announceCompareMode(settled, ref) {
 // Apply a pick. The diff repaints through the normal kakapo:diff-update path, so nothing here touches it.
 function applyCompareMode(mode, ref, announce) {
   if (!window.kakapoGit || typeof window.kakapoGit.setCompareMode !== 'function') return;
+  // ⌥N can be pressed with no mark to go to — the reviewer has not handed anything off in this worktree,
+  // or an agent rebased the commit they stopped at off the branch. The row hides itself in both cases, but
+  // the key reaches here either way, and a key that answers by doing nothing is indistinguishable from one
+  // that does not work. Say which of the two it is.
+  if (mode === 'since' && !(compareMenuState && compareMenuState.readMark)) {
+    closeCompareMenu();
+    showToast(t('compare.menu.sinceNone'));
+    return;
+  }
   // Asking for the mode the review is already in rebuilds the whole thing — a git diff and a source
   // re-index — for a state that does not change. The patch-set bar screens that click; ⌥A and the menu
   // row reach this same action and did not, so the guard was on one of two routes to one thing.
@@ -325,6 +346,11 @@ function applyCompareMode(mode, ref, announce) {
       compareMenuState.ref = res.ref || compareMenuState.ref;
       if (ref) compareMenuState.pinned = true; // main has written it now
       renderCompareMenu();
+    } else if (res && res.error === 'no-read-mark') {
+      // The mark went away between the menu being painted and the click: an agent committing in this
+      // worktree rebases often, and main re-resolves rather than trusting the copy the menu is holding.
+      restore();
+      showToast(t('compare.menu.sinceNone'));
     } else if (!res || !res.ok) {
       restore();
       // Nothing to say by name any more. The one refusal that used to arrive here was

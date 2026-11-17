@@ -67,7 +67,7 @@ export const SHORTCUTS: ShortcutDef[] = [
   // Three chords, one row: the handler is told which fired. ⌥T is the third question the compare control
   // can answer — how this working tree differs from a branch's TIP, as against what this branch has done
   // since it left that branch (⌥A, a merge-base) or since its last commit (⌥U).
-  { id: "compareMode", keys: ["⌥A", "⌥U", "⌥T"], where: "any", i18n: "kbd.compareMode" },
+  { id: "compareMode", keys: ["⌥A", "⌥U", "⌥T", "⌥N"], where: "any", i18n: "kbd.compareMode" },
   { id: "compareRef", keys: ["⌥C"], where: "any", i18n: "kbd.compareRef" },
   // Paste a pull request link and read it here. Not a compare MODE — it sets both sides at once from
   // something the reader already has in the clipboard, which is a different gesture from picking either.

@@ -49,8 +49,13 @@ test("the pill opens a menu that marks the mode the review is actually in", asyn
   const rows = v.$all("#compare-menu .compare-menu-row[data-mode]");
   // Three questions the control answers: what this branch has done since it left another (a merge-base),
   // what is not committed yet (HEAD), and how this tree differs from a branch's tip (the ref itself).
-  assert.deepEqual(rows.map((r) => r.dataset.mode), ["all", "uncommitted", "tip"]);
-  assert.equal(rows[1].getAttribute("aria-checked"), "true", "the row the review is on is the checked one");
+  // Four rows in the markup, three of them always offered: what this branch has done since it left another
+  // (a merge-base), what is not committed yet (HEAD), and how this tree differs from a branch's tip (the
+  // ref itself). The fourth — what arrived since the reviewer last handed the review off — is in the
+  // document whether or not there is a mark to go to, and hides itself when there is not.
+  assert.deepEqual(rows.map((r) => r.dataset.mode), ["since", "all", "uncommitted", "tip"]);
+  assert.equal(rows[0].classList.contains("hidden"), true, "no hand-off yet, so nothing to read since one");
+  assert.equal(rows[2].getAttribute("aria-checked"), "true", "the row the review is on is the checked one");
   assert.deepEqual(rows.filter((r) => r.getAttribute("aria-checked") === "true").map((r) => r.dataset.mode),
     ["uncommitted"], "exactly one row is checked");
   assert.match(v.$("#compare-menu-against").textContent, /origin\/main/, "the 'all' row names what it compares against");
@@ -360,5 +365,74 @@ test("the optimistic pin does not screen a pick of a different branch", async ()
 
   assert.deepEqual(calls, [["all", "origin/main"], ["all", "feature/dropdown"]],
     "both picks reached main");
+  v.close();
+});
+
+// ===== The read mark: "what arrived since I handed this off" ========================================
+// The question this workflow is actually built around. An agent works in a worktree while the reviewer is
+// elsewhere; coming back to it, the first thing they want is the part they have not seen. The mark is HEAD
+// as of their last hand-off, so the row needs no branch and no commit picked — which is the whole point,
+// because naming either of those means already knowing where you stopped.
+test("the read-mark row appears only once there is a mark, and says how far the branch has moved", async () => {
+  const v = await loadViewer(html);
+  const calls = installCompareBridge(v, {
+    mode: "uncommitted",
+    readMark: { sha: "f".repeat(40), shortSha: "fffffff", commits: 3 },
+  });
+
+  v.$("#compare-pill").dispatchEvent(new v.window.MouseEvent("click", { bubbles: true }));
+  await v.settle(30);
+  const row = v.$('#compare-menu .compare-menu-row[data-mode="since"]');
+  assert.equal(row.classList.contains("hidden"), false, "a mark exists, so the row is offered");
+  assert.match(v.$("#compare-menu-since-note").textContent, /3/, "and says how many commits arrived");
+
+  // It carries no ref: the base is the mark, which main resolves again for itself.
+  row.dispatchEvent(new v.window.MouseEvent("click", { bubbles: true }));
+  await v.settle(30);
+  assert.deepEqual(calls, [["since", null]], "the pick reaches main as its own mode");
+  v.close();
+});
+
+test("the read-mark row is the checked one while the review is measured from the mark", async () => {
+  const v = await loadViewer(html);
+  installCompareBridge(v, {
+    mode: "since",
+    readMark: { sha: "f".repeat(40), shortSha: "fffffff", commits: 1 },
+  });
+
+  v.$("#compare-pill").dispatchEvent(new v.window.MouseEvent("click", { bubbles: true }));
+  await v.settle(30);
+  assert.deepEqual(
+    v.$all("#compare-menu .compare-menu-row[data-mode]")
+      .filter((r) => r.getAttribute("aria-checked") === "true").map((r) => r.dataset.mode),
+    ["since"], "the since row, and only it");
+  v.close();
+});
+
+test("Option+N with no mark says why instead of doing nothing", async () => {
+  // A key that answers by doing nothing is indistinguishable from a key that does not work — this file's
+  // own reason for the ⌥A toast. Here it matters more: the two cases that leave no mark are "you have not
+  // handed anything off in this worktree" and "an agent rebased the commit you stopped at off the branch",
+  // and the second one happens by itself while the reviewer is away.
+  const v = await loadViewer(html);
+  const calls = installCompareBridge(v); // no readMark
+
+  v.key("Dead", { altKey: true, code: "KeyN" });
+  await v.settle(30);
+  assert.deepEqual(calls, [], "nothing was asked of main");
+  assert.match(v.$("#mc-toasts").textContent, /hand-off|넘기기/, "but the reader is told why");
+  v.close();
+});
+
+test("Option+N asks for the mark when there is one", async () => {
+  const v = await loadViewer(html);
+  const calls = installCompareBridge(v, {
+    readMark: { sha: "f".repeat(40), shortSha: "fffffff", commits: 2 },
+  });
+
+  v.key("Dead", { altKey: true, code: "KeyN" });
+  await v.settle(40);
+  assert.deepEqual(calls, [["since", null]], "and nothing had to be opened to get there");
+  assert.equal(v.$("#compare-menu").classList.contains("hidden"), true);
   v.close();
 });

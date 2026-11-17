@@ -266,6 +266,14 @@ function openMergedView() {
       });
     });
     var archived = archiveComments(seqs);
+    // Handing a review to an agent is what "I have read everything up to here" MEANS in this workflow, so
+    // this is where the read mark is set — not on a timer, a scroll position or simply having the window
+    // open, each of which would mark unread work as read and then hide it from the next compare. Fire and
+    // forget: the hand-off has already succeeded (the clipboard write is checked above) and a mark that
+    // could not be written must not turn a completed hand-off into an error.
+    if (window.kakapoGit && typeof window.kakapoGit.markRead === 'function') {
+      try { Promise.resolve(window.kakapoGit.markRead()).catch(function () {}); } catch (e) { /* static build */ }
+    }
     refreshComments();
     // Only the whole-panel hand-off empties the panel. Archiving one card leaves the rest of the review on
     // screen, and closing the dock out from under it would lose the reviewer's place in a list they are

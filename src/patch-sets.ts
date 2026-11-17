@@ -122,3 +122,32 @@ export function readPatchSets(root: string, compareRef?: string): PatchSetList {
     commits,
   };
 }
+
+/**
+ * Where the reviewer stopped reading, when the branch still runs from there to HEAD.
+ *
+ * The mark is HEAD at the moment a review was handed to an agent (app-main's kakapo:mark-read). Coming
+ * back to that worktree, "what did it do since I handed off" is the question, and answering it needs no
+ * branch and no commit picking — the reviewer already told us where they stopped by stopping.
+ *
+ * Offered only when three things hold: the mark names a commit this repository still has, that commit is
+ * an ANCESTOR of HEAD, and HEAD has moved past it. Agents rebase, amend and reset, so a mark is routinely
+ * left pointing at a commit that is still in the object database and no longer on the branch — diffing
+ * against one of those answers "what differs from a commit that is not in your history", which is not the
+ * question the row's label makes. Nothing is offered rather than offering that.
+ */
+export type ReadMark = { sha: string; shortSha: string; commits: number };
+
+export function resolveReadMark(root: string, mark: string | undefined, head?: string): ReadMark | undefined {
+  if (!mark || !isCommitSha(mark)) return undefined;
+  const tip = head ?? git(root, ["rev-parse", "HEAD"]);
+  if (!tip || tip === mark) return undefined;
+  // One command answers both of the remaining questions. merge-base is "" for an object this repository
+  // does not have, and anything other than the mark itself once the branch has been rewritten out from
+  // under it; only a commit that is still an ancestor of HEAD answers with its own sha.
+  if (git(root, ["merge-base", mark, "HEAD"]) !== mark) return undefined;
+  const commits = Number(git(root, ["rev-list", "--count", `${mark}..HEAD`]));
+  // Abbreviated by slicing rather than by `git rev-parse --short`: this runs on every diff update once the
+  // compare menu has been opened, and a third process for a label is not worth the main-thread stall.
+  return { sha: mark, shortSha: mark.slice(0, 7), commits: Number.isFinite(commits) ? commits : 0 };
+}
