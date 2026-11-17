@@ -1361,6 +1361,52 @@ body {
 .patchset-reset:hover { border-color: var(--active); color: var(--text); }
 .patchset-reset.hidden { display: none; }
 
+/* The patch-set ledger: the list the bar's numbers are a summary of.
+   Anchored under the bar's own name, because that is where the reader asks "which one is 3?". */
+.patchset-bar { position: relative; }
+.patchset-name {
+  background: none; border: 0; padding: 0; cursor: pointer; font: inherit;
+  color: var(--muted); font-size: 10px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.04em;
+}
+.patchset-name:hover { color: var(--text); }
+.patchset-name:focus-visible { outline: 2px solid var(--active); outline-offset: 2px; border-radius: 3px; }
+.patchset-ledger {
+  position: absolute; top: calc(100% - 2px); left: 8px; z-index: var(--z-anchored);
+  min-width: 420px; max-width: min(720px, calc(100vw - 32px)); max-height: 60vh; overflow-y: auto;
+  padding: 4px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--panel); box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
+}
+.patchset-ledger.hidden { display: none; }
+.patchset-ledger-row {
+  display: grid; grid-template-columns: 14px 20px 1fr auto auto; align-items: center; gap: 10px;
+  width: 100%; padding: 6px 8px; border: 0; border-radius: 5px;
+  background: none; color: var(--text); font: inherit; font-size: 12px; text-align: left; cursor: pointer;
+}
+.patchset-ledger-row:hover { background: var(--bg); }
+.patchset-ledger-row:focus-visible,
+.patchset-ledger-row:focus { outline: 2px solid var(--active); outline-offset: -2px; }
+.patchset-ledger-row.active { background: color-mix(in srgb, var(--active) 16%, transparent); }
+/* The read dot. Filled = read, hollow = arrived since the last hand-off. Shape as well as colour, so the
+   distinction survives a palette where the two tints are close and a reader who cannot tell them apart. */
+/* Transparent by default: the dot MEANS a read state, so a row that has none — the "all changes" and
+   "working tree" exits, and every row in a review nobody has handed off yet — must not draw one. A hollow
+   ring on an exit row reads as "unread", which is a claim this control is not making. */
+.patchset-ledger-dot {
+  width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid transparent; box-sizing: border-box;
+}
+.patchset-ledger-row.is-read .patchset-ledger-dot { background: var(--muted); border-color: var(--muted); }
+.patchset-ledger-row.is-unread .patchset-ledger-dot { background: none; border-color: var(--active); }
+.patchset-ledger-num { color: var(--muted); font: 11px/1 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; text-align: right; }
+.patchset-ledger-subject { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.patchset-ledger-row.is-unread .patchset-ledger-subject { font-weight: 650; }
+.patchset-ledger-stat { flex: none; color: var(--muted); font: 10.5px/1 Monaco, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: nowrap; }
+.patchset-ledger-stat .ps-add { color: var(--chrome-stat-add); }
+.patchset-ledger-stat .ps-del { color: var(--chrome-stat-del); }
+.patchset-ledger-when { flex: none; color: var(--muted); font-size: 10.5px; white-space: nowrap; }
+.patchset-ledger-sep { margin: 4px 2px; border-top: 1px solid var(--border); }
+.patchset-ledger-empty { padding: 10px 8px; color: var(--muted); font-size: 12px; }
+
+
 /* The line-wrap control is an icon button like every other control on this strip. It was the one pill of
    labelled text among them, which made the toolbar read as two kinds of thing and cost the width of the
    words "Line wrap" in a bar that ellipsises the file path. The label is not lost — it moves to the

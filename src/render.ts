@@ -598,7 +598,12 @@ export function renderDiffHtml(input: {
         // commits offered as comparison points, and the word for that has been "patch set" everywhere this
         // is written down — the module, the IPC, the tooltips, the aria-labels — while the bar itself
         // showed "Base 1 2 3 Target" and named the concept nowhere a reader could see it.
-        + '<span class="patchset-name" data-i18n="patchset.name">Patch sets</span>'
+        // The bar's own name is now the way into the ledger. The numbers answer "which one", and they
+        // answer it well once you already know what each one IS — which the bar cannot say, because a
+        // subject, a file count and a date do not fit on a button. The ledger says it; the bar stays the
+        // summary of the ledger, exactly as it reads today.
+        + '<button type="button" class="patchset-name" id="patchset-ledger-btn" aria-haspopup="listbox" aria-expanded="false" aria-controls="patchset-ledger" data-i18n="patchset.name" data-i18n-title="patchset.ledgerOpen" title="What each patch set did">Patch sets</button>'
+        + '<div class="patchset-ledger hidden" id="patchset-ledger" role="listbox" data-i18n-aria="patchset.ledger" aria-label="Patch sets"></div>'
         + '<div class="patchset-side patchset-side-base">'
         + '<span class="patchset-kind" data-i18n="patchset.base">Base</span>'
         + '<div class="patchset-nums" id="patchset-base-nums" role="group" data-i18n-aria="patchset.pick" aria-label="Base patch set"></div>'

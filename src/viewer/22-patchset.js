@@ -319,10 +319,163 @@ function refreshPatchSets() {
   }).catch(function () { patchSetData = null; settle(); });
 }
 
+// ---- The ledger ---------------------------------------------------------------------------------
+// The list the bar's numbers are a summary of. The bar answers "which one"; it cannot answer "which one
+// is 3?", because a subject, a file count and a date do not fit on a button — and that is the question a
+// reviewer coming back to a worktree actually has.
+//
+// Its data is a SECOND call (kakapoGit.patchSetLedger), not the one the bar refreshes on. The figures
+// cost a `--numstat` walk of the branch and the bar refreshes on every diff update, so the ledger pays
+// for its own numbers and a reviewer who never opens it pays nothing.
+var patchSetLedgerData = null;
+
+function patchSetLedgerEl() { return document.getElementById('patchset-ledger'); }
+function patchSetLedgerOpen() {
+  var el = patchSetLedgerEl();
+  return !!el && !el.classList.contains('hidden');
+}
+
+/** "2 files · +8 −2", or nothing at all when this patch set's figures were not asked for. */
+function patchSetLedgerStat(stat) {
+  if (!stat) return '';
+  return '<span class="patchset-ledger-stat">'
+    + escapeHtml(t('patchset.files', { n: stat.files })) + ' '
+    + '<span class="ps-add">+' + escapeHtml(String(stat.added)) + '</span> '
+    + '<span class="ps-del">−' + escapeHtml(String(stat.removed)) + '</span>'
+    + '</span>';
+}
+
+/**
+ * Which patch sets arrived after the reviewer stopped reading.
+ *
+ * The mark is a commit, and `commits` is oldest → newest, so everything AFTER the mark's position is
+ * unread — not "everything whose date is later", because a rebase rewrites dates and an agent amending
+ * its own work would then mark read work unread. With no mark nothing is unread: a review nobody has
+ * handed off has no "since", and marking the whole branch unread would be a claim this does not have.
+ */
+function patchSetUnreadFrom(data) {
+  if (!data || !data.readMark || !Array.isArray(data.commits)) return -1;
+  for (var i = 0; i < data.commits.length; i += 1) if (data.commits[i].sha === data.readMark.sha) return i + 1;
+  return -1;
+}
+
+function patchSetLedgerRow(opt, extra) {
+  var cls = 'patchset-ledger-row' + (opt.active ? ' active' : '') + (extra && extra.cls ? ' ' + extra.cls : '');
+  return '<button type="button" class="' + cls + '" role="option"'
+    + ' aria-selected="' + (opt.active ? 'true' : 'false') + '"'
+    + ' data-which="base" data-ref="' + escapeHtml(opt.ref) + '">'
+    + '<span class="patchset-ledger-dot" aria-hidden="true"></span>'
+    + '<span class="patchset-ledger-num">' + escapeHtml(extra && extra.num ? extra.num : '') + '</span>'
+    + '<span class="patchset-ledger-subject">' + escapeHtml(opt.subject || opt.label) + '</span>'
+    + (extra && extra.stat ? extra.stat : '<span class="patchset-ledger-stat"></span>')
+    + '<span class="patchset-ledger-when">' + escapeHtml(extra && extra.when ? extra.when : '') + '</span>'
+    + '</button>';
+}
+
+function renderPatchSetLedger() {
+  var el = patchSetLedgerEl();
+  if (!el) return;
+  var data = patchSetLedgerData;
+  if (!data || !Array.isArray(data.commits) || !data.commits.length) {
+    el.innerHTML = '<div class="patchset-ledger-empty">' + escapeHtml(t('patchset.ledgerEmpty')) + '</div>';
+    return;
+  }
+  var active = data.activeBase || 'auto';
+  var stats = data.stats || {};
+  var unreadFrom = patchSetUnreadFrom(data);
+  var html = [];
+
+  // The two ends first and last, the way the mock reads them: "all of it" above the list, "the working
+  // tree" below it. They are not patch sets — they are the exits — so they carry no read state.
+  if (!data.scoped && data.branchPoint) {
+    html.push(patchSetLedgerRow(
+      { ref: 'auto', subject: t('patchset.allChanges') + ' · ' + patchSetShortRef(data.branchPoint.label),
+        active: active === 'auto' || active === data.branchPoint.sha },
+      { num: '' }));
+    html.push('<div class="patchset-ledger-sep" role="presentation"></div>');
+  }
+
+  data.commits.forEach(function (c, i) {
+    var unread = unreadFrom >= 0 && i >= unreadFrom;
+    html.push(patchSetLedgerRow(
+      { ref: c.sha, subject: c.subject, active: c.sha === active },
+      {
+        num: String(i + 1),
+        stat: patchSetLedgerStat(stats[c.sha]),
+        when: patchSetShortDate(c.date),
+        // Marked read/unread only where the question has an answer. Without a hand-off there is no
+        // reading position, and painting every row "read" would say something nobody told us.
+        cls: unreadFrom < 0 ? '' : (unread ? 'is-unread' : 'is-read'),
+      }));
+  });
+  el.innerHTML = html.join('');
+}
+
+function closePatchSetLedger() {
+  var el = patchSetLedgerEl();
+  if (!el) return;
+  var wasOpen = !el.classList.contains('hidden');
+  el.classList.add('hidden');
+  var btn = document.getElementById('patchset-ledger-btn');
+  if (btn) btn.setAttribute('aria-expanded', 'false');
+  // The shared slot (00-util.js), not a bare btn.focus(). It knows the one thing a hand-rolled restore
+  // keeps getting wrong: by the time a close runs focus has usually already left — a click outside blurs
+  // on mousedown — so "does it hold focus now" is the wrong question and "was it up" is the right one.
+  // It also falls back to the reading surface when the opener is gone.
+  restoreOverlayFocus(el, wasOpen);
+}
+
+function openPatchSetLedger() {
+  var el = patchSetLedgerEl();
+  if (!el || !window.kakapoGit || typeof window.kakapoGit.patchSetLedger !== 'function') return;
+  // Before anything moves focus into it, so the slot holds the control the reader came from.
+  rememberOverlayFocus(el);
+  el.classList.remove('hidden');
+  var btn = document.getElementById('patchset-ledger-btn');
+  if (btn) btn.setAttribute('aria-expanded', 'true');
+  // Paint from the last answer at once so it never opens empty, then correct it from git.
+  renderPatchSetLedger();
+  Promise.resolve(window.kakapoGit.patchSetLedger()).then(function (data) {
+    if (!patchSetLedgerOpen()) return; // closed while the numstat walk was running
+    patchSetLedgerData = (data && Array.isArray(data.commits)) ? data : null;
+    renderPatchSetLedger();
+    var rows = el.querySelectorAll('.patchset-ledger-row');
+    var pick = el.querySelector('.patchset-ledger-row.is-unread') || el.querySelector('.patchset-ledger-row.active') || rows[0];
+    if (pick) pick.focus();
+  }).catch(function () {});
+}
+
+function togglePatchSetLedger() {
+  if (patchSetLedgerOpen()) closePatchSetLedger(); else openPatchSetLedger();
+}
+
+/** Arrows walk the rows, Enter picks, Esc closes — the same bargain every list in this app makes. */
+function handlePatchSetLedgerKey(event) {
+  if (!patchSetLedgerOpen()) return false;
+  var el = patchSetLedgerEl();
+  if (event.key === 'Escape') { event.preventDefault(); closePatchSetLedger(); return true; }
+  if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return false;
+  var rows = Array.prototype.slice.call(el.querySelectorAll('.patchset-ledger-row'));
+  if (!rows.length) return false;
+  var at = rows.indexOf(document.activeElement);
+  var next = at < 0 ? 0 : at + (event.key === 'ArrowDown' ? 1 : -1);
+  if (next < 0) next = rows.length - 1;
+  if (next >= rows.length) next = 0;
+  event.preventDefault();
+  rows[next].focus();
+  return true;
+}
+
 function initPatchSetBar() {
   var bar = patchSetBarEl();
   if (!bar || !window.kakapoGit) return; // browser/serve mode, or bar not present
   bar.addEventListener('click', function (e) {
+    if (e.target.closest && e.target.closest('#patchset-ledger-btn')) { togglePatchSetLedger(); return; }
+    // A ledger row picks the BASE, the same thing the numbers do and for the same reason: the base is the
+    // question this control answers ("compare against this one"), and the target is the working tree in
+    // every ordinary reading. Picking closes the ledger — the answer is now in the diff behind it.
+    var row = e.target.closest && e.target.closest('.patchset-ledger-row[data-ref]');
+    if (row) { closePatchSetLedger(); selectPatchSet('base', row.getAttribute('data-ref')); return; }
     var gap = e.target.closest && e.target.closest('.patchset-gap[data-expand]');
     if (gap) { patchSetExpanded[gap.getAttribute('data-expand')] = true; renderPatchSetBar(); return; }
     var num = e.target.closest && e.target.closest('.patchset-num[data-ref]');
@@ -333,14 +486,31 @@ function initPatchSetBar() {
       Promise.resolve(window.kakapoGit.setReviewCompare('auto', 'worktree')).then(function () { refreshPatchSets(); }).catch(function () {});
     }
   });
+  // Esc and the arrows, on the bar itself: the rows are focused while it is open, so the events arrive
+  // here and never reach the page's own keymap — which is what keeps Esc from closing something else.
+  bar.addEventListener('keydown', function (e) { handlePatchSetLedgerKey(e); });
+  // Anywhere else closes it, like every other popover in this window. Capture, because a click on a diff
+  // row stops propagating before it would reach the document in the bubble phase.
+  document.addEventListener('mousedown', function (e) {
+    if (!patchSetLedgerOpen()) return;
+    if (e.target.closest && e.target.closest('#patchset-ledger, #patchset-ledger-btn')) return;
+    closePatchSetLedger();
+  }, true);
   if (window.kakapoMenu && typeof window.kakapoMenu.onDiffUpdate === 'function') {
-    window.kakapoMenu.onDiffUpdate(function () { try { refreshPatchSets(); } catch (err) {} });
+    window.kakapoMenu.onDiffUpdate(function () {
+      try {
+        refreshPatchSets();
+        // The branch moved under an open ledger — an agent committed while it was up. Re-ask rather than
+        // leave a list that no longer describes the branch it is a list of.
+        if (patchSetLedgerOpen()) openPatchSetLedger();
+      } catch (err) {}
+    });
   }
   refreshPatchSets();
 }
 
 if (typeof window !== 'undefined') {
-  window.__kakapoPatchSet = { refresh: refreshPatchSets };
+  window.__kakapoPatchSet = { refresh: refreshPatchSets, openLedger: openPatchSetLedger, closeLedger: closePatchSetLedger };
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', initPatchSetBar);
   } else {

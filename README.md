@@ -87,6 +87,8 @@ The toolbar pill says what the diff is comparing, and opens the two states you s
 | `⌥L` | Open a pull request from its link |
 | `⌥]` / `⌥[` | Next / previous patch set |
 
+The bar's own name — **Patch sets** — opens the list those numbers are a summary of: one row per commit on the branch, with its subject, how many files it touched, how many lines each way, and when. A number on a button cannot say any of that, and "which one is 3?" is the question you come back to a worktree with. Pick a row and it becomes the base, exactly as clicking its number does. Once you have handed a review over, the rows up to that point are marked read and anything that arrived since is marked unread — the list form of what `⌥N` opens in one key.
+
 "All changes" uses the **merge-base**, not the branch tip: `git diff main` against a `main` that has moved on shows other people's commits as your deletions.
 
 `⌥N` is the one that needs no branch at all. Handing a review to an agent — the merged panel's copy — records HEAD as where you stopped reading, and `⌥N` then diffs that commit against the branch as it stands now: *what did it do while I was away*. The row names how many commits arrived and shows itself only once there is a mark to go to, so a repository you have never handed off from sees the menu it always had. An agent that rebased the commit you stopped at off the branch leaves a mark that is no longer an ancestor of HEAD; comparing against one of those would read as your own deletions, so the row disappears instead and `⌥N` says why.

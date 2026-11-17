@@ -16,6 +16,10 @@ what it did.
   itself until a hand-off has left a mark and the branch has moved past it.
 - `CMP-5` **patch sets** — `#patchset-bar`, and `⌥]` / `⌥[` to step. Picking one sets the base to a
   commit, which clears the branch label.
+- `CMP-8` **the ledger** — `#patchset-ledger-btn` (the bar's own name) opens `#patchset-ledger`: one row
+  per patch set with its subject, file count, `+`/`−` and date, the read ones dotted and anything that
+  arrived since the last hand-off marked unread. A row picks the base, like its number does. Arrows walk
+  it, Esc closes it and returns focus to the button.
 - `CMP-6` **`⌥C` choose the branch** — the picker that names what `⌥A` measures against; persisted per
   repository and restored on reopen.
 - `CMP-7` **the pill itself** — `#compare-pill` opens the same menu with the mouse, and `.compare-refs`
@@ -69,6 +73,11 @@ very close to `⌥U` and `⌥A` is what widens it (see `OPEN-1`).
   Observe: the mode in force is the one with `aria-checked="true"`, and it is the mode you just pressed.
 - `CMP-5` patch sets — `window.__kakapoPatchSet` is the handle; `⌥]` is
   `page.key("Dead", "BracketRight", 221, 1)`. Observe: `pill()` turns into a sha with no branch name.
+- `CMP-8` the ledger — driven end to end by [`../ledger.mjs`](../ledger.mjs); run that rather than
+  re-writing it. `node .claude/skills/verify-kakapo/ledger.mjs`, and with `KAKAPO_VERIFY_LOCALE=ko` for
+  the Korean pass. It builds three patch sets that each did a visibly different amount — so the figures
+  cannot all be right by accident — hands the review over, lets one more commit land, and checks the
+  read/unread split.
 - Screenshot: `h.shot("compare-menu")` with the menu open, and `h.shot("compare-since")` on the `⌥N`
   diff.
 
@@ -91,3 +100,12 @@ very close to `⌥U` and `⌥A` is what widens it (see `OPEN-1`).
   longer describe. Assert the pill is unchanged after a refusal, not just that a toast appeared.
 - **`⌥T` is remembered with a flag** (`kakapo-compare-tip`), unlike `since`. A fixture that reopens the
   same workspace inherits it.
+- **The ledger re-opens itself on a diff update**, so that a commit landing while it is up does not leave
+  a list that no longer describes the branch. That re-render re-focuses a row *asynchronously* — so a key
+  sent right after a commit lands on whatever had focus a moment ago, and `Esc` looks broken. Wait for
+  `document.activeElement` to be a `.patchset-ledger-row`; do not sample it and hope.
+- **Waiting for a non-empty file list proves nothing after a pick.** The previous mode's list is already
+  there and satisfies it instantly. Capture the list first and wait for it to *differ*.
+- **Right after a hand-off there is no read mark to find.** The mark is HEAD, so HEAD has not moved past
+  it and `compareMenu().readMark` is correctly empty. It becomes visible one commit later. A check that
+  looks for it immediately is asserting the opposite of the design.

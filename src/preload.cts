@@ -118,6 +118,9 @@ contextBridge.exposeInMainWorld("kakapoGit", {
   compareClipboard: (path: string, text: string): Promise<unknown> => ipcRenderer.invoke("kakapo:compare-clipboard", { path, text }),
   // Patch-set compare bar: list selectable bases, and switch the diff base to one (or "auto").
   patchSets: (): Promise<unknown> => ipcRenderer.invoke("kakapo:git-patch-sets"),
+  // The ledger's own call: the same list plus what each patch set did and where reading stopped. Asked
+  // when the ledger opens, never on a diff update — see the handler for why the two are not one.
+  patchSetLedger: (): Promise<unknown> => ipcRenderer.invoke("kakapo:patch-set-ledger"),
   // Hand-off: record HEAD as where the reviewer stopped reading, so the compare menu can offer "since".
   markRead: (): Promise<unknown> => ipcRenderer.invoke("kakapo:mark-read"),
   setReviewBase: (ref: string): Promise<unknown> => ipcRenderer.invoke("kakapo:set-review-base", { ref }),

@@ -1,4 +1,4 @@
-import { defaultBaseRef, git, isCommitSha, RECORD_FS, RECORD_RS } from "./git.js";
+import { defaultBaseRef, git, gitAsync, isCommitSha, RECORD_FS, RECORD_RS } from "./git.js";
 
 // One selectable patch set: a commit on the branch under review. The reviewer picks one as the diff
 // base and always compares it against the latest state (working tree). "remote보다 앞선 로컬 커밋
@@ -150,4 +150,62 @@ export function resolveReadMark(root: string, mark: string | undefined, head?: s
   // Abbreviated by slicing rather than by `git rev-parse --short`: this runs on every diff update once the
   // compare menu has been opened, and a third process for a label is not worth the main-thread stall.
   return { sha: mark, shortSha: mark.slice(0, 7), commits: Number.isFinite(commits) ? commits : 0 };
+}
+
+/**
+ * What one patch set actually did: how many files, how many lines, and which paths.
+ *
+ * Deliberately NOT part of readPatchSets. That runs on every diff update (refreshPatchSets is wired to
+ * onDiffUpdate), and a `--numstat` walk of the branch is a per-commit diff — several times the cost of the
+ * metadata log beside it. The ledger is opened on purpose and read for a while, so it pays for its own
+ * numbers and nobody who never opens it pays anything.
+ */
+export type PatchSetStat = { files: number; added: number; removed: number; paths: string[] };
+
+/**
+ * Parse `git log --numstat --format=%H`. Exported for the test: the shapes that break this parser are a
+ * binary file (`-` for both counts), a merge commit (a sha with no numstat lines at all) and a rename
+ * (`src/{a => b}.ts` as the path), and none of them is convenient to produce from a fixture by accident.
+ *
+ * A bare 40-hex line starts a commit, and nothing else can look like one: every numstat line carries two
+ * tabs before its path, so a file literally named like a sha is still three fields.
+ */
+export function parsePatchSetStats(out: string): Record<string, PatchSetStat> {
+  const stats: Record<string, PatchSetStat> = {};
+  let current: PatchSetStat | undefined;
+  for (const line of out.split("\n")) {
+    if (!line) continue;
+    if (/^[0-9a-f]{40}$/.test(line)) {
+      current = { files: 0, added: 0, removed: 0, paths: [] };
+      stats[line] = current;
+      continue;
+    }
+    if (!current) continue;
+    const parts = line.split("\t");
+    if (parts.length < 3) continue;
+    current.files += 1;
+    // A binary file reports "-" for both counts. It changed — it just has no lines to count, and adding
+    // NaN to the total would turn the whole patch set's figure into "NaN" on screen.
+    const added = Number(parts[0]);
+    const removed = Number(parts[1]);
+    if (Number.isFinite(added)) current.added += added;
+    if (Number.isFinite(removed)) current.removed += removed;
+    // Rejoined: a path holding a tab keeps all of itself rather than being truncated at the first one.
+    current.paths.push(parts.slice(2).join("\t"));
+  }
+  return stats;
+}
+
+export async function readPatchSetStats(root: string, from: string, to: string): Promise<Record<string, PatchSetStat>> {
+  if (!from || !to) return {};
+  // Async: this is a per-commit diff walk, and on the Electron main process a spawnSync of that size is
+  // frozen UI for as long as it takes.
+  const out = await gitAsync(root, [
+    "-c", "log.showSignature=false",
+    "log", "--no-color", "--numstat", "--format=%H",
+    "-n", "500", // the same guard readPatchSets uses; a branch longer than this is not being read by hand
+    `${from}..${to}`,
+    "--",
+  ]);
+  return parsePatchSetStats(out);
 }

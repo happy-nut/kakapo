@@ -52,6 +52,7 @@ arrived since. Copy it and change the fixture and the checks:
 ```bash
 node .claude/skills/verify-kakapo/example.mjs
 KAKAPO_VERIFY_LOCALE=ko node .claude/skills/verify-kakapo/example.mjs   # the same run, in Korean
+node .claude/skills/verify-kakapo/ledger.mjs                            # the patch-set ledger (CMP-8)
 ```
 
 `drive()` does, in order:
@@ -143,6 +144,7 @@ Prefer stable handles to coordinates. The ones every feature file builds on:
 | `#compare-pill` / `.compare-refs` | the compare control and the text of what it measures |
 | `#compare-menu .compare-menu-row[data-mode=…]` | its four rows: `since`, `all`, `uncommitted`, `tip`. (`other` is a mode the IPC can report — a ⌘9 scope, an A→B target, a patch-set pick — but it has no row, so no row is ticked.) |
 | `#patchset-bar` | the patch-set bar |
+| `#patchset-ledger-btn`, `#patchset-ledger`, `.patchset-ledger-row` | the ledger the bar's numbers summarise; a row carries `is-read` / `is-unread` only where there is a read mark to go by |
 | `#mc-merged-panel`, `.mc-merged-card` | the hand-off dock and its cards |
 | `.mc-comment-row`, `.mc-composer .mc-input` | a comment in the diff, and the composer's textarea |
 | `#source-viewer`, `#source-body`, `#source-tabs` | the source view |

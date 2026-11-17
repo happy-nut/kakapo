@@ -20,7 +20,7 @@ import {
 } from "./git-log.js";
 import { defaultBaseRef, git, listBranches, listRemotes } from "./git.js";
 import { readUnifiedDiff } from "./diff.js";
-import { readPatchSets, resolveReadMark } from "./patch-sets.js";
+import { readPatchSets, readPatchSetStats, resolveReadMark } from "./patch-sets.js";
 import { AppPreferences } from "./app-preferences.js";
 import { materializeDeferredSourceFile } from "./diff.js";
 import { containedRealPath, languageForPath } from "./util.js";
@@ -482,6 +482,48 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
       // Right side: a chosen patch set (commit) or the working tree ("worktree" sentinel).
       list.activeTarget = state.reviewTarget ?? state.options.target ?? "worktree";
       return list;
+    } catch { return null; }
+  });
+
+  /**
+   * Everything the patch-set ledger draws, in one call: the same list the bar shows, what each patch set
+   * actually did, and where the reviewer stopped reading.
+   *
+   * Separate from kakapo:git-patch-sets because that one answers every diff update, and the numbers here
+   * cost a `--numstat` walk of the branch — a per-commit diff. The ledger is opened deliberately and read
+   * for a while, so it pays for its own figures, and a reviewer who never opens it pays nothing. For the
+   * same reason the read mark is resolved here rather than added to the cheap call.
+   */
+  ipc.handle("kakapo:patch-set-ledger", async (event) => {
+    const state = stateFromEvent(event);
+    if (!state) return null;
+    try {
+      const root = state.options.root;
+      const scoped = Boolean(state.compareScope && state.compareScope.length);
+      const list = scoped
+        ? {
+          activeBase: state.reviewBase ?? state.options.base ?? "auto",
+          activeTarget: state.reviewTarget ?? state.options.target ?? "worktree",
+          head: state.compareScope![state.compareScope!.length - 1].sha,
+          commits: state.compareScope!,
+          scoped: true,
+          branchPoint: undefined,
+        }
+        : (() => {
+          const read = readPatchSets(root, state.compareRef);
+          read.activeBase = state.reviewBase || read.head;
+          read.activeTarget = state.reviewTarget ?? state.options.target ?? "worktree";
+          return read;
+        })();
+      // The range the figures are for: from whatever the list's first commit is based on, to its last.
+      // Asking per commit would be one git process each; one walk answers all of them.
+      const first = list.commits[0];
+      const last = list.commits[list.commits.length - 1];
+      const from = scoped
+        ? (first ? `${first.sha}^` : "")
+        : (list.branchPoint ? list.branchPoint.sha : "");
+      const stats = first && last ? await readPatchSetStats(root, from, last.sha) : {};
+      return { ...list, stats, readMark: resolveReadMark(root, preferences.readReadMark(root)) };
     } catch { return null; }
   });
 
