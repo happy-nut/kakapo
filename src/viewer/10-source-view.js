@@ -238,14 +238,50 @@ function semanticTokenCacheMap() {
   if (!semanticTokenCache) semanticTokenCache = new Map();
   return semanticTokenCache;
 }
-var SEMANTIC_TOKEN_CLASS = {
-  namespace: 'tok-type', type: 'tok-type', class: 'tok-type', enum: 'tok-type', interface: 'tok-type',
-  struct: 'tok-type', typeParameter: 'tok-type',
-  function: 'tok-function', method: 'tok-function', macro: 'tok-function',
-  keyword: 'tok-keyword', modifier: 'tok-keyword', operator: 'tok-keyword',
-  comment: 'tok-comment', string: 'tok-string', regexp: 'tok-string',
-  number: 'tok-number', enumMember: 'tok-constant', decorator: 'tok-decorator',
+var semanticTokenClassTable;
+function semanticTokenClasses() {
+  if (semanticTokenClassTable) return semanticTokenClassTable;
+  semanticTokenClassTable = {
+    comment: 'tok-comment',
+    string: 'tok-string', character: 'tok-string',
+    escapeSequence: 'tok-escape', regexp: 'tok-regexp',
+    invalidEscapeSequence: 'tok-error', unresolvedReference: 'tok-error', unknown: 'tok-error',
+    number: 'tok-number', formatSpecifier: 'tok-format', boolean: 'tok-literal',
+    keyword: 'tok-keyword', modifier: 'tok-keyword',
+    builtinType: 'tok-builtin-type', selfKeyword: 'tok-self', selfTypeKeyword: 'tok-self',
+    class: 'tok-type', struct: 'tok-type', union: 'tok-type', concept: 'tok-type',
+    type: 'tok-type-alias', typeAlias: 'tok-type-alias', generic: 'tok-type-alias',
+    interface: 'tok-interface', enum: 'tok-enum',
+    typeParameter: 'tok-typeparam', constParameter: 'tok-typeparam',
+    namespace: 'tok-namespace', toolModule: 'tok-namespace',
+    function: 'tok-function', method: 'tok-method', member: 'tok-method',
+    macro: 'tok-macro', procMacro: 'tok-macro', macroBang: 'tok-macro',
+    derive: 'tok-macro', deriveHelper: 'tok-macro',
+    decorator: 'tok-decorator', attribute: 'tok-decorator', builtinAttribute: 'tok-decorator',
+    property: 'tok-property', event: 'tok-property',
+    variable: 'tok-variable', parameter: 'tok-parameter',
+    enumMember: 'tok-constant', const: 'tok-constant', static: 'tok-global',
+    lifetime: 'tok-lifetime', label: 'tok-label',
+    angle: '', attributeBracket: '', brace: '', bracket: '', colon: '', comma: '', dot: '',
+    parenthesis: '', punctuation: '', semicolon: '',
+    operator: '', arithmetic: '', bitwise: '', comparison: '', logical: '', negation: '',
+  };
+  return semanticTokenClassTable;
+}
+var SEMANTIC_MODIFIER_CLASS = {
+  static: 'tokmod-static', deprecated: 'tokmod-deprecated', mutable: 'tokmod-mutable',
 };
+function semanticTokenSpanClass(token) {
+  var base = semanticTokenClasses()[token.type];
+  if (!base) return base === '' ? '' : null;
+  var modifiers = token.modifiers;
+  if (!modifiers || !modifiers.length) return base;
+  for (var i = 0; i < modifiers.length; i += 1) {
+    var extra = SEMANTIC_MODIFIER_CLASS[modifiers[i]];
+    if (extra && base.indexOf(extra) < 0) base += ' ' + extra;
+  }
+  return base;
+}
 function semanticTokensFor(path) {
   if (!path) return null;
   var cached = semanticTokenCacheMap().get(path);
@@ -258,7 +294,7 @@ function semanticTokensFor(path) {
       if (!tokens || !tokens.length) { semanticTokenCacheMap().delete(path); return; }
       var byLine = new Map();
       tokens.forEach(function (token) {
-        if (!SEMANTIC_TOKEN_CLASS[token.type]) return;
+        if (!semanticTokenSpanClass(token)) return;
         var row = byLine.get(token.lineIndex);
         if (!row) { row = []; byLine.set(token.lineIndex, row); }
         row.push(token);
@@ -281,8 +317,10 @@ function semanticLineHtml(text, tokens) {
     if (start < at || start >= text.length) continue;
     if (end > text.length) end = text.length;
     if (end <= start) continue;
+    var className = semanticTokenSpanClass(token);
+    if (!className) continue;
     out += escapeHtml(text.slice(at, start));
-    out += '<span class="' + SEMANTIC_TOKEN_CLASS[token.type] + '">' + escapeHtml(text.slice(start, end)) + '</span>';
+    out += '<span class="' + className + '">' + escapeHtml(text.slice(start, end)) + '</span>';
     at = end;
   }
   return out + escapeHtml(text.slice(at));

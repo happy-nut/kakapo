@@ -497,6 +497,16 @@ controller, a bean and its XML); `⌘⇧T` is the part of it that generalises to
 the sidebar at the file you are in rather than IntelliJ's breadcrumb popup — the sidebar *is* kakapo's
 navigation bar, so it is the same gesture rather than a second surface for it.
 
+## What the colours mean
+
+In a file the source view shows, the colours are the language server's answer, not a guess from the
+spelling: a field, a local, a parameter, a method, an enum constant, a type alias and a type parameter each
+get their own, and a `static` member is slanted, a deprecated one struck through, a reassigned one
+underlined — the devices IntelliJ uses for the same distinctions. Everything a server sends is painted;
+punctuation and operators are left the editor's own colour on purpose, because every scheme IntelliJ ships
+does the same. A file in a language with no bundled server, or a line the server has not answered for yet,
+falls back to the built-in tokenizer, which colours by spelling alone.
+
 ## Reading a diff
 
 The diff is side by side, with the characters that actually differ marked inside each changed line, and a
