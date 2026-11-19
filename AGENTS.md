@@ -101,6 +101,31 @@ matrix — and when a row's expectation changes, re-read it out of the installed
 `scripts/navigation-matrix.mjs` has the decompile command) rather than editing the expectation to match
 what the code now does.
 
+When no language server answers — one is still starting, or the file's language has none at all — ⌘B is
+answered by a regex guess, and that guess is made twice from two tables that are copies of each other
+across the process boundary: `DECLARATION_PATTERNS` in `src/analysis-index.ts`, for the index the main
+process builds, and `definitionMatchers` in `src/viewer/15-semantic-navigation.js`, which
+`findSymbolDefinition` runs over the viewer's own copy of each file when the index declines. Tighten one
+and the other still answers; the renderer's turn arrives as a silent jump rather than a list, which looks
+less like a bug and is worse. `test/heuristic-declarations.test.mjs` holds the index's table and
+`test/guessed-peek-refresh.test.mjs` the renderer's, and both must move together.
+
+What those tables cannot do is tell a declaration from a call: `name(args) {` is a method, and it is also
+a call whose last argument is a function or an object literal, which is why every
+`test("…", async () => {` in this suite was read as a declaration of `test`, and they outnumbered every
+real method the table held. The signal is the captured argument text — the pattern's own
+`[^)]*` cannot hold a `)`, so a call leaves an unbalanced paren behind — and a parameter may hold a
+parenthesis only straight after a `:`, where a function type lives. A brace is not a signal: `= {}` and a
+generic are parameter lists. Count the table's rows before and after any change to it, with the old
+pattern and the new one run over the same working tree: the index scans the tree, so a count taken on one
+checkout does not compare with a count taken on another.
+
+A guessed answer must be withdrawn once there is a real one. `queryProjectAnalysis` records the question
+behind any non-LSP answer that arrives while the analysis is still starting, `openSemanticPeek` keeps it
+only when the response that opened the peek is the one that produced it — `16-structure.js` opens peeks
+with no response of its own — and `refreshAnalysisPaints` re-asks it when the phase turns ready. A peek
+built from a guess that nothing revisits is a list of wrong answers sitting under a "ready" toast.
+
 The viewer is one concatenated script with no module boundaries, so nothing stops a second copy of an
 answer from growing beside the first — and when one does, a fix reaches one copy and the two surfaces
 drift. `test/viewer-slices.test.mjs` therefore holds a one-fact-one-reader rule: the file the source view
