@@ -68,13 +68,22 @@ const RETURN_TYPE_BEFORE_NAME_EXTENSIONS = new Set([
   ".java", ".cs", ".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".hxx",
 ]);
 
-const DECLARATION_PATTERNS: Array<{ kind: string; re: RegExp; extensions?: Set<string> }> = [
+const STATEMENT_HEADS: Array<{ extensions: Set<string>; name: RegExp }> = [
+  { extensions: new Set([".java", ".kt"]), name: /^synchronized$/ },
+  { extensions: new Set([".cs"]), name: /^(?:lock|fixed|checked|unchecked|unsafe|using|foreach)$/ },
+];
+
+const DECLARATION_PATTERNS: Array<{ kind: string; re: RegExp; extensions?: Set<string>; refuseStatementHead?: true }> = [
   { kind: "function", re: /^\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+(?<name>[A-Za-z_$][A-Za-z0-9_$]*)/ },
   { kind: "class", re: /^\s*(?:(?:public|private|protected|internal|abstract|final|open|sealed|data|inner|enum|annotation|static|export|default|expect|actual|value|pub(?:\([^)]*\))?)\s+)*(?<keyword>class|interface|object|enum|trait|struct)\s+(?<name>[A-Za-z_$][A-Za-z0-9_$]*)/ },
   { kind: "type", re: /^\s*(?:export\s+)?(?<keyword>interface|type|enum)\s+(?<name>[A-Za-z_$][A-Za-z0-9_$]*)/ },
   { kind: "variable", re: /^\s*(?:export\s+)?(?:const|let|var|val)\s+(?<name>[A-Za-z_$][A-Za-z0-9_$]*)/ },
   { kind: "function", re: /^\s*(?:(?:public|private|protected|internal|abstract|final|open|override|suspend|inline|operator|static|async)\s+)*(?:fun|def|fn|func)\s+(?<name>[A-Za-z_$][A-Za-z0-9_$]*)/ },
-  { kind: "method", re: /^\s*(?:(?:public|private|protected|internal|abstract|final|open|override|suspend|inline|operator|static|async)\s+)*(?<name>[A-Za-z_$][A-Za-z0-9_$]*)\s*\((?<parameters>[^)]*)\)\s*(?::\s*[^=]+)?\s*(?:\{|=>)/ },
+  {
+    kind: "method",
+    refuseStatementHead: true,
+    re: /^\s*(?:(?:public|private|protected|internal|abstract|final|open|override|suspend|inline|operator|static|async)\s+)*(?<name>[A-Za-z_$][A-Za-z0-9_$]*)\s*\((?<parameters>[^)]*)\)\s*(?::\s*[^=]+)?\s*(?:\{|=>)/,
+  },
   {
     kind: "method",
     extensions: RETURN_TYPE_BEFORE_NAME_EXTENSIONS,
@@ -85,6 +94,13 @@ const DECLARATION_PATTERNS: Array<{ kind: string; re: RegExp; extensions?: Set<s
 ];
 
 const NOT_A_DECLARED_NAME = /^(?:if|for|while|switch|catch|with|function|return|new|typeof|void|delete|throw|await|yield)$/;
+
+export function isStatementHead(extension: string, name: string): boolean {
+  for (const head of STATEMENT_HEADS) {
+    if (head.extensions.has(extension) && head.name.test(name)) return true;
+  }
+  return false;
+}
 
 function isParameterList(text: string): boolean {
   for (let at = text.indexOf("("); at >= 0; at = text.indexOf("(", at + 1)) {
@@ -183,6 +199,7 @@ function declarationFromLine(path: string, extension: string, line: string, line
     if (!match) continue;
     const name = match.groups?.name ?? "";
     if (!name || NOT_A_DECLARED_NAME.test(name)) continue;
+    if (pattern.refuseStatementHead && isStatementHead(extension, name)) continue;
     const parameters = match.groups?.parameters;
     if (parameters !== undefined && !isParameterList(parameters)) continue;
     return {
