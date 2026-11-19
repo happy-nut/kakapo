@@ -416,7 +416,10 @@ function symbolAtDiffCaret() {
   return null;
 }
 
+var NOT_A_DECLARED_NAME = /^(?:if|for|while|switch|catch|with|function|return|new|typeof|void|delete|throw|await|yield)$/;
+
 function findSymbolDefinition(name) {
+  if (NOT_A_DECLARED_NAME.test(String(name || ''))) return null;
   const matchers = definitionMatchers(name);
   const currentPath = viewerCursor?.path || '';
   const orderedFiles = [
@@ -429,7 +432,7 @@ function findSymbolDefinition(name) {
     for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
       const line = lines[lineIndex];
       if (semanticCommentOnlyLine(line)) continue;
-      if (matchers.some((matcher) => matcher.test(line))) {
+      if (matchers.some((matcher) => declarationMatch(matcher, line))) {
         return { path: file.path, lineIndex, column: Math.max(0, line.indexOf(name)) };
       }
     }
@@ -450,9 +453,23 @@ function definitionMatchers(name) {
     new RegExp('^\\s*(?:export\\s+)?(?:interface|type|enum)\\s+' + escaped + '\\b'),
     new RegExp('^\\s*(?:export\\s+)?(?:const|let|var|val)\\s+' + escaped + '\\b'),
     new RegExp('^\\s*' + funMod + '(?:fun|def|fn|func)\\s+' + escaped + '\\b'),
-    new RegExp('^\\s*' + funMod + escaped + '\\s*\\([^)]*\\)\\s*(?::\\s*[^=]+)?\\s*(?:\\{|=>)'),
+    new RegExp('^\\s*' + funMod + escaped + '\\s*\\((?<parameters>[^)]*)\\)\\s*(?::\\s*[^=]+)?\\s*(?:\\{|=>)'),
     new RegExp('^\\s*' + escaped + '\\s*[:=]\\s*(?:async\\s*)?(?:function\\b|\\([^)]*\\)\\s*=>)'),
   ]);
+}
+
+function isParameterListText(text) {
+  for (var at = text.indexOf('('); at >= 0; at = text.indexOf('(', at + 1)) {
+    if (!text.slice(0, at).replace(/\s+$/, '').endsWith(':')) return false;
+  }
+  return true;
+}
+
+function declarationMatch(matcher, line) {
+  var match = matcher.exec(line);
+  if (!match) return false;
+  var parameters = match.groups && match.groups.parameters;
+  return parameters === undefined || isParameterListText(parameters);
 }
 
 function escapeRegExp(value) {

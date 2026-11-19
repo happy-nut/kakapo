@@ -10,6 +10,24 @@ const SOURCE = [
   "    return Store;",
   "  }",
   "}",
+  "register(handlers, () => { Store.load(); });",
+  "register(handlers, () => { Store.load(); });",
+  "function wire() {",
+  "  return register;",
+  "}",
+  "function make() {",
+  "  return () => {",
+  "    return Store;",
+  "  };",
+  "}",
+  "var bridge = wire(",
+  "  function () { return Store; },",
+  "  function (next) { return next; });",
+  "class Resizer {",
+  "  onResize(handler: (size: number) => void) {",
+  "    return handler;",
+  "  }",
+  "}",
 ].join("\n");
 
 let html;
@@ -121,4 +139,29 @@ test("a peek opened by a later answer does not inherit an earlier guess", async 
   await becomeReady(v);
   assert.equal(asked.length, before,
     "the guessed question belonged to the answer that produced it, not to whatever peek is open now");
+});
+
+test("the renderer's own search for a declaration does not accept a call either", async () => {
+  const { v } = await openPeekWhileIndexing([]);
+  const found = (name) => v.window.findSymbolDefinition(name);
+  assert.equal(found("register"), null,
+    "register is called on two lines and declared on neither, and the viewer scans the file itself");
+  assert.deepEqual(found("wire") && { line: found("wire").lineIndex }, { line: 7 },
+    "a real function declaration below those lines is still found");
+  assert.deepEqual(found("load") && { line: found("load").lineIndex }, { line: 1 },
+    "and so is the method, whose parameter list is empty");
+  assert.deepEqual(found("Store") && { line: found("Store").lineIndex }, { line: 0 },
+    "and so is the class");
+  assert.deepEqual(found("onResize") && { line: found("onResize").lineIndex }, { line: 19 },
+    "a parameter may hold a parenthesis when it follows a colon, which is where a function type lives");
+});
+
+test("a keyword is not something the renderer will navigate to", async () => {
+  const { v } = await openPeekWhileIndexing([]);
+  const lines = SOURCE.split("\n");
+  assert.match(lines[16], /^\s*function \(/, "the fixture holds a line the method matcher can reach with the name `function`");
+  assert.match(lines[11], /^\s*return \(\) =>/, "and one it can reach with the name `return`");
+  assert.equal(v.window.findSymbolDefinition("function"), null,
+    "`function () { … }` on its own line is not a declaration of anything called `function`");
+  assert.equal(v.window.findSymbolDefinition("return"), null, "nor is `return () => {` one of `return`");
 });
