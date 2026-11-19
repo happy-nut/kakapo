@@ -20,7 +20,7 @@ export const SERVER_CACHE_SCOPES: Record<string, ServerCacheScope> = {
   rust: "worktree",
   java: "worktree",
   kotlin: "worktree",
-  ruby: "worktree",
+  ruby: "shared",
   php: "worktree",
 };
 
@@ -56,11 +56,11 @@ export function reclaimableServerCaches(
   const cutoff = (options.now ?? Date.now()) - days * 86_400_000;
   const limit = options.limit ?? RECLAIM_PER_RUN;
   const stale: string[] = [];
-  for (const [family, directory] of Object.entries(SERVER_CACHE_DIRECTORIES)) {
-    if (SERVER_CACHE_SCOPES[family] === "shared") continue;
+  for (const directory of Object.values(SERVER_CACHE_DIRECTORIES)) {
     let keys: string[];
     try { keys = readdirSync(join(base, directory)); } catch { continue; }
     for (const key of keys) {
+      if (key === SHARED_CACHE_KEY) continue;
       if (stale.length >= limit) return stale;
       const candidate = join(base, directory, key);
       try {

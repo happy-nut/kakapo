@@ -148,6 +148,17 @@ faster against a shared one, while two checkouts sharing `CARGO_TARGET_DIR` made
 type error report zero errors. `test/server-cache.test.mjs` keeps the reason beside every row, and fails
 both for a family that builds a cache path of its own and for a scope with no reason written for it.
 
+`npm run cache:bench <corpus> <worktree-a> <worktree-b>` is where those reasons come from. It opens a real
+repository and a sibling worktree of it through `ProjectAnalysis`, and prints time to the first semantic
+answer against a cache of its own (cold), the cache it filled itself (warm) and a cache the sibling filled;
+the bytes the sibling adds to that cache; a declaration planted in one worktree only, looked up through the
+shared cache in both directions; and two servers live at once on one cache against one each. The planted
+declaration is the check that matters — a server whose cache is keyed by content answers from the text in
+front of it, and one that is keyed by path does not — so the bench exits non-zero when it goes missing.
+Speed alone cannot see that: sharing `CARGO_TARGET_DIR` was faster and wrong. The corpora a row was
+measured on are named in `CORPORA` at the top of the script, with the file and column each probe asks
+about, so a re-measurement asks the same question.
+
 Those directories are reclaimed by their own mtime, which is why `start()` touches
 `server.cacheDirectory` before it spawns. The key is a one-way hash of the worktree path, so nothing can
 ask which checkout a directory belonged to; a sweep that could not see it opened would delete a live one.
