@@ -39,17 +39,23 @@ function hunkRowAt(i) {
   ensureFileReady(diffWrapperByPath(meta.path));
   return document.getElementById('hunk-' + i);
 }
-function annotateDiffHunkRows(wrapper) {
-  resetDiffImportFolds(wrapper);
+function diffSideRowPairs(wrapper) {
   var sides = wrapper ? wrapper.querySelectorAll('.d2h-file-side-diff') : [];
-  if (sides.length < 2) return;
+  if (sides.length < 2) return null;
   var cleanRows = function (side) {
     return Array.prototype.slice.call(side.querySelectorAll('tr')).filter(function (row) {
       return !row.classList.contains('mc-comment-row') && !row.classList.contains('mc-spacer-row');
     });
   };
-  var oldRows = cleanRows(sides[0]);
-  var newRows = cleanRows(sides[sides.length - 1]);
+  return { sides: sides, oldRows: cleanRows(sides[0]), newRows: cleanRows(sides[sides.length - 1]) };
+}
+function annotateDiffHunkRows(wrapper) {
+  resetDiffImportFolds(wrapper);
+  var pairs = diffSideRowPairs(wrapper);
+  if (!pairs) return;
+  var sides = pairs.sides;
+  var oldRows = pairs.oldRows;
+  var newRows = pairs.newRows;
   // diff2html emits the number cell first on both sides. IntelliJ places old numbers at the RIGHT edge
   // of the left editor and new numbers at the LEFT edge of the right editor, so make that order explicit
   // in the table DOM instead of relying on absolute-positioned table cells (Chromium keeps their static
@@ -205,6 +211,7 @@ function annotateDiffHunkRows(wrapper) {
     referenceSide: 'new',
     initialized: false,
   } : null;
+  paintDiffSemanticTokens(wrapper, oldRows, newRows);
   decorateDiffContextFolds(wrapper, oldRows, newRows);
   decorateDiffImportFold(wrapper, oldRows, newRows);
   decorateDiffHttpRuns(wrapper);

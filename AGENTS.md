@@ -54,6 +54,44 @@ and checks the table against it; a row may collide only when it says `fixed: "me
 forwards the key on with `sendToFocused`. That guard runs on macOS only — the menu it checks is macOS's —
 so run the suite there before trusting a chord change; Linux CI skips it.
 
+Semantic highlighting is a pipeline with four places to lose a token, and losing one is silent: the
+capability declaration decides what a server may send, `legend.tokenTypes`/`tokenModifiers` decide what
+`src/lsp.ts` can name, the paint table in `semanticTokenClasses()` decides what gets a span, and the
+theme's `--token-*` slots decide whether two spans look different. `member` — typescript-language-server's
+name for a method — was dropped at the third for as long as the table existed, and the default dark theme
+gave `--token-number` and `--token-literal` the same hex, so a distinction the table did make could not be
+seen. `test/semantic-tokens.test.mjs` holds all four: every name in a captured legend has a row, a row left
+plain names its reason, every class has a colour rule, every slot in each of the twelve theme blocks has a
+colour no other slot there has, and no two classes resolve to the same colour, weight, slant and
+decoration. The legends are real, captured from the bundled servers by `npm run lsp:legends`
+(`test/fixtures/semantic-legends.json`); refresh them when a server is upgraded, because a legend that
+grew a name is how the first row went missing. `.tok-*` classes are shared with the source view's own
+hand-written lexer — `.tok-type` paints YAML keys and CSS properties — so a slant added for a semantic
+kind lands on those too; give the semantic kind its own class instead.
+
+Two painters reach every line — the spelling-only tokenizer (`highlightLine`, and highlight.js for the
+diff) and the server's semantic tokens — and a view that picks one of them throws the other's answer away.
+typescript-language-server's legend is twelve names and not one of them is `keyword`, `string`, `comment`
+or `number`, so a source view that treated semantic tokens as the whole answer painted `const`, `export`
+and every string literal plain on every line that had an identifier in it. Both views now layer instead:
+`semanticLineHtml` runs the tokenizer over the gaps between tokens, and `paintDiffSemanticTokens` splits
+the diff's existing text nodes so the semantic span sits inside whatever highlight.js and diff2html already
+put there. Keep it that way — the word-level `<ins>`/`<del>` marks and the trailing-whitespace marks are in
+that markup, and `test/semantic-diff.test.mjs` counts them before and after against a run with no tokens.
+
+The diff's left side is the base revision and no server can be pointed at it, so it is painted only where
+its text equals its twin on the right; `analysis.ts` already declines `semanticTokens` outright when the
+whole comparison is a revision. Painting is driven from `annotateDiffHunkRows` (a wrapper that materialises
+after the tokens arrived) and from the token-arrival callback (tokens that arrive after the wrapper), and
+both are needed — a test that calls the repaint by hand proves neither.
+
+`test/intellij-parity.test.mjs` holds the other half of the measurement: IntelliJ's two shipped schemes,
+read out of the installed IDE into `test/fixtures/intellij-schemes.json`, with every platform colour key
+either mapped to a class the table hands out or refused in writing. It exists because the reasons written
+down for three of them were wrong — the two schemes disagree about commas, semicolons and doc comments,
+and prose about "what IntelliJ does" had been standing in for reading the file. `docs/intellij/README.md`
+has the re-extraction command.
+
 Navigation is measured against IntelliJ, not against itself. `npm run nav:smoke` asks whether a key
 still works; `npm run nav:matrix` asks whether it still does what IntelliJ does, and prints the two
 answers side by side. The second exists because the first cannot see the defect this repo paid for: ⌘B

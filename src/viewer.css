@@ -63,12 +63,18 @@
   --token-keyword: #ff9f5e;
   --token-string: #8ccf7e;
   --token-number: #7ebcef;
-  --token-literal: #ff9f5e;
+  --token-literal: #fc9cc9;
   --token-constant: #d1a5ee;
   --token-tag: #f4cb73;
   --token-function: #ffd580;
   --token-type: #66d9c2;
   --token-decorator: #d7d75f;
+  --token-namespace: #efb795;
+  --token-interface: #95d0a1;
+  --token-property: #d6b9df;
+  --token-variable: #0ad6f5;
+  --token-parameter: #04dca2;
+  --token-error: #fd9e9b;
   --d2h-bg-color: var(--panel);
   --d2h-border-color: var(--border);
   --d2h-dim-color: var(--muted);
@@ -89,6 +95,7 @@
   --file-color-generated: color-mix(in srgb, var(--file-tint-generated) 45%, var(--chrome-bg));
   --file-color-test-tab: color-mix(in srgb, var(--file-tint-test) 39%, var(--chrome-panel));
   --file-color-generated-tab: color-mix(in srgb, var(--file-tint-generated) 45%, var(--chrome-panel));
+
 }
 :root[data-theme="light"] {
   color-scheme: light;
@@ -136,16 +143,23 @@
   --token-keyword: #c8212c;
   --token-string: #0a3069;
   --token-number: #0550ae;
-  --token-literal: #c8212c;
+  --token-literal: #a51d61;
   --token-constant: #6f42c1;
   --token-tag: #116329;
   --token-function: #7a45dd;
   --token-type: #953800;
   --token-decorator: #6639ba;
+  --token-namespace: #7c4b27;
+  --token-interface: #057618;
+  --token-property: #7a3d8f;
+  --token-variable: #056494;
+  --token-parameter: #176354;
+  --token-error: #9f3838;
   --file-color-test: #effae7;
   --file-color-generated: #ffffe4;
   --file-color-test-tab: #effae7;
   --file-color-generated-tab: #ffffe4;
+
 }
 :root[data-theme="dark"][data-syntax-theme="github"] {
   color-scheme: dark;
@@ -190,12 +204,19 @@
   --token-keyword: #ff7b72;
   --token-string: #a5d6ff;
   --token-number: #79c0ff;
-  --token-literal: #79c0ff;
+  --token-literal: #f994c7;
   --token-constant: #bc8cff;
   --token-tag: #7ee787;
   --token-function: #d2a8ff;
   --token-type: #ffa657;
-  --token-decorator: #d2a8ff;
+  --token-decorator: #c5b863;
+  --token-namespace: #e3aa82;
+  --token-interface: #77c587;
+  --token-property: #ccadd7;
+  --token-variable: #05c8e6;
+  --token-parameter: #36c9ac;
+  --token-error: #f99f9f;
+
 }
 :root[data-theme="light"][data-syntax-theme="github"] {
   color-scheme: light;
@@ -240,12 +261,19 @@
   --token-keyword: #cf222e;
   --token-string: #0a3069;
   --token-number: #0550ae;
-  --token-literal: #0550ae;
-  --token-constant: #804dde;
+  --token-literal: #a12b66;
+  --token-constant: #813d8f;
   --token-tag: #116329;
   --token-function: #804dde;
   --token-type: #953800;
-  --token-decorator: #804dde;
+  --token-decorator: #6e6002;
+  --token-namespace: #824f2b;
+  --token-interface: #02781a;
+  --token-property: #6c4c76;
+  --token-variable: #056494;
+  --token-parameter: #166455;
+  --token-error: #a13639;
+
 }
 :root[data-theme="dark"][data-syntax-theme="darcula"] {
   color-scheme: dark;
@@ -290,12 +318,19 @@
   --token-keyword: #dea679;
   --token-string: #a2b994;
   --token-number: #95b6cf;
-  --token-literal: #dea679;
+  --token-literal: #f39bc7;
   --token-constant: #bfaacb;
   --token-tag: #e8bf6a;
   --token-function: #ffc66d;
   --token-type: #a9b7c6;
   --token-decorator: #bcb629;
+  --token-namespace: #fddcc4;
+  --token-interface: #73c985;
+  --token-property: #e29ff9;
+  --token-variable: #4bc1fb;
+  --token-parameter: #5ec9b4;
+  --token-error: #f2a6a6;
+
 }
 :root[data-theme="light"][data-syntax-theme="darcula"] {
   color-scheme: light;
@@ -340,12 +375,19 @@
   --token-keyword: #0033b3;
   --token-string: #067816;
   --token-number: #1750eb;
-  --token-literal: #0033b3;
+  --token-literal: #8f285c;
   --token-constant: #871094;
-  --token-tag: #0033b3;
+  --token-tag: #335918;
   --token-function: #00627a;
   --token-type: #000000;
   --token-decorator: #77670a;
+  --token-namespace: #823e0d;
+  --token-interface: #117338;
+  --token-property: #6e3781;
+  --token-variable: #05529e;
+  --token-parameter: #025a48;
+  --token-error: #952d34;
+
 }
 :root[data-theme="dark"][data-syntax-theme="solarized"] {
   color-scheme: dark;
@@ -390,12 +432,19 @@
   --token-keyword: #8fa500;
   --token-string: #2daca2;
   --token-number: #e279ab;
-  --token-literal: #e279ab;
+  --token-literal: #bf92a8;
   --token-constant: #9095db;
-  --token-tag: #4ba2df;
+  --token-tag: #7ea960;
   --token-function: #4ba2df;
   --token-type: #c39400;
   --token-decorator: #9296d3;
+  --token-namespace: #d48f5e;
+  --token-interface: #36b54f;
+  --token-property: #c986df;
+  --token-variable: #19abc8;
+  --token-parameter: #06b27e;
+  --token-error: #e58080;
+
 }
 :root[data-theme="light"][data-syntax-theme="solarized"] {
   color-scheme: light;
@@ -440,12 +489,19 @@
   --token-keyword: #5f6d00;
   --token-string: #1d726c;
   --token-number: #bc2970;
-  --token-literal: #bc2970;
+  --token-literal: #964a70;
   --token-constant: #595eb7;
-  --token-tag: #1e6ba2;
+  --token-tag: #4e6a39;
   --token-function: #1e6ba2;
   --token-type: #826200;
   --token-decorator: #575dbc;
+  --token-namespace: #97542b;
+  --token-interface: #05761b;
+  --token-property: #814f92;
+  --token-variable: #286d86;
+  --token-parameter: #06744c;
+  --token-error: #a4464a;
+
 }
 :root[data-theme="dark"][data-syntax-theme="dracula"] {
   color-scheme: dark;
@@ -490,12 +546,19 @@
   --token-keyword: #ff79c6;
   --token-string: #f1fa8c;
   --token-number: #bd93f9;
-  --token-literal: #bd93f9;
-  --token-constant: #bd93f9;
-  --token-tag: #ff79c6;
+  --token-literal: #fc9ccc;
+  --token-constant: #e5b3ef;
+  --token-tag: #9ccf77;
   --token-function: #50fa7b;
   --token-type: #8be9fd;
   --token-decorator: #ffb86c;
+  --token-namespace: #e9bb9b;
+  --token-interface: #9fd0a9;
+  --token-property: #f9a5fd;
+  --token-variable: #41bdfb;
+  --token-parameter: #24dbb7;
+  --token-error: #fd8787;
+
 }
 :root[data-theme="light"][data-syntax-theme="dracula"] {
   color-scheme: light;
@@ -540,12 +603,19 @@
   --token-keyword: #a3144d;
   --token-string: #776313;
   --token-number: #644ac9;
-  --token-literal: #644ac9;
+  --token-literal: #9f3880;
   --token-constant: #7d3fc4;
-  --token-tag: #a3144d;
+  --token-tag: #486a2f;
   --token-function: #14710a;
   --token-type: #036a96;
   --token-decorator: #a24c14;
+  --token-namespace: #865532;
+  --token-interface: #097236;
+  --token-property: #7c4ba0;
+  --token-variable: #0a61b8;
+  --token-parameter: #026e58;
+  --token-error: #ab3636;
+
 }
 :root[data-theme="dark"][data-syntax-theme="contrast"] {
   color-scheme: dark;
@@ -590,12 +660,19 @@
   --token-keyword: #6ab7ff;
   --token-string: #ffb38a;
   --token-number: #b8f0a0;
-  --token-literal: #b8f0a0;
+  --token-literal: #f8b5d6;
   --token-constant: #d7a3ff;
-  --token-tag: #6ab7ff;
+  --token-tag: #93de5e;
   --token-function: #ffe58a;
   --token-type: #6ff0d8;
   --token-decorator: #f09aeb;
+  --token-namespace: #fcb155;
+  --token-interface: #afd4b7;
+  --token-property: #e5bdfa;
+  --token-variable: #5fd7fc;
+  --token-parameter: #05e6aa;
+  --token-error: #fd9b9e;
+
 }
 :root[data-theme="light"][data-syntax-theme="contrast"] {
   color-scheme: light;
@@ -640,12 +717,19 @@
   --token-keyword: #0000d4;
   --token-string: #96000f;
   --token-number: #0a6b3d;
-  --token-literal: #0a6b3d;
+  --token-literal: #a00352;
   --token-constant: #6b21a8;
-  --token-tag: #0000d4;
+  --token-tag: #2d5610;
   --token-function: #6b4a00;
   --token-type: #005f6b;
   --token-decorator: #8a007a;
+  --token-namespace: #944105;
+  --token-interface: #03300c;
+  --token-property: #6c3b7d;
+  --token-variable: #0346aa;
+  --token-parameter: #035948;
+  --token-error: #863232;
+
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; min-height: 100%; }
@@ -2962,6 +3046,29 @@ body.dock-maximized .dock-panel { inset: 0; width: auto; max-height: none; trans
 .tok-function { color: var(--token-function); }
 .tok-type { color: var(--token-type); }
 .tok-decorator { color: var(--token-decorator); font-style: italic; }
+.tok-escape { color: var(--token-string); font-weight: 650; }
+.tok-regexp { color: var(--token-string); font-style: italic; }
+.tok-error { color: var(--token-error); text-decoration: underline wavy; }
+.tok-format { color: var(--token-number); font-weight: 650; }
+.tok-builtin-type { color: var(--token-keyword); }
+.tok-type-alias { color: var(--token-type); font-style: italic; }
+.tok-self { color: var(--token-keyword); font-style: italic; }
+.tok-interface { color: var(--token-interface); }
+.tok-enum { color: var(--token-interface); font-weight: 650; }
+.tok-typeparam { color: var(--token-interface); font-style: italic; }
+.tok-namespace { color: var(--token-namespace); }
+.tok-method { color: var(--token-function); font-weight: 650; }
+.tok-macro { color: var(--token-decorator); font-weight: 650; }
+.tok-property { color: var(--token-property); }
+.tok-variable { color: var(--token-variable); }
+.tok-parameter { color: var(--token-parameter); }
+.tok-global { color: var(--token-constant); font-style: italic; }
+.tok-lifetime { color: var(--token-tag); font-style: italic; }
+.tok-label { color: var(--token-tag); }
+.tokmod-static { font-style: italic; }
+.tokmod-deprecated { text-decoration: line-through; }
+.tokmod-mutable { text-decoration: underline; }
+.tokmod-documentation { font-style: italic; }
 .tok-anchor { color: var(--token-type); font-style: italic; }
 .tok-alias { color: var(--token-function); font-style: italic; text-decoration: underline; }
 .quick-open {

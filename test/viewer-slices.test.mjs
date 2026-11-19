@@ -123,5 +123,9 @@ test("a fact the whole viewer asks about has exactly one reader", () => {
   only("the speed-search match rule", "matchesQueryVariants()",
     sitesOf(/minusculeMatchesQuery\(/, [/^function minusculeMatchesQuery/]));
 
+  only("what a token kind looks like", "semanticTokenSpanClass()", sitesOf(/semanticTokenClasses\(\)\[/));
+  only("whether a file may be painted from the server's answer", "semanticTokensForFile()",
+    sitesOf(/semanticTokensFor\(/, [/function semanticTokensFor/, /semanticTokensForFile\(/]));
+
   assert.deepEqual(problems, [], "a fact grew a second reader:\n  " + problems.join("\n  "));
 });

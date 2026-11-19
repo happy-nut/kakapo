@@ -46,11 +46,17 @@ export const SEMANTIC_TOKEN_TYPES = [
   "string", "number", "regexp", "operator", "decorator",
 ];
 
+export const SEMANTIC_TOKEN_MODIFIERS = [
+  "declaration", "definition", "readonly", "static", "deprecated", "abstract", "async", "modification",
+  "documentation", "defaultLibrary",
+];
+
 export type AnalysisSemanticToken = {
   lineIndex: number;
   startColumn: number;
   length: number;
   type: string;
+  modifiers?: string[];
 };
 
 export type AnalysisSymbol = {
@@ -615,6 +621,7 @@ export class LspClient {
   private opened = new Map<string, { mtimeMs: number; version: number; end: { line: number; character: number } }>();
   private documentSync = new Map<string, Promise<void>>();
   private semanticTokenTypes: string[] | null = null;
+  private semanticTokenModifiers: string[] = [];
   private stopped = false;
   private workspaceQuiescent = false;
   private workspaceWaiters = new Set<() => void>();
@@ -789,6 +796,7 @@ export class LspClient {
     }
     const data = (result as { data?: unknown })?.data;
     if (!Array.isArray(data)) return { supported: true, tokens: [] };
+    const modifierLegend = this.semanticTokenModifiers;
     const tokens: AnalysisSemanticToken[] = [];
     let line = 0;
     let column = 0;
@@ -802,7 +810,17 @@ export class LspClient {
       column = deltaLine === 0 ? column + deltaStart : deltaStart;
       const type = legend[typeIndex];
       if (!type || length <= 0) continue;
-      tokens.push({ lineIndex: Math.max(0, line), startColumn: Math.max(0, column), length, type });
+      const bits = Number(data[i + 4]);
+      const modifiers = Number.isFinite(bits) && bits > 0
+        ? modifierLegend.filter((_, index) => (bits & (1 << index)) !== 0)
+        : [];
+      tokens.push({
+        lineIndex: Math.max(0, line),
+        startColumn: Math.max(0, column),
+        length,
+        type,
+        ...(modifiers.length ? { modifiers } : {}),
+      });
     }
     return { supported: true, tokens };
   }
@@ -1173,15 +1191,18 @@ export class LspClient {
               requests: { full: true, range: false },
               formats: ["relative"],
               tokenTypes: SEMANTIC_TOKEN_TYPES,
-              tokenModifiers: [],
+              tokenModifiers: SEMANTIC_TOKEN_MODIFIERS,
             },
           },
         },
       }).then((result) => {
-        const provider = (result as { capabilities?: { semanticTokensProvider?: { legend?: { tokenTypes?: unknown } } } })
-          ?.capabilities?.semanticTokensProvider;
+        const provider = (result as {
+          capabilities?: { semanticTokensProvider?: { legend?: { tokenTypes?: unknown; tokenModifiers?: unknown } } };
+        })?.capabilities?.semanticTokensProvider;
         const types = provider?.legend?.tokenTypes;
+        const modifiers = provider?.legend?.tokenModifiers;
         this.semanticTokenTypes = Array.isArray(types) ? types.map((entry) => String(entry)) : null;
+        this.semanticTokenModifiers = Array.isArray(modifiers) ? modifiers.map((entry) => String(entry)) : [];
         this.notify("initialized", {});
         this.notify("workspace/didChangeConfiguration", { settings: WORKSPACE_SETTINGS[this.server.family] ?? {} });
         if (!settled) { settled = true; resolveStart(); }

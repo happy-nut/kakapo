@@ -497,6 +497,22 @@ controller, a bean and its XML); `⌘⇧T` is the part of it that generalises to
 the sidebar at the file you are in rather than IntelliJ's breadcrumb popup — the sidebar *is* kakapo's
 navigation bar, so it is the same gesture rather than a second surface for it.
 
+## What the colours mean
+
+Two things colour code here, and they work together rather than taking turns. The built-in tokenizer
+colours by spelling — keywords, strings, numbers, comments — and on top of that the language server's
+answer names what each identifier actually is: a field, a local, a parameter, a method, an enum constant,
+a type alias and a type parameter each get their own, a `static` member is slanted, a deprecated one is
+struck through, a mutable one underlined, a doc comment set in italic. Those are the devices IntelliJ uses
+for the same distinctions. Everything a server sends is painted; punctuation and operators are left the
+editor's own colour on purpose, because that is what IntelliJ's own schemes do.
+
+The diff gets the same treatment. A changed line on the right is painted from the server's answer for the
+file on disk, and an unchanged line on the left is painted from its twin on the right when the two read
+the same; a line the change rewrote keeps the spelling-only colours, because the server knows nothing
+about the revision it came from. Nothing already in the diff is given up for it — the marks on the
+characters that differ, and the trailing-whitespace marks, survive the repaint.
+
 ## Reading a diff
 
 The diff is side by side, with the characters that actually differ marked inside each changed line, and a
