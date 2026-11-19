@@ -57,7 +57,13 @@ node .claude/skills/verify-kakapo/caret-chords.mjs                      # what e
 node .claude/skills/verify-kakapo/compare-tip.mjs                       # the compare menu tells the truth (CMP-3/7)
 node .claude/skills/verify-kakapo/worktree-cache.mjs                    # a sibling worktree reuses the index
 node .claude/skills/verify-kakapo/clangd-index-hidden.mjs               # a server's own index stays out of the review
+node .claude/skills/verify-kakapo/statement-keywords.mjs                # synchronized/lock/foreach are not declarations
 ```
+
+The renderer's own scan (`findSymbolDefinition`) reads only the files it has materialised, so a script
+that asks it about a file nobody opened gets `null` for every name, including ones that plainly exist.
+Open the file first (`openSourceFile`, then wait on `sourceOpenPath()`), and open the file you want
+scanned, because the index answers before the renderer ever gets a turn.
 
 `drive()` takes an options object as its fourth argument; `{ args: ["--include-untracked"] }` reaches the
 CLI, which is the only way to turn on a flag the window has no control for.
