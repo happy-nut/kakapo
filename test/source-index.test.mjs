@@ -27,4 +27,7 @@ test("enumerateProjectPaths: tracked + untracked source candidates, sorted, incl
   assert.ok(paths.includes("src/keep.ts"), "the changed file is enumerated");
   assert.ok(paths.includes("lib/other.ts"), "an unchanged source candidate is enumerated too (full-tree index)");
   assert.deepEqual(paths, [...paths].sort((a, b) => a.localeCompare(b)), "output is locale-sorted for stable order");
+
+  assert.ok(enumerateProjectPaths(dir, new Set(["dist/bundle.js"])).includes("dist/bundle.js"),
+    "a file you changed is reachable even where the tree would never offer it, which is why changed is added unfiltered");
 });
