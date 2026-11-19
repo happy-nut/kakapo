@@ -422,6 +422,18 @@ var RETURN_TYPE_BEFORE_NAME = '(?!(?:new|typedef|co_await|co_return|co_yield|emi
   + '[A-Za-z_$][A-Za-z0-9_$]*(?:\\.[A-Za-z_$][A-Za-z0-9_$]*)*(?:<(?:[^<>()]|<[^<>()]*>)*>)?(?:\\[\\s*\\]|[*?])*';
 var RETURN_TYPE_BEFORE_NAME_EXTENSIONS = /\.(?:java|cs|c|h|cc|cpp|cxx|hpp|hxx)$/i;
 
+var STATEMENT_HEADS = [
+  { extensions: /\.(?:java|kt)$/i, name: /^synchronized$/ },
+  { extensions: /\.cs$/i, name: /^(?:lock|fixed|checked|unchecked|unsafe|using|foreach)$/ },
+];
+
+function isStatementHeadInFile(path, name) {
+  for (var at = 0; at < STATEMENT_HEADS.length; at += 1) {
+    if (STATEMENT_HEADS[at].extensions.test(path) && STATEMENT_HEADS[at].name.test(name)) return true;
+  }
+  return false;
+}
+
 function returnTypeMethodMatcher(name) {
   return new RegExp('^\\s*(?:' + RETURN_TYPE_BEFORE_NAME + '\\s+)+' + escapeRegExp(name)
     + '\\s*\\((?<parameters>[^)]*)\\)\\s*(?::\\s*[^=]+)?\\s*(?:\\{|=>|;)');
@@ -439,7 +451,10 @@ function findSymbolDefinition(name) {
 
   for (const file of orderedFiles) {
     const lines = file.content.split(/\r?\n/);
-    const forFile = RETURN_TYPE_BEFORE_NAME_EXTENSIONS.test(file.path) ? withReturnType : matchers;
+    const everyMatcher = RETURN_TYPE_BEFORE_NAME_EXTENSIONS.test(file.path) ? withReturnType : matchers;
+    const forFile = isStatementHeadInFile(file.path, name)
+      ? everyMatcher.filter((matcher) => !matcher.refusesStatementHead)
+      : everyMatcher;
     for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
       const line = lines[lineIndex];
       if (semanticCommentOnlyLine(line)) continue;
@@ -449,6 +464,13 @@ function findSymbolDefinition(name) {
     }
   }
   return null;
+}
+
+function plainMethodMatcher(escaped) {
+  var funMod = '(?:(?:public|private|protected|internal|abstract|final|open|override|suspend|inline|operator|static|async)\\s+)*';
+  var matcher = new RegExp('^\\s*' + funMod + escaped + '\\s*\\((?<parameters>[^)]*)\\)\\s*(?::\\s*[^=]+)?\\s*(?:\\{|=>)');
+  matcher.refusesStatementHead = true;
+  return matcher;
 }
 
 function definitionMatchers(name) {
@@ -464,7 +486,7 @@ function definitionMatchers(name) {
     new RegExp('^\\s*(?:export\\s+)?(?:interface|type|enum)\\s+' + escaped + '\\b'),
     new RegExp('^\\s*(?:export\\s+)?(?:const|let|var|val)\\s+' + escaped + '\\b'),
     new RegExp('^\\s*' + funMod + '(?:fun|def|fn|func)\\s+' + escaped + '\\b'),
-    new RegExp('^\\s*' + funMod + escaped + '\\s*\\((?<parameters>[^)]*)\\)\\s*(?::\\s*[^=]+)?\\s*(?:\\{|=>)'),
+    plainMethodMatcher(escaped),
     new RegExp('^\\s*' + escaped + '\\s*[:=]\\s*(?:async\\s*)?(?:function\\b|\\([^)]*\\)\\s*=>)'),
   ]);
 }
