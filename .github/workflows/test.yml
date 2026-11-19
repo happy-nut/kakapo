@@ -12,6 +12,31 @@ on:
   workflow_dispatch: {}
 
 jobs:
+  # GitHub reads [skip ci] out of the SQUASHED commit message, and a squash merge collects every commit
+  # subject on the branch into that message. So a branch that carries a `chore(release): vX [skip ci]`
+  # commit — which is what merging main into a feature branch pulls in — silently stops auto-release.yml
+  # from running at all once it lands. The fix lands, no release follows, and nothing reports it.
+  no-skip-ci-on-the-branch:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Refuse a branch whose commits would mute the merge commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          subjects=$(gh pr view "$PR" --repo "$GITHUB_REPOSITORY" --json commits \
+            --jq '.commits[].messageHeadline')
+          muted=$(printf '%s\n' "$subjects" | grep -iE '\[(skip ci|ci skip)\]' || true)
+          if [ -n "$muted" ]; then
+            echo "These commits would be collected into the squashed merge message and stop the release:"
+            printf '%s\n' "$muted"
+            echo
+            echo "Rebase the branch onto main instead of merging main into it, or open a fresh branch."
+            exit 1
+          fi
+          echo "no commit on this branch carries a skip-ci marker"
+
   test:
     runs-on: ubuntu-latest
     strategy:
