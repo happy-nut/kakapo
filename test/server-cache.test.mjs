@@ -188,6 +188,12 @@ test("an index a language server wrote into the reviewed project never reaches t
     "an untracked source file is still an addition, so the review has something to lose");
   assert.equal(diff.includes(".cache/clangd"), false,
     "clangd writes its index into the project and kakapo launched it, so the user must not meet it as a diff");
+
+  git(["add", "-f", ".cache"]);
+  git(["commit", "-qm", "track the index on purpose"]);
+  writeFileSync(join(root, ".cache", "clangd", "index", "main.c.51B8DF90E4B3D1D7.idx"), "a second pass\n");
+  assert.ok(readUnifiedDiff({ root, includeUntracked: true, context: 3, staged: false }).includes(".cache/clangd"),
+    "what is hidden is what a tool wrote behind the user, not a path they chose to commit");
 });
 
 test("a server still indexing does not keep rebuilding the review behind the user", () => {
