@@ -40,6 +40,13 @@ Every behavior change should include:
 
 When adding a command, update `printHelp` in `src/commands.ts` and both READMEs.
 
+A branch that carries a `chore(release): vX [skip ci]` commit mutes the release once it lands. GitHub
+reads `[skip ci]` out of the squashed merge message, and a squash merge collects every commit subject on
+the branch into that message, so `auto-release.yml` never runs: the fix is on `main`, no version follows,
+and nothing reports it. Merging `main` into a feature branch is how that commit gets there — rebase onto
+`main` instead, or open a fresh branch. The `no-skip-ci-on-the-branch` job in `.github/workflows/test.yml`
+refuses such a pull request, reading the commit list from the same place GitHub builds the message from.
+
 A keyboard shortcut is a row in `src/shortcuts.ts` and nothing else — the Settings sheet renders that
 table, the viewer dispatches from it, and a control advertises one with `data-keyhint-id`, so a chord
 written anywhere else is a copy that will drift. Give the row its label in `src/i18n.ts` (both locales)
