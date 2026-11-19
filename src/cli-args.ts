@@ -22,6 +22,11 @@ function whitespaceMode(value: string | undefined, legacyIgnore: boolean): White
   return legacyIgnore ? "all" : "none";
 }
 
+export function runtimeArgv(argv: string[], packaged: boolean): string[] {
+  const ENTRY_SCRIPT_IS_ITS_OWN_ARGUMENT = !packaged;
+  return argv.slice(ENTRY_SCRIPT_IS_ITS_OWN_ARGUMENT ? 2 : 1);
+}
+
 export function parseReviewArgs(args: string[]): ParsedReviewArgs {
   const staged = args.includes("--staged");
   const baseValue = readOption(args, "--base");

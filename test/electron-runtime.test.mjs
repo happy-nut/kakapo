@@ -1,4 +1,5 @@
 import { test } from "node:test";
+import { runtimeArgv } from "../dist/cli-args.js";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -92,10 +93,19 @@ test("running Electron main process never mutates its own macOS app bundle", () 
 });
 
 test("the packaged app preserves --cwd while development skips the app-main entry", () => {
+  assert.deepEqual(
+    runtimeArgv(["/Applications/Kakapo.app/Contents/MacOS/Kakapo", "--cwd", "/repo", "--staged"], true),
+    ["--cwd", "/repo", "--staged"],
+    "a packaged app has no entry script of its own, so discarding two entries ate --cwd and landed scripted relaunches on the welcome screen");
+  assert.deepEqual(
+    runtimeArgv(["/node_modules/electron/dist/electron", "/repo/dist/app-main.js", "--cwd", "/repo"], false),
+    ["--cwd", "/repo"],
+    "development runs the entry script as an argument of the electron binary");
+  assert.deepEqual(runtimeArgv(["/Applications/Kakapo.app/Contents/MacOS/Kakapo"], true), []);
+
   const source = readFileSync(join(repoRoot, "src", "app-main.ts"), "utf8");
-  assert.match(source, /app\.isPackaged\s*\?\s*process\.argv\.slice\(1\)\s*:\s*process\.argv\.slice\(2\)/,
-    "packaged argv has no app-main.js entry to discard");
-  assert.match(source, /parseArgs\(runtimeArgs\)/);
+  assert.match(source, /parseArgs\(runtimeArgv\(process\.argv, app\.isPackaged\)\)/,
+    "and the one caller asks that function rather than slicing argv itself");
 });
 
 test("the welcome screen cannot overflow upward beneath macOS traffic lights", () => {

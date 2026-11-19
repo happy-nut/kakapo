@@ -23,7 +23,7 @@ import { resolveReadMark, usableCompareBase } from "./patch-sets.js";
 import { handoffRoot } from "./handoff.js";
 import { localRevisionFor, lookupPullRequest, parsePullRequestRef, remoteSlug } from "./github-pr.js";
 import { decideWatchTick, shouldPushUpdate } from "./watch-decision.js";
-import { compareSelectionFor, parseReviewArgs, readOption } from "./cli-args.js";
+import { compareSelectionFor, parseReviewArgs, readOption, runtimeArgv } from "./cli-args.js";
 import { ByteBudgetCache, errorMessage, escapeAttr, escapeHtml } from "./util.js";
 import { AppPreferences } from "./app-preferences.js";
 import { compareDefaultRef, registerReviewIpc } from "./app-review-ipc.js";
@@ -172,11 +172,7 @@ function windowIconExceptWhereTheBundleSuppliesIt(): string | undefined {
 const windowIcon = windowIconExceptWhereTheBundleSuppliesIt();
 const preloadPath = join(dirname(fileURLToPath(import.meta.url)), "preload.cjs");
 
-function argvAfterTheExecutableAndEntryScript(): string[] {
-  const ENTRY_SCRIPT_IS_ITS_OWN_ARGUMENT = !app.isPackaged;
-  return process.argv.slice(ENTRY_SCRIPT_IS_ITS_OWN_ARGUMENT ? 2 : 1);
-}
-const options = parseArgs(argvAfterTheExecutableAndEntryScript());
+const options = parseArgs(runtimeArgv(process.argv, app.isPackaged));
 const hasSingleInstanceLock = app.requestSingleInstanceLock({ workspaceRoot: options.root, explicitRoot: options.explicitRoot });
 const states = new Map<number, WinState>();
 const reviewBuilder = new ReviewBuilder();
