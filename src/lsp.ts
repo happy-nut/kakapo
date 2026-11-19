@@ -1,9 +1,8 @@
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readlinkSync, realpathSync, statSync } from "node:fs";
 import { delimiter, extname, join, relative, resolve } from "node:path";
-import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { markServerCacheUsed, serverCacheDirectory } from "./server-cache.js";
 import { errorMessage, executable, languageForPath, readTextFile } from "./util.js";
 
 export type AnalysisFoldingRange = {
@@ -207,6 +206,7 @@ export type LanguageServerCommand = {
   args: string[];
   source?: "override" | "project" | "bundled";
   env?: NodeJS.ProcessEnv;
+  cacheDirectory?: string;
 };
 
 type JsonRpcMessage = {
@@ -381,10 +381,6 @@ function bundledRoot(env: NodeJS.ProcessEnv): string {
   return env.KAKAPO_LSP_BUNDLE_ROOT || DEFAULT_BUNDLED_SERVER_ROOT;
 }
 
-function projectCacheKey(root: string): string {
-  return createHash("sha256").update(resolve(root)).digest("hex").slice(0, 16);
-}
-
 const SYSTEM_TOOL_PATH = "/usr/bin:/bin:/usr/sbin:/sbin";
 
 function bundledNativeCommand(family: string, context: BundledServerContext): LanguageServerCommand | undefined {
@@ -397,16 +393,18 @@ function bundledNativeCommand(family: string, context: BundledServerContext): La
     const command = join(base, "go", "bin", "gopls");
     const goBin = join(base, "go", "bin");
     if (!executable(command)) return undefined;
+    const cacheDirectory = serverCacheDirectory(family, context.root);
     return {
       family,
       name: "gopls",
       command,
       args: [],
       source: "bundled",
+      cacheDirectory,
       env: {
         GOROOT: join(base, "go"),
-        GOCACHE: join(tmpdir(), "kakapo-go", projectCacheKey(context.root), "build"),
-        GOMODCACHE: join(tmpdir(), "kakapo-go", projectCacheKey(context.root), "modules"),
+        GOCACHE: join(cacheDirectory, "build"),
+        GOMODCACHE: join(cacheDirectory, "modules"),
         PATH: `${goBin}${delimiter}${SYSTEM_TOOL_PATH}`,
       },
     };
@@ -417,13 +415,15 @@ function bundledNativeCommand(family: string, context: BundledServerContext): La
     const rustupHome = join(base, "rustup");
     const cargo = join(cargoHome, "bin", "cargo");
     if (!executable(command) || !executable(cargo)) return undefined;
+    const cacheDirectory = serverCacheDirectory(family, context.root);
     return {
       ...resolvedCommand(family, "rust-analyzer", command, [], "bundled"),
+      cacheDirectory,
       env: {
         CARGO_HOME: cargoHome,
         RUSTUP_HOME: rustupHome,
         RUSTUP_TOOLCHAIN: "stable",
-        CARGO_TARGET_DIR: join(tmpdir(), "kakapo-rust", projectCacheKey(context.root), "target"),
+        CARGO_TARGET_DIR: join(cacheDirectory, "target"),
         PATH: `${join(cargoHome, "bin")}${delimiter}${SYSTEM_TOOL_PATH}`,
       },
     };
@@ -439,7 +439,7 @@ function bundledNativeCommand(family: string, context: BundledServerContext): La
     const launcher = join(base, "jdtls", "plugins", "org.eclipse.equinox.launcher.jar");
     const configuration = join(base, "jdtls", "config_mac");
     if (!executable(java) || !existsSync(launcher) || !existsSync(configuration)) return undefined;
-    const data = join(tmpdir(), "kakapo-jdtls", projectCacheKey(context.root));
+    const data = serverCacheDirectory(family, context.root);
     return {
       family,
       name: "eclipse-jdtls",
@@ -459,32 +459,38 @@ function bundledNativeCommand(family: string, context: BundledServerContext): La
         "-data", data,
       ],
       source: "bundled",
+      cacheDirectory: data,
       env: { JAVA_HOME: javaHome },
     };
   }
   if (family === "kotlin") {
     const command = join(base, "bin", "intellij-server");
-    const systemPath = join(tmpdir(), "kakapo-kotlin", projectCacheKey(context.root));
+    const systemPath = serverCacheDirectory(family, context.root);
     return executable(command)
-      ? resolvedCommand(family, "kotlin-lsp", command, ["--stdio", "--system-path", systemPath], "bundled")
+      ? { ...resolvedCommand(family, "kotlin-lsp", command, ["--stdio", "--system-path", systemPath], "bundled"), cacheDirectory: systemPath }
       : undefined;
   }
   if (family === "ruby") {
     const command = join(base, "sorbet");
+    const sorbetCache = serverCacheDirectory(family, context.root);
     return executable(command)
-      ? resolvedCommand(family, "sorbet", command, [
-        "--lsp", "--disable-watchman", "--cache-dir", join(tmpdir(), "kakapo-sorbet", projectCacheKey(context.root)), "--dir", ".",
-        "--enable-experimental-lsp-document-highlight",
-      ], "bundled")
+      ? {
+        ...resolvedCommand(family, "sorbet", command, [
+          "--lsp", "--disable-watchman", "--cache-dir", sorbetCache, "--dir", ".",
+          "--enable-experimental-lsp-document-highlight",
+        ], "bundled"),
+        cacheDirectory: sorbetCache,
+      }
       : undefined;
   }
   if (family === "php") {
     const command = join(base, "php");
     const phpactor = join(base, "phpactor.phar");
-    const cacheRoot = join(tmpdir(), "kakapo-phpactor", projectCacheKey(context.root));
+    const cacheRoot = serverCacheDirectory(family, context.root);
     return executable(command) && existsSync(phpactor)
       ? {
         ...resolvedCommand(family, "phpactor", command, [phpactor, "language-server"], "bundled"),
+        cacheDirectory: cacheRoot,
         env: {
           XDG_CACHE_HOME: join(cacheRoot, "cache"),
           XDG_CONFIG_HOME: join(cacheRoot, "config"),
@@ -1136,6 +1142,7 @@ export class LspClient {
     if (this.started) return this.started;
     this.started = new Promise<void>((resolveStart, rejectStart) => {
       let settled = false;
+      if (this.server.cacheDirectory) markServerCacheUsed(this.server.cacheDirectory);
       const child = spawn(this.server.command, this.server.args, {
         cwd: this.root,
         env: { ...process.env, ...this.server.env },

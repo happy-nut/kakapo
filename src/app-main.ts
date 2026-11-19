@@ -5,16 +5,17 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, net, protocol, shell } from "electron";
 import type { WebContents } from "electron";
-import { commonGitDir, git, gitAsync, isBranchRef, isCommitSha, isGitRepository, resolveWorkspaceRoot, validateReviewBase } from "./git.js";
+import { git, gitAsync, isBranchRef, isCommitSha, isGitRepository, resolveWorkspaceRoot, validateReviewBase } from "./git.js";
 import { renderWelcomeHtml } from "./render.js";
 import { makeTranslator, normalizeLocale, type Locale } from "./i18n.js";
 import { relaunchUpdatedApp, selfUpdateInstallAttempts } from "./self-update.js";
 import { bundlePathFor, installPackagedUpdate, isNewerVersion, macDmgAsset } from "./app-update.js";
 import { openSymbolCache } from "./analysis-cache.js";
+import { reclaimServerCaches } from "./server-cache.js";
 import { ProjectAnalysis } from "./analysis.js";
 import { ReviewPerformanceTrace } from "./perf.js";
 import type { SourceFile, WhitespaceMode } from "./types.js";
-import { workspaceDataDirectory, workspaceReviewFile, workspaceSymbolCacheFile } from "./workspace-data.js";
+import { repositorySymbolCacheFile, workspaceDataDirectory, workspaceReviewFile } from "./workspace-data.js";
 import { kakapoIconCssVariable, kakapoIconHtml } from "./brand.js";
 import { reviewBodyCount, reviewDiffSignature } from "./review-bodies.js";
 import { ReviewBuilder, type BuildSnapshot } from "./review-builder.js";
@@ -637,6 +638,11 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
   const first = createWindow(options.root, options.explicitRoot);
   first.options.openPath = options.openPath;
   setInterval(watchLspWeight, LSP_WATCHDOG_MS);
+  setTimeout(() => {
+    reclaimServerCaches().then((reclaimed) => {
+      if (reclaimed.length) console.error(`[kakapo] reclaimed ${reclaimed.length} language-server caches unused for 30 days`);
+    }, () => { });
+  }, SERVER_CACHE_RECLAIM_DELAY_MS).unref?.();
 }).catch((error: unknown) => {
   console.error(errorMessage(error));
   app.quit();
@@ -819,6 +825,7 @@ function buildApplicationMenu(): void {
 
 const LSP_FLEET_BUDGET_MB = 900;
 const LSP_TOTAL_BUDGET_MB = 2400;
+const SERVER_CACHE_RECLAIM_DELAY_MS = 20_000;
 const LSP_WATCHDOG_MS = 5 * 60_000;
 const LSP_WEIGHT_EXEMPT_FAMILIES = new Set(["kotlin"]);
 
@@ -894,6 +901,8 @@ function makeAnalysis(root: string, getState: () => WinState | undefined): Proje
         source: status.serverSource ?? "",
         cacheHits: cache?.hits ?? 0,
         cacheMisses: cache?.misses ?? 0,
+        indexedFiles: status.indexedFiles ?? 0,
+        reusedFiles: status.reusedFiles ?? 0,
       });
     },
   });
@@ -901,8 +910,7 @@ function makeAnalysis(root: string, getState: () => WinState | undefined): Proje
 }
 
 function symbolCacheFile(root: string): string {
-  const shared = commonGitDir(root).replace(/[\\/]\.git$/, "");
-  return workspaceSymbolCacheFile(app.getPath("userData"), shared || root);
+  return repositorySymbolCacheFile(app.getPath("userData"), root);
 }
 
 function createWindow(root: string, explicitRoot = true): WinState {

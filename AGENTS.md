@@ -136,6 +136,38 @@ occurrences only by `scanUsageLine()`, and a typed query's match only by `matche
 for the accessor rather than the DOM or the formula; if you genuinely need a second reader, change the
 rule in that test and say why there.
 
+An analysis that survives a worktree switch is two caches, keyed differently on purpose. The symbol
+index's store is keyed by `(extension, content)` and lives once per repository: `commonGitDir` resolves a
+worktree to the checkout it came from, and that is the only reason a sibling is served rather than
+re-scanned. `repositorySymbolCacheFile` is the one place that resolution happens and
+`test/symbol-cache-worktrees.test.mjs` holds it. A language server's cache is keyed by what that server
+stores, and `src/server-cache.ts` declares a scope per family rather than letting each branch of
+`bundledNativeCommand` spell a path. `shared` and `worktree` are not a preference: gopls's build and
+module caches are content-addressed, and a sibling worktree rebuilt the same tree an order of magnitude
+faster against a shared one, while two checkouts sharing `CARGO_TARGET_DIR` made a worktree with a live
+type error report zero errors. `test/server-cache.test.mjs` keeps the reason beside every row, and fails
+both for a family that builds a cache path of its own and for a scope with no reason written for it.
+
+Those directories are reclaimed by their own mtime, which is why `start()` touches
+`server.cacheDirectory` before it spawns. The key is a one-way hash of the worktree path, so nothing can
+ask which checkout a directory belonged to; a sweep that could not see it opened would delete a live one.
+Before the table there were hundreds of them and gigabytes, with nothing able to tell which were dead.
+
+`npm run index:bench [path…]` is the measurement and the gate. It prints a launch split into walk, read,
+hash, scan and flush for cold, warm, sibling-worktree and edited-tree runs, and exits non-zero when a
+served index differs from a scanned one, when a run disagrees with its own repeats, or when text a
+worktree edited is served from what the cache held for it. That last check is the one that earned its
+keep: written against a sibling at `HEAD` it passed with the cache key deliberately broken, because the
+fixture and `HEAD` were the same text and a wrong answer had nowhere to show. Compare old against new on
+one tree — the index scans the working tree, so a number taken on one checkout does not compare with a
+number taken on another.
+
+What the bench measures and nobody has bought: a manifest of `(mtime, size)` so an unchanged file skips
+the read and the hash. The read and the hash are most of a warm launch, and `stat` is a fraction of them,
+but the index's own consumers need the content and every record's declaration text, so the saving is paid
+for by making both lazy and by trusting mtime — whose failure is not a slow launch but a jump to a line
+that is not there. Re-measure with the bench before deciding again.
+
 Two checks live outside the suite because the suite cannot reach what they answer, and both are project
 skills under `.claude/skills/`.
 

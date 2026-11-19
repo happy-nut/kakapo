@@ -684,6 +684,12 @@ npm run dist:mac:dmg
 
 성능은 `npm run benchmark`(`-- --files 5000 --changed 200 --lines 120`으로 더 큰 합성 저장소)로 측정합니다.
 
+창을 여는 비용은 `npm run index:bench -- <경로…>`로 봅니다. 프로젝트 인덱스를 짓는 동안 걷기·읽기·
+해싱·스캔·심볼 저장소 쓰기가 각각 얼마였는지를 cold·warm·형제 워크트리·파일을 바꾼 트리로 나눠
+찍고, 캐시가 돌려준 인덱스가 새로 훑은 인덱스와 다르면 실패합니다. 측정인 동시에 정확성 관문입니다.
+심볼 저장소는 한 저장소의 모든 워크트리가 함께 쓰므로, 두 번째 워크트리는 첫 번째가 훑어 둔 것을
+그대로 받아 열립니다.
+
 테스트는 실제 임시 Git 저장소와 빌드된 `dist/`를 사용해 diff, 검색, 코멘트, 히스토리, LSP 폴백, 상태 영속화, Electron 레이아웃을 회귀 검증합니다. 사용자 흐름 목록은 [test/USER_FLOWS.md](test/USER_FLOWS.md)에 있습니다. 스위트가 닿지 못하는 두 가지는 따로 있습니다: `npm run mermaid:smoke`와 `npm run nav:smoke`는 실제 앱을 띄워 Chrome DevTools Protocol로 조작합니다 — 진짜 키 이벤트, 진짜 언어 서버, 그리고 실제로 그려진 것에 대한 `getComputedStyle`. 중첩이 없는 구조 목록(tsserver는 평평한 심볼 형태로 답합니다)과 아무것도 안 그려지던 북마크 표시(의사 요소의 `attr()`은 행이 아니라 셀의 속성을 읽습니다)가 거기서 잡혔고, 둘 다 jsdom에는 보이지 않습니다. `KAKAPO_SMOKE_SHOTS=<디렉터리>`를 주면 스크린샷이 남습니다.
 
 ## 설계 원칙

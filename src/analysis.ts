@@ -125,6 +125,8 @@ export type AnalysisStatus = {
   fallbackReason?: string;
   error?: string;
   indexed?: boolean;
+  indexedFiles?: number;
+  reusedFiles?: number;
   updatedAt: string;
 };
 
@@ -191,6 +193,7 @@ export class ProjectAnalysis {
   private readonly onStatus?: (status: AnalysisStatus) => void;
   private generation = 0;
   private indexedSignatures = new Map<string, string>();
+  private indexReuse?: { indexedFiles: number; reusedFiles: number };
   private syncChain: Promise<void> = Promise.resolve();
   private status: AnalysisStatus = { generation: 0, phase: "idle", updatedAt: new Date().toISOString() };
 
@@ -279,6 +282,7 @@ export class ProjectAnalysis {
 
   invalidate(): void {
     this.indexPromise = undefined;
+    this.indexReuse = undefined;
     this.indexedSignatures.clear();
     this.generation += 1;
     this.setStatus(this.status.phase, {
@@ -446,6 +450,7 @@ export class ProjectAnalysis {
     const next: AnalysisStatus = {
       generation: this.generation,
       phase,
+      ...this.indexReuse,
       ...details,
       updatedAt: new Date().toISOString(),
     };
@@ -457,6 +462,8 @@ export class ProjectAnalysis {
       serverSource: value.serverSource,
       fallbackReason: value.fallbackReason,
       error: value.error,
+      indexedFiles: value.indexedFiles,
+      reusedFiles: value.reusedFiles,
     });
     if (comparable(next) === comparable(this.status)) return;
     this.status = next;
@@ -472,10 +479,22 @@ export class ProjectAnalysis {
       this.revisionIndexes.set(revision, pending);
       return pending;
     }
-    if (!this.indexPromise) this.indexPromise = this.fixedFiles
-      ? Promise.resolve(buildRegexSymbolIndex(this.fixedFiles))
-      : buildProjectIndex(this.root, this.symbolCache);
+    if (!this.indexPromise) {
+      const building = this.fixedFiles
+        ? Promise.resolve(buildRegexSymbolIndex(this.fixedFiles))
+        : buildProjectIndex(this.root, this.symbolCache);
+      this.indexPromise = building.then((index) => {
+        this.reportIndexReuse(index.files.size);
+        return index;
+      });
+    }
     return this.indexPromise;
+  }
+
+  private reportIndexReuse(indexedFiles: number): void {
+    this.indexReuse = { indexedFiles, reusedFiles: this.symbolCache?.stats().hits ?? 0 };
+    const { family, server, serverSource, fallbackReason, error, indexed } = this.status;
+    this.setStatus(this.status.phase, { family, server, serverSource, fallbackReason, error, indexed });
   }
 
   private async readSource(path: string): Promise<string | undefined> {
