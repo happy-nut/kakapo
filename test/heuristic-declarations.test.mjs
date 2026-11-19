@@ -271,3 +271,52 @@ test("a return type before a name is read only where a language writes one", asy
   assert.deepEqual(declaredLines(csharp, "bootWindow"), [2],
     "the same text in C# is the one shape this pattern exists to read");
 });
+
+test("a statement keyword followed by a parenthesised expression is not a method of that name", async () => {
+  const index = await scan([
+    ["src/Svc.java", [
+      "class Svc {",
+      "  Svc(int seed) { this.seed = seed; }",
+      "  void run() {",
+      "    synchronized (lock) { work(); }",
+      "  }",
+      "}",
+    ].join("\n")],
+    ["src/Gate.cs", [
+      "class Gate {",
+      "  void Run() {",
+      "    lock (gate) { Work(); }",
+      "    fixed (byte* p = bytes) { Use(p); }",
+      "    using (var s = stream) { Read(s); }",
+      "    foreach (var x in items) { Use(x); }",
+      "  }",
+      "}",
+    ].join("\n")],
+  ]);
+  for (const keyword of ["synchronized", "lock", "fixed", "using", "foreach"]) {
+    assert.deepEqual(declaredLines(index, keyword), [],
+      `${keyword} heads a statement here and declares nothing`);
+  }
+  assert.deepEqual(declaredLines(index, "Svc"), [1, 2], "the class and its constructor are still found");
+  assert.deepEqual(declaredLines(index, "run"), [3], "the method around the statement is still found");
+  assert.deepEqual(declaredLines(index, "Run"), [2], "and so is the C# one");
+});
+
+test("the statement guard reaches only the languages whose statements those are", async () => {
+  const index = await scan([
+    ["src/Mutex.ts", [
+      "class Mutex {",
+      "  lock(resource) {",
+      "    return resource;",
+      "  }",
+      "  synchronized(fn) { return fn(); }",
+      "}",
+    ].join("\n")],
+    ["src/pool.js", ["const lock = new Mutex();", "let fixed = 1;"].join("\n")],
+  ]);
+  assert.deepEqual(declaredLines(index, "lock"), [1, 2],
+    "a TypeScript method named lock is a method, and a variable named lock is a variable");
+  assert.deepEqual(declaredLines(index, "synchronized"), [5],
+    "nothing in TypeScript makes synchronized a statement head");
+  assert.deepEqual(declaredLines(index, "fixed"), [2], "nor fixed in JavaScript");
+});

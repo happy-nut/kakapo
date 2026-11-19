@@ -63,6 +63,31 @@ const SESSION_SOURCE = [
   "bool Sized() { return requires requires(T a) { a.size(); }; }",
 ].join("\n");
 
+const GATE_FILE = "src/Gate.cs";
+const GATE_SOURCE = [
+  "class Gate {",
+  "  void Hold() {",
+  "    lock (gate) { Work(); }",
+  "    fixed (byte* p = bytes) { Use(p); }",
+  "    using (var s = stream) { Read(s); }",
+  "    foreach (var x in items) { Use(x); }",
+  "  }",
+  "}",
+].join("\n");
+
+const SVC_FILE = "src/Svc.java";
+const SVC_SOURCE = [
+  "class Svc {",
+  "  Svc(int seed) { this.seed = seed; }",
+  "  void serve() {",
+  "    synchronized (gate) { work(); }",
+  "  }",
+  "}",
+].join("\n");
+
+const MUTEX_FILE = "src/Mutex.ts";
+const MUTEX_SOURCE = ["class Mutex {", "  lock(resource) {", "    return resource;", "  }", "}"].join("\n");
+
 const BOOT_FILE = "src/boot.ts";
 const BOOT_SOURCE = ["function wrapBoot() {", "  void bootWindow(state, themeLight);", "}"].join("\n");
 
@@ -73,6 +98,9 @@ before(async () => {
     { path: CSHARP_FILE, before: "class Runner {}\n", after: CSHARP_SOURCE + "\n" },
     { path: SESSION_FILE, before: "// empty\n", after: SESSION_SOURCE + "\n" },
     { path: BOOT_FILE, before: "export {};\n", after: BOOT_SOURCE + "\n" },
+    { path: GATE_FILE, before: "class Gate {}\n", after: GATE_SOURCE + "\n" },
+    { path: SVC_FILE, before: "class Svc {}\n", after: SVC_SOURCE + "\n" },
+    { path: MUTEX_FILE, before: "export {};\n", after: MUTEX_SOURCE + "\n" },
   ], { app: true }));
 });
 after(cleanupFixtures);
@@ -242,4 +270,20 @@ test("the renderer does not read a coroutine statement or a Qt emit as a declara
   const at = (name) => v.window.findSymbolDefinition(name) && { path: v.window.findSymbolDefinition(name).path, line: v.window.findSymbolDefinition(name).lineIndex };
   assert.deepEqual(at("drain"), { path: SESSION_FILE, line: 0 }, "the coroutine around those statements is still found");
   assert.deepEqual(at("bump"), { path: SESSION_FILE, line: 5 }, "and so is the method that emits");
+});
+
+test("the renderer does not read a statement keyword as a method of that name", async () => {
+  const { v } = await openPeekWhileIndexing([]);
+  const at = (name) => v.window.findSymbolDefinition(name) && {
+    path: v.window.findSymbolDefinition(name).path,
+    line: v.window.findSymbolDefinition(name).lineIndex,
+  };
+  for (const keyword of ["fixed", "using", "foreach", "synchronized"]) {
+    assert.equal(v.window.findSymbolDefinition(keyword), null,
+      `${keyword} heads a statement in the C# and Java files and declares nothing`);
+  }
+  assert.deepEqual(at("lock"), { path: MUTEX_FILE, line: 1 },
+    "a TypeScript method named lock is still a declaration, so the guard must be scoped to the language");
+  assert.deepEqual(at("Svc"), { path: SVC_FILE, line: 0 }, "the class around the synchronized block is still found");
+  assert.deepEqual(at("Hold"), { path: GATE_FILE, line: 1 }, "and the method around the lock block");
 });
