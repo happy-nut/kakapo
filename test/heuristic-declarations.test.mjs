@@ -153,3 +153,92 @@ test("a declaration is still found when the line holds a string the mask blanks 
   assert.deepEqual(declaredLines(index, "title"), [1], "a paren inside a string does not reach the parameter test");
   assert.deepEqual(declaredLines(index, "greet"), [2], "nor does one in the body");
 });
+
+const RETURN_TYPE_METHODS = [
+  ["src/Runner.cs", [
+    "class Runner {",
+    "  void Run(int which) {",
+    "  }",
+    "  public void RunAll(int count) {",
+    "  }",
+    "  private static async Task<int> FetchAsync(string url) {",
+    "    return 0;",
+    "  }",
+    "  public IEnumerable<KeyValuePair<string, int>> Pairs(string[] keys) {",
+    "    return null;",
+    "  }",
+    "  internal byte* Buffer(int size) {",
+    "    return null;",
+    "  }",
+    "}",
+  ].join("\n")],
+  ["src/Activity.java", [
+    "abstract class Activity {",
+    "  public List<String> names(Map<String, Integer> counts) {",
+    "    return null;",
+    "  }",
+    "  protected abstract void onCreate(Bundle savedInstanceState);",
+    "}",
+  ].join("\n")],
+];
+
+test("a method whose return type comes before its name is a declaration", async () => {
+  const index = await scan(RETURN_TYPE_METHODS);
+  assert.deepEqual(declaredLines(index, "Run"), [2], "`void Run(int which) {` declares Run");
+  assert.deepEqual(declaredLines(index, "RunAll"), [4], "an access modifier may sit before the return type");
+  assert.deepEqual(declaredLines(index, "FetchAsync"), [6], "and so may several, with a generic return type");
+  assert.deepEqual(declaredLines(index, "Pairs"), [9], "a return type may hold a nested generic");
+  assert.deepEqual(declaredLines(index, "Buffer"), [12], "and a pointer");
+  assert.deepEqual(declaredLines(index, "names"), [2], "Java writes the same shape");
+  assert.deepEqual(declaredLines(index, "onCreate"), [5],
+    "an abstract method ends in a semicolon and is still a declaration");
+});
+
+test("a return type is not read as the declared name", async () => {
+  const index = await scan(RETURN_TYPE_METHODS);
+  for (const name of ["void", "Task", "List", "byte", "IEnumerable"]) {
+    assert.deepEqual(declaredLines(index, name), [],
+      `${name} is a return type on these lines, not the name being declared`);
+  }
+});
+
+const RETURN_TYPE_CALLS = [
+  ["src/Startup.cs", [
+    "class Startup {",
+    "  void Configure() {",
+    "    Register(handlers, options);",
+    "    return Build(services) ;",
+    "    throw new InvalidOperationException(message);",
+    "  }",
+    "}",
+  ].join("\n")],
+  ["src/StoreTest.java", [
+    "class StoreTest {",
+    "  void check() {",
+    "    assertThat(result).isEqualTo(3);",
+    "    assert matches(result);",
+    "    Widget widget = build(spec);",
+    "  }",
+    "}",
+  ].join("\n")],
+];
+
+test("a call is not a declaration even where a return type may precede a name", async () => {
+  const index = await scan(RETURN_TYPE_CALLS);
+  for (const name of ["Register", "Build", "InvalidOperationException", "assertThat", "isEqualTo", "matches", "build"]) {
+    assert.deepEqual(declaredLines(index, name), [],
+      `${name} is called on these lines and declared on none of them`);
+  }
+  assert.deepEqual(declaredLines(index, "Configure"), [2], "the method around those calls is still found");
+  assert.deepEqual(declaredLines(index, "check"), [2], "and so is the one in the Java file");
+});
+
+test("a return type before a name is read only where a language writes one", async () => {
+  const shape = ["function wrap() {", "  void bootWindow(state, themeLight);", "}"].join("\n");
+  const javascript = await scan([["src/boot.ts", shape]]);
+  assert.deepEqual(declaredLines(javascript, "bootWindow"), [],
+    "`void expr` is an operator in TypeScript, so this line is a call and not a declaration");
+  const csharp = await scan([["src/Boot.cs", shape]]);
+  assert.deepEqual(declaredLines(csharp, "bootWindow"), [2],
+    "the same text in C# is the one shape this pattern exists to read");
+});

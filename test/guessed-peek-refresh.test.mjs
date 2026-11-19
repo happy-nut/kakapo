@@ -30,9 +30,34 @@ const SOURCE = [
   "}",
 ].join("\n");
 
+const CSHARP_FILE = "src/Runner.cs";
+const CSHARP_SOURCE = [
+  "class Runner {",
+  "  void Run(int which) {",
+  "    Configure(handlers, options);",
+  "  }",
+  "  public void RunAll(int count) {",
+  "  }",
+  "  private static async Task<int> FetchAsync(string url) {",
+  "    return 0;",
+  "  }",
+  "  public IEnumerable<KeyValuePair<string, int>> Pairs(string[] keys) {",
+  "    return null;",
+  "  }",
+  "  protected abstract void OnCreate(Bundle bundle);",
+  "}",
+].join("\n");
+
+const BOOT_FILE = "src/boot.ts";
+const BOOT_SOURCE = ["function wrapBoot() {", "  void bootWindow(state, themeLight);", "}"].join("\n");
+
 let html;
 before(async () => {
-  ({ html } = await makeReviewHtml([{ path: FILE, before: "export class Store {}\n", after: SOURCE + "\n" }], { app: true }));
+  ({ html } = await makeReviewHtml([
+    { path: FILE, before: "export class Store {}\n", after: SOURCE + "\n" },
+    { path: CSHARP_FILE, before: "class Runner {}\n", after: CSHARP_SOURCE + "\n" },
+    { path: BOOT_FILE, before: "export {};\n", after: BOOT_SOURCE + "\n" },
+  ], { app: true }));
 });
 after(cleanupFixtures);
 
@@ -164,4 +189,26 @@ test("a keyword is not something the renderer will navigate to", async () => {
   assert.equal(v.window.findSymbolDefinition("function"), null,
     "`function () { … }` on its own line is not a declaration of anything called `function`");
   assert.equal(v.window.findSymbolDefinition("return"), null, "nor is `return () => {` one of `return`");
+});
+
+test("the renderer finds a method whose return type comes before its name", async () => {
+  const { v } = await openPeekWhileIndexing([]);
+  const found = (name) => v.window.findSymbolDefinition(name);
+  const at = (name) => found(name) && { path: found(name).path, line: found(name).lineIndex };
+  assert.deepEqual(at("Run"), { path: CSHARP_FILE, line: 1 }, "`void Run(int which) {` declares Run");
+  assert.deepEqual(at("RunAll"), { path: CSHARP_FILE, line: 4 }, "an access modifier may sit before the return type");
+  assert.deepEqual(at("FetchAsync"), { path: CSHARP_FILE, line: 6 }, "and so may several, with a generic return type");
+  assert.deepEqual(at("Pairs"), { path: CSHARP_FILE, line: 9 }, "a return type may hold a nested generic");
+  assert.deepEqual(at("OnCreate"), { path: CSHARP_FILE, line: 12 },
+    "an abstract method ends in a semicolon and is still a declaration");
+});
+
+test("the renderer does not take a call for a declaration where a return type may precede a name", async () => {
+  const { v } = await openPeekWhileIndexing([]);
+  assert.equal(v.window.findSymbolDefinition("Configure"), null,
+    "Configure is called inside Run and declared nowhere in the review");
+  assert.equal(v.window.findSymbolDefinition("bootWindow"), null,
+    "`void expr` is an operator in TypeScript, so the renderer must not read that line as a declaration");
+  assert.deepEqual(v.window.findSymbolDefinition("wrapBoot") && { line: v.window.findSymbolDefinition("wrapBoot").lineIndex },
+    { line: 0 }, "the function around that line is still found");
 });
