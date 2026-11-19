@@ -148,6 +148,14 @@ faster against a shared one, while two checkouts sharing `CARGO_TARGET_DIR` made
 type error report zero errors. `test/server-cache.test.mjs` keeps the reason beside every row, and fails
 both for a family that builds a cache path of its own and for a scope with no reason written for it.
 
+clangd is the one server kakapo cannot place: it writes `.cache/clangd/index/*.idx` into the root of the
+repository being read, `--background-index` is on by default in the bundled build and nothing in
+`--help-list` moves the directory. So the path it writes is declared in the same file, in
+`SERVER_CACHE_INSIDE_PROJECT`, and `readUntrackedDiff` refuses it — `.cache/` was already refused by
+`isSourceCandidate` and by the non-git tree walk, but untracked paths never went through either, and a
+path that reaches the diff is added to the project list unconditionally. A sibling worktree still indexes
+C/C++ from nothing, and nothing in clangd's options can change that.
+
 Those directories are reclaimed by their own mtime, which is why `start()` touches
 `server.cacheDirectory` before it spawns. The key is a one-way hash of the worktree path, so nothing can
 ask which checkout a directory belonged to; a sweep that could not see it opened would delete a live one.
@@ -178,7 +186,9 @@ renderer on macOS, whether a mark is painted at all, or what a label looks like 
 those has shipped broken with the suite green. Two things it will cost you otherwise: the smoke scripts
 want `KAKAPO_DEV=1` or they write into your real Kakapo state, and nothing may drive the app while
 `npm test` runs — `test/menu-accelerators.test.mjs` spawns the real Electron out of this same
-`node_modules`, and taking the app down takes that with it and invalidates the run silently.
+`node_modules`, and taking the app down takes that with it and invalidates the run silently. An
+`npm install` during a run does the same from the other side, so a suite that was already running when
+the tree's dependencies changed proves nothing and has to be started again.
 
 `formal-compare-mode` model-checks the compare controls against one promise: the compare menu always
 ticks the row describing the diff the window is actually built from. Six fields, five handlers and one

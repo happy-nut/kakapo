@@ -1,17 +1,22 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   SERVER_CACHE_DIRECTORIES,
+  SERVER_CACHE_INSIDE_PROJECT,
   SERVER_CACHE_SCOPES,
   SHARED_CACHE_KEY,
+  isServerCacheInsideProject,
   markServerCacheUsed,
   reclaimServerCaches,
   reclaimableServerCaches,
   serverCacheDirectory,
 } from "../dist/server-cache.js";
+import { readUnifiedDiff } from "../dist/diff.js";
+import { reviewDiffSignature } from "../dist/review-bodies.js";
 
 const DAY = 86_400_000;
 const scratch = [];
@@ -32,7 +37,7 @@ const WHY_THIS_SCOPE = {
 };
 
 const SERVERS_WITHOUT_A_CACHE = {
-  clang: "clangd keeps its index under .cache/clangd inside the project being read, which kakapo does not place and cannot relocate",
+  clang: "clangd 22.1.6 writes one .idx per translation unit under .cache/clangd inside the project being read; --background-index is on by default in this build and --help-list offers no option that moves the directory, so kakapo hides the path instead of placing it",
 };
 
 test("every bundled server either takes its cache path from the table or is written down as having none", () => {
@@ -144,4 +149,90 @@ test("one sweep cannot spend the whole launch deleting", () => {
   assert.equal(reclaimableServerCaches({ base: home }).length, 24, "the sweep is bounded per launch");
   assert.equal(reclaimableServerCaches({ base: home, limit: 5 }).length, 5);
   assert.equal(made.length, 30);
+});
+
+test("a server that writes its cache inside the project declares that path, and only such a server may", () => {
+  for (const family of Object.keys(SERVER_CACHE_INSIDE_PROJECT)) {
+    assert.ok(SERVERS_WITHOUT_A_CACHE[family],
+      `${family} takes a cache path from the table, so it has no business writing one inside the project`);
+    assert.ok(SERVERS_WITHOUT_A_CACHE[family].includes(SERVER_CACHE_INSIDE_PROJECT[family]),
+      `${family}'s written reason must name the directory it writes, so the two cannot drift apart`);
+  }
+  assert.ok(isServerCacheInsideProject(".cache/clangd/index/main.c.51B8DF90E4B3D1D7.idx"));
+  assert.ok(isServerCacheInsideProject("packages/engine/.cache/clangd/index/a.idx"),
+    "a sub-project compiled in place gets its own copy, so the match is on the segment and not on the prefix");
+  assert.equal(isServerCacheInsideProject(".cache/clangd"), true);
+  assert.equal(isServerCacheInsideProject("src/.cache/other/thing.idx"), false,
+    "another tool's .cache is not ours to hide");
+  assert.equal(isServerCacheInsideProject("src/cache/clangd/notes.md"), false);
+});
+
+test("an index a language server wrote into the reviewed project never reaches the review", () => {
+  const root = mkdtempSync(join(tmpdir(), "kakapo-clangd-"));
+  scratch.push(root);
+  const git = (args) => execFileSync("git", args, { cwd: root, stdio: "pipe" });
+  git(["init", "-q"]);
+  git(["config", "user.email", "ada@kakapo.test"]);
+  git(["config", "user.name", "Ada"]);
+  git(["config", "commit.gpgsign", "false"]);
+  writeFileSync(join(root, "main.c"), "int main(void) { return 0; }\n");
+  git(["add", "-A"]);
+  git(["commit", "-qm", "baseline"]);
+
+  mkdirSync(join(root, ".cache", "clangd", "index"), { recursive: true });
+  writeFileSync(join(root, ".cache", "clangd", "index", "main.c.51B8DF90E4B3D1D7.idx"), "index payload\n");
+  writeFileSync(join(root, "helper.c"), "void helper(void) { }\n");
+
+  const diff = readUnifiedDiff({ root, includeUntracked: true, context: 3, staged: false });
+  assert.ok(diff.includes("b/helper.c"),
+    "an untracked source file is still an addition, so the review has something to lose");
+  assert.equal(diff.includes(".cache/clangd"), false,
+    "clangd writes its index into the project and kakapo launched it, so the user must not meet it as a diff");
+});
+
+test("a server still indexing does not keep rebuilding the review behind the user", () => {
+  const root = mkdtempSync(join(tmpdir(), "kakapo-clangd-watch-"));
+  scratch.push(root);
+  const git = (args) => execFileSync("git", args, { cwd: root, stdio: "pipe" });
+  git(["init", "-q"]);
+  git(["config", "user.email", "ada@kakapo.test"]);
+  git(["config", "user.name", "Ada"]);
+  git(["config", "commit.gpgsign", "false"]);
+  writeFileSync(join(root, "main.c"), "int main(void) { return 0; }\n");
+  git(["add", "-A"]);
+  git(["commit", "-qm", "baseline"]);
+  const options = { root, includeUntracked: true, staged: false };
+
+  const quiet = reviewDiffSignature(options);
+  mkdirSync(join(root, ".cache", "clangd", "index"), { recursive: true });
+  writeFileSync(join(root, ".cache", "clangd", "index", "main.c.51B8DF90E4B3D1D7.idx"), "first pass\n");
+  assert.equal(reviewDiffSignature(options), quiet,
+    "clangd writes an index per translation unit while the window is open; each write must not look like an edit");
+
+  writeFileSync(join(root, ".cache", "clangd", "index", "main.c.51B8DF90E4B3D1D7.idx"), "a longer second pass\n");
+  assert.equal(reviewDiffSignature(options), quiet, "nor must rewriting one");
+
+  writeFileSync(join(root, "helper.c"), "void helper(void) { }\n");
+  assert.notEqual(reviewDiffSignature(options), quiet,
+    "a real untracked file is still what the watch exists for");
+});
+
+test("every list of untracked files is filtered, or it will hand the user a server's own index", () => {
+  const sources = ["diff.ts", "git.ts", "review-bodies.ts", "analysis.ts", "app-main.ts", "git-log.ts", "workspace-data.ts"];
+  const unfiltered = [];
+  for (const name of sources) {
+    let source;
+    try { source = readFileSync(new URL(`../src/${name}`, import.meta.url), "utf8"); } catch { continue; }
+    const bodies = source.split(/\n(?=(?:export )?(?:async )?function )/);
+    for (const body of bodies) {
+      if (!body.includes('"--others"')) continue;
+      const declared = /^(?:export )?(?:async )?function (\w+)/.exec(body);
+      const where = `${name}:${declared ? declared[1] : "top level"}`;
+      if (declared?.[1] === "untrackedPaths") continue;
+      if (body.includes("isSourceCandidate(") || body.includes("isServerCacheInsideProject(")) continue;
+      unfiltered.push(where);
+    }
+  }
+  assert.deepEqual(unfiltered, [],
+    "clangd writes its index inside the project, so a path list that skips both filters puts it in front of the user");
 });

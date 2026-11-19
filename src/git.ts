@@ -2,6 +2,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { GitSnapshot } from "./types.js";
+import { isServerCacheInsideProject } from "./server-cache.js";
 
 export function isGitRepository(root: string): boolean {
   const result = spawnSync("git", [...RAW_PATHS, "rev-parse", "--is-inside-work-tree"], {
@@ -117,6 +118,14 @@ export function resolveAutomaticReviewBase(root: string, includeUntracked = true
   if (!tracking) return undefined;
   if (behind > 0) return { revision, upstream, label: `HEAD...${upstream}`, ahead: 0, target: upstream, behind };
   return undefined;
+}
+
+export function untrackedPaths(root: string): string[] {
+  return git(root, ["ls-files", "--others", "--exclude-standard", "--", "."])
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((path) => !isServerCacheInsideProject(path));
 }
 
 export const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
