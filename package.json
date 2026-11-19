@@ -54,7 +54,8 @@
     "dist:mac:dmg": "npm run dist:mac && node scripts/create-dmg.mjs",
     "dist:mac:ci": "npm run lsp:install && npm run build && npm run pack:mac && npm run verify:mac",
     "dist:mac:dmg:ci": "npm run dist:mac:ci && node scripts/create-dmg.mjs",
-    "index:bench": "npm run build && node scripts/index-bench.mjs"
+    "index:bench": "npm run build && node scripts/index-bench.mjs",
+    "cache:bench": "npm run build && node scripts/server-cache-bench.mjs"
   },
   "keywords": [
     "ai",
