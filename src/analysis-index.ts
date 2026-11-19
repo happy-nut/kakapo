@@ -61,13 +61,27 @@ export function indexableContent(content: string): boolean {
   return Buffer.byteLength(content, "utf8") <= MAX_INDEX_FILE_BYTES && !content.includes("\0");
 }
 
-const DECLARATION_PATTERNS: Array<{ kind: string; re: RegExp }> = [
+const NOT_A_TYPE = "new|typedef|co_await|co_return|co_yield|emit|requires|return|await|yield|throw|else|do|case|assert|delete|typeof|instanceof|export|import|function";
+const RETURN_TYPE_BEFORE_NAME =
+  `(?!(?:${NOT_A_TYPE})\\b)[A-Za-z_$][A-Za-z0-9_$]*(?:\\.[A-Za-z_$][A-Za-z0-9_$]*)*(?:<(?:[^<>()]|<[^<>()]*>)*>)?(?:\\[\\s*\\]|[*?])*`;
+const RETURN_TYPE_BEFORE_NAME_EXTENSIONS = new Set([
+  ".java", ".cs", ".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".hxx",
+]);
+
+const DECLARATION_PATTERNS: Array<{ kind: string; re: RegExp; extensions?: Set<string> }> = [
   { kind: "function", re: /^\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+(?<name>[A-Za-z_$][A-Za-z0-9_$]*)/ },
   { kind: "class", re: /^\s*(?:(?:public|private|protected|internal|abstract|final|open|sealed|data|inner|enum|annotation|static|export|default|expect|actual|value|pub(?:\([^)]*\))?)\s+)*(?<keyword>class|interface|object|enum|trait|struct)\s+(?<name>[A-Za-z_$][A-Za-z0-9_$]*)/ },
   { kind: "type", re: /^\s*(?:export\s+)?(?<keyword>interface|type|enum)\s+(?<name>[A-Za-z_$][A-Za-z0-9_$]*)/ },
   { kind: "variable", re: /^\s*(?:export\s+)?(?:const|let|var|val)\s+(?<name>[A-Za-z_$][A-Za-z0-9_$]*)/ },
   { kind: "function", re: /^\s*(?:(?:public|private|protected|internal|abstract|final|open|override|suspend|inline|operator|static|async)\s+)*(?:fun|def|fn|func)\s+(?<name>[A-Za-z_$][A-Za-z0-9_$]*)/ },
   { kind: "method", re: /^\s*(?:(?:public|private|protected|internal|abstract|final|open|override|suspend|inline|operator|static|async)\s+)*(?<name>[A-Za-z_$][A-Za-z0-9_$]*)\s*\((?<parameters>[^)]*)\)\s*(?::\s*[^=]+)?\s*(?:\{|=>)/ },
+  {
+    kind: "method",
+    extensions: RETURN_TYPE_BEFORE_NAME_EXTENSIONS,
+    re: new RegExp(
+      `^\\s*(?:${RETURN_TYPE_BEFORE_NAME}\\s+)+(?<name>[A-Za-z_$][A-Za-z0-9_$]*)\\s*\\((?<parameters>[^)]*)\\)\\s*(?::\\s*[^=]+)?\\s*(?:\\{|=>|;)`,
+    ),
+  },
 ];
 
 const NOT_A_DECLARED_NAME = /^(?:if|for|while|switch|catch|with|function|return|new|typeof|void|delete|throw|await|yield)$/;
@@ -148,7 +162,7 @@ export function maskNonCode(content: string, path: string): string[] {
 
 const ENUM_ENTRY = /^\s*([A-Z][A-Z0-9_$]*)\s*(?:[,;(]|\{|$)/;
 
-function declarationFromLine(path: string, line: string, lineIndex: number, sourceLine = line, inEnumBody = false): SymbolRecord | undefined {
+function declarationFromLine(path: string, extension: string, line: string, lineIndex: number, sourceLine = line, inEnumBody = false): SymbolRecord | undefined {
   if (inEnumBody) {
     const entry = ENUM_ENTRY.exec(line);
     if (entry) {
@@ -164,6 +178,7 @@ function declarationFromLine(path: string, line: string, lineIndex: number, sour
     }
   }
   for (const pattern of DECLARATION_PATTERNS) {
+    if (pattern.extensions && !pattern.extensions.has(extension)) continue;
     const match = pattern.re.exec(line);
     if (!match) continue;
     const name = match.groups?.name ?? "";
@@ -210,7 +225,8 @@ function indexOneFile(file: IndexedFile, sink: IndexSink, cache?: SymbolCache): 
   }
   const scannedFrom = symbols.length;
   const masked = maskNonCode(file.content, path);
-  const python = extname(path).toLowerCase() === ".py";
+  const extension = extname(path).toLowerCase();
+  const python = extension === ".py";
   const pythonClasses: Array<{ name: string; indent: number }> = [];
   let enumIndent = -1;
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
@@ -221,7 +237,7 @@ function indexOneFile(file: IndexedFile, sink: IndexSink, cache?: SymbolCache): 
       while (pythonClasses.length && indent <= pythonClasses[pythonClasses.length - 1].indent) pythonClasses.pop();
     }
     if (enumIndent >= 0 && trimmed && indent <= enumIndent && trimmed.startsWith("}")) enumIndent = -1;
-    const record = declarationFromLine(path, code, lineIndex, lines[lineIndex], enumIndent >= 0 && indent > enumIndent);
+    const record = declarationFromLine(path, extension, code, lineIndex, lines[lineIndex], enumIndent >= 0 && indent > enumIndent);
     if (enumIndent >= 0 && trimmed === ";") enumIndent = -1;
     if (!record) continue;
     if (record.symbolKind === "enum" || /\benum\s+(class\s+)?[A-Za-z_$]/.test(trimmed)) enumIndent = indent;

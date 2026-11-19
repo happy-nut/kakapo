@@ -418,9 +418,19 @@ function symbolAtDiffCaret() {
 
 var NOT_A_DECLARED_NAME = /^(?:if|for|while|switch|catch|with|function|return|new|typeof|void|delete|throw|await|yield)$/;
 
+var RETURN_TYPE_BEFORE_NAME = '(?!(?:new|typedef|co_await|co_return|co_yield|emit|requires|return|await|yield|throw|else|do|case|assert|delete|typeof|instanceof|export|import|function)\\b)'
+  + '[A-Za-z_$][A-Za-z0-9_$]*(?:\\.[A-Za-z_$][A-Za-z0-9_$]*)*(?:<(?:[^<>()]|<[^<>()]*>)*>)?(?:\\[\\s*\\]|[*?])*';
+var RETURN_TYPE_BEFORE_NAME_EXTENSIONS = /\.(?:java|cs|c|h|cc|cpp|cxx|hpp|hxx)$/i;
+
+function returnTypeMethodMatcher(name) {
+  return new RegExp('^\\s*(?:' + RETURN_TYPE_BEFORE_NAME + '\\s+)+' + escapeRegExp(name)
+    + '\\s*\\((?<parameters>[^)]*)\\)\\s*(?::\\s*[^=]+)?\\s*(?:\\{|=>|;)');
+}
+
 function findSymbolDefinition(name) {
   if (NOT_A_DECLARED_NAME.test(String(name || ''))) return null;
   const matchers = definitionMatchers(name);
+  const withReturnType = matchers.concat([returnTypeMethodMatcher(name)]);
   const currentPath = viewerCursor?.path || '';
   const orderedFiles = [
     ...sourceFiles.filter((file) => file.path === currentPath),
@@ -429,10 +439,11 @@ function findSymbolDefinition(name) {
 
   for (const file of orderedFiles) {
     const lines = file.content.split(/\r?\n/);
+    const forFile = RETURN_TYPE_BEFORE_NAME_EXTENSIONS.test(file.path) ? withReturnType : matchers;
     for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
       const line = lines[lineIndex];
       if (semanticCommentOnlyLine(line)) continue;
-      if (matchers.some((matcher) => declarationMatch(matcher, line))) {
+      if (forFile.some((matcher) => declarationMatch(matcher, line))) {
         return { path: file.path, lineIndex, column: Math.max(0, line.indexOf(name)) };
       }
     }
