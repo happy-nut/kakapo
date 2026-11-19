@@ -226,6 +226,20 @@ const RETURN_TYPE_CALLS = [
     "  ResizeModeCover = 1,",
     "};",
   ].join("\n")],
+  ["src/session.cpp", [
+    "Task<void> drain() {",
+    "  co_await flush(buffer);",
+    "  co_yield next(item);",
+    "  co_return build(result);",
+    "}",
+    "void bump() {",
+    "  emit valueChanged(next);",
+    "}",
+  ].join("\n")],
+  ["src/concept.h", [
+    "template <typename T>",
+    "concept Sized = requires requires(T a) { a.size(); };",
+  ].join("\n")],
 ];
 
 test("a call is not a declaration even where a return type may precede a name", async () => {
@@ -236,6 +250,14 @@ test("a call is not a declaration even where a return type may precede a name", 
   }
   assert.deepEqual(declaredLines(index, "NS_ENUM"), [],
     "a macro header has the same shape as a method and declares nothing of that name");
+  for (const [name, statement] of [["flush", "co_await"], ["next", "co_yield"], ["build", "co_return"], ["valueChanged", "emit"]]) {
+    assert.deepEqual(declaredLines(index, name), [],
+      `${statement} is a statement keyword, so ${name} is called on that line and declared on none`);
+  }
+  assert.deepEqual(declaredLines(index, "requires"), [],
+    "`requires requires(T a) {` is a requires-expression and declares nothing of that name");
+  assert.deepEqual(declaredLines(index, "drain"), [1], "the coroutine around those statements is still found");
+  assert.deepEqual(declaredLines(index, "bump"), [6], "and so is the method that emits");
   assert.deepEqual(declaredLines(index, "Configure"), [2], "the method around those calls is still found");
   assert.deepEqual(declaredLines(index, "check"), [2], "and so is the one in the Java file");
 });

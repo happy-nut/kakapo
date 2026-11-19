@@ -50,6 +50,19 @@ const CSHARP_SOURCE = [
   "}",
 ].join("\n");
 
+const SESSION_FILE = "src/session.cpp";
+const SESSION_SOURCE = [
+  "Task<void> drain() {",
+  "  co_await flush(buffer);",
+  "  co_yield nextChunk(item);",
+  "  co_return assemble(result);",
+  "}",
+  "void bump() {",
+  "  emit valueChanged(next);",
+  "}",
+  "bool Sized() { return requires requires(T a) { a.size(); }; }",
+].join("\n");
+
 const BOOT_FILE = "src/boot.ts";
 const BOOT_SOURCE = ["function wrapBoot() {", "  void bootWindow(state, themeLight);", "}"].join("\n");
 
@@ -58,6 +71,7 @@ before(async () => {
   ({ html } = await makeReviewHtml([
     { path: FILE, before: "export class Store {}\n", after: SOURCE + "\n" },
     { path: CSHARP_FILE, before: "class Runner {}\n", after: CSHARP_SOURCE + "\n" },
+    { path: SESSION_FILE, before: "// empty\n", after: SESSION_SOURCE + "\n" },
     { path: BOOT_FILE, before: "export {};\n", after: BOOT_SOURCE + "\n" },
   ], { app: true }));
 });
@@ -215,4 +229,17 @@ test("the renderer does not take a call for a declaration where a return type ma
     "`void expr` is an operator in TypeScript, so the renderer must not read that line as a declaration");
   assert.deepEqual(v.window.findSymbolDefinition("wrapBoot") && { line: v.window.findSymbolDefinition("wrapBoot").lineIndex },
     { line: 0 }, "the function around that line is still found");
+});
+
+test("the renderer does not read a coroutine statement or a Qt emit as a declaration", async () => {
+  const { v } = await openPeekWhileIndexing([]);
+  for (const [name, statement] of [["flush", "co_await"], ["nextChunk", "co_yield"], ["assemble", "co_return"], ["valueChanged", "emit"]]) {
+    assert.equal(v.window.findSymbolDefinition(name), null,
+      `${statement} is a statement keyword, so ${name} is called on that line and declared on none`);
+  }
+  assert.equal(v.window.findSymbolDefinition("requires"), null,
+    "`requires requires(T a) {` is a requires-expression and declares nothing of that name");
+  const at = (name) => v.window.findSymbolDefinition(name) && { path: v.window.findSymbolDefinition(name).path, line: v.window.findSymbolDefinition(name).lineIndex };
+  assert.deepEqual(at("drain"), { path: SESSION_FILE, line: 0 }, "the coroutine around those statements is still found");
+  assert.deepEqual(at("bump"), { path: SESSION_FILE, line: 5 }, "and so is the method that emits");
 });

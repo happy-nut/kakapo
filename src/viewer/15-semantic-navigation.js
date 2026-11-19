@@ -418,7 +418,7 @@ function symbolAtDiffCaret() {
 
 var NOT_A_DECLARED_NAME = /^(?:if|for|while|switch|catch|with|function|return|new|typeof|void|delete|throw|await|yield)$/;
 
-var RETURN_TYPE_BEFORE_NAME = '(?!(?:new|typedef|return|await|yield|throw|else|do|case|assert|delete|typeof|instanceof|export|import|function)\\b)'
+var RETURN_TYPE_BEFORE_NAME = '(?!(?:new|typedef|co_await|co_return|co_yield|emit|requires|return|await|yield|throw|else|do|case|assert|delete|typeof|instanceof|export|import|function)\\b)'
   + '[A-Za-z_$][A-Za-z0-9_$]*(?:\\.[A-Za-z_$][A-Za-z0-9_$]*)*(?:<(?:[^<>()]|<[^<>()]*>)*>)?(?:\\[\\s*\\]|[*?])*';
 var RETURN_TYPE_BEFORE_NAME_EXTENSIONS = /\.(?:java|cs|c|h|cc|cpp|cxx|hpp|hxx)$/i;
 
