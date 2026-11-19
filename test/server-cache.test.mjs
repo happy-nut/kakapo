@@ -31,9 +31,9 @@ const WHY_THIS_SCOPE = {
   go: ["shared", "go's build and module caches are content-addressed and Go's own default is one cache per machine; a sibling worktree rebuilt the same tree in 0.40s against a shared cache and 4.32s against its own"],
   rust: ["worktree", "two checkouts sharing CARGO_TARGET_DIR read each other's artifacts as current: a worktree with a type error reported zero errors after the sibling compiled"],
   java: ["worktree", "jdtls -data holds workspace state, not content-addressed entries, and its README says it must be unique per project"],
-  kotlin: ["worktree", "no published account of what --system-path holds, so it is not shared until someone measures it"],
-  ruby: ["worktree", "sorbet keys entries by path##checksum and its docs say a checked-out old branch reuses them, but nobody has measured sharing one cache-dir between two live processes"],
-  php: ["worktree", "no published account of what phpactor's XDG dirs hold, so it is not shared until someone measures it"],
+  kotlin: ["worktree", "--system-path is an IntelliJ system directory, one index per project behind a .app.lock at its root: on JetBrains/Exposed a sibling took it from 9.6 MB to 18.8 MB and gained nothing (77,089 ms against 76,973 ms with no cache at all), and with two servers live on one system path the second never came up, while two on a cache each both answered"],
+  ruby: ["shared", "sorbet keys entries by a project-relative path and a content checksum, so a sibling adds nothing to a cache the first worktree filled: 0 of 255 MB on discourse, where opening the sibling fell from 6,448 ms on a cache of its own to 5,222 ms on the shared one; a declaration only one worktree held was found there 6 times out of 6, and two live servers on one cache answered in 1,577 ms against 1,587 ms on a cache each"],
+  php: ["worktree", "phpactor's XDG cache holds one index directory per project path (cache/phpactor/index/<name>-<hash of the path>), so a sibling builds its own: on laravel/framework its own cache cut the first answer from 23,044 ms to 6,260 ms while a cache the sibling filled gave 23,070 ms, and the sibling took the shared directory from 110.8 MB to 219.3 MB"],
 };
 
 const SERVERS_WITHOUT_A_CACHE = {
@@ -121,6 +121,19 @@ test("a cache nothing has opened for a month is reclaimed; a fresh one and the s
     assert.ok(statSync(fresh).isDirectory(), "a cache used this month survives");
     assert.ok(statSync(shared).isDirectory(), "the shared cache has no worktree to outlive, so age must not reclaim it");
   });
+});
+
+test("a family that moved to a shared cache still has its old per-worktree directories reclaimed", () => {
+  const home = base();
+  const stranded = join(home, SERVER_CACHE_DIRECTORIES.ruby, "0123456789abcdef");
+  const shared = serverCacheDirectory("ruby", "/any/worktree", home);
+  for (const directory of [stranded, shared]) mkdirSync(directory, { recursive: true });
+  const longAgo = new Date(Date.now() - 45 * DAY);
+  utimesSync(stranded, longAgo, longAgo);
+  utimesSync(shared, longAgo, longAgo);
+
+  assert.deepEqual(reclaimableServerCaches({ base: home }), [stranded],
+    "the key a worktree hash produced is reclaimable; the shared one is not, whatever the family's scope says today");
 });
 
 test("opening a server freshens its cache, so the next sweep leaves it alone", () => {
