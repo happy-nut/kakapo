@@ -134,6 +134,17 @@ TypeScript line `void bootWindow(state, theme);` is the `void` operator applied 
 record the widened pattern added to this repository's own tree was that one. The scoping is a row field
 in the index (`extensions`) and a path test in the renderer, and the two lists have to say the same thing.
 
+The row beside it — a plain `name(args) {` with no return type — reads a statement keyword the same way,
+because `synchronized (lock) {`, `lock (gate) {`, `fixed (…) {`, `using (…) {` and `foreach (…) {` are a
+name, a parenthesised expression and a brace. `NOT_A_DECLARED_NAME` is the obvious place to refuse them
+and the wrong one: it is read for the name every row produces in every language, so `lock` there would
+throw away `const lock = new Mutex()`. The refusal is `STATEMENT_HEADS`, scoped to the extensions whose
+languages those statements belong to, and that scoping is what makes it free — a method in Java or C#
+carries a return type and is read by the row above, so the only plain `name(args) {` left in a `.java` or
+`.cs` file is a constructor, while a TypeScript `lock(resource) {` keeps its record. Measured over
+174,655 records in two mixed-language trees it removed nothing at all, and over the C# and Java files of
+a Unity checkout it removed two `foreach` loops and nothing else.
+
 A guessed answer must be withdrawn once there is a real one. `queryProjectAnalysis` records the question
 behind any non-LSP answer that arrives while the analysis is still starting, `openSemanticPeek` keeps it
 only when the response that opened the peek is the one that produced it — `16-structure.js` opens peeks
