@@ -180,6 +180,21 @@ faster against a shared one, while two checkouts sharing `CARGO_TARGET_DIR` made
 type error report zero errors. `test/server-cache.test.mjs` keeps the reason beside every row, and fails
 both for a family that builds a cache path of its own and for a scope with no reason written for it.
 
+A sweep that cannot fire is indistinguishable from no sweep, and this one could not fire for four
+separate reasons at once. It asked for thirty days unused, and macOS clears the temporary directory at
+boot, so a directory only reaches that age if the machine stays up a month — measured on an 11.8-day
+uptime, 836 keys and 5.59 GB, none of them reclaimable, and `dirhelper`'s own three-day policy does not
+descend into these subdirectories. Its removal could not remove Go's cache at all: Go writes every
+extracted module read-only, the measured store held 1470 such directories, `fs.rm` with `force` fails
+EACCES partway through one, and the entries it did remove refresh the directory's mtime, so the
+half-deleted tree is never stale again and the leak is permanent — `removeServerCache` makes the tree
+writable and retries, as `go clean` does. A shared key was skipped on the reasoning that it has no
+worktree to outlive, which is true and beside the point: `start()` touches that directory, so its mtime
+is a true last-used time and the same age rule reads it. And the per-launch bound was spent in
+declaration order, so php, declared last and holding the largest store at 4.9 GB, was never offered a
+single key; candidates are now gathered across every family and the oldest go first. Each of the four
+has a test that fails when only that one is reverted, which is the only way to tell them apart.
+
 `npm run cache:bench <corpus> <worktree-a> <worktree-b>` is where those reasons come from. It opens a real
 repository and a sibling worktree of it through `ProjectAnalysis`, and prints time to the first semantic
 answer against a cache of its own (cold), the cache it filled itself (warm) and a cache the sibling filled;

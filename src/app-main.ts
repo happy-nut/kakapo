@@ -11,7 +11,7 @@ import { makeTranslator, normalizeLocale, type Locale } from "./i18n.js";
 import { relaunchUpdatedApp, selfUpdateInstallAttempts } from "./self-update.js";
 import { bundlePathFor, installPackagedUpdate, isNewerVersion, macDmgAsset } from "./app-update.js";
 import { openSymbolCache } from "./analysis-cache.js";
-import { reclaimServerCaches } from "./server-cache.js";
+import { reclaimServerCaches, RECLAIM_UNUSED_DAYS } from "./server-cache.js";
 import { ProjectAnalysis } from "./analysis.js";
 import { ReviewPerformanceTrace } from "./perf.js";
 import type { SourceFile, WhitespaceMode } from "./types.js";
@@ -23,7 +23,7 @@ import { resolveReadMark, usableCompareBase } from "./patch-sets.js";
 import { handoffRoot } from "./handoff.js";
 import { localRevisionFor, lookupPullRequest, parsePullRequestRef, remoteSlug } from "./github-pr.js";
 import { decideWatchTick, shouldPushUpdate } from "./watch-decision.js";
-import { compareSelectionFor, parseReviewArgs, readOption } from "./cli-args.js";
+import { compareSelectionFor, parseReviewArgs, readOption, runtimeArgv } from "./cli-args.js";
 import { ByteBudgetCache, errorMessage, escapeAttr, escapeHtml } from "./util.js";
 import { AppPreferences } from "./app-preferences.js";
 import { compareDefaultRef, registerReviewIpc } from "./app-review-ipc.js";
@@ -154,37 +154,25 @@ function tr(): (key: string, vars?: Record<string, string | number>) => string {
 
 app.setName(APP_NAME);
 if (DEV_BUILD) app.setPath("userData", join(app.getPath("userData"), "dev"));
-if (process.env.KAKAPO_REMOTE_DEBUG) {
-  app.commandLine.appendSwitch("remote-debugging-port", process.env.KAKAPO_REMOTE_DEBUG);
-  // A harness-driven window is usually behind the operator's own windows, and macOS marks an occluded
-  // page `hidden` — which holds terminal output and parks rAF, so the very paths under test never run.
-  // Verification needs the page to behave as if watched; normal runs keep the occlusion savings.
+function keepHarnessWindowPaintingWhileOccluded(remoteDebuggingPort: string): void {
+  app.commandLine.appendSwitch("remote-debugging-port", remoteDebuggingPort);
   app.commandLine.appendSwitch("disable-backgrounding-occluded-windows");
   app.commandLine.appendSwitch("disable-renderer-backgrounding");
 }
-// The lazy Markdown editor cannot reliably load from the repository's file:// review. A narrow, read-only
-// standard scheme serves only production assets copied under the historical dist/monaco directory.
+if (process.env.KAKAPO_REMOTE_DEBUG) keepHarnessWindowPaintingWhileOccluded(process.env.KAKAPO_REMOTE_DEBUG);
 protocol.registerSchemesAsPrivileged([{
   scheme: "kakapo-asset",
   privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true },
 }]);
 
 const iconPath = join(dirname(fileURLToPath(import.meta.url)), "..", "assets", "icon.png");
-// macOS has no window icons, and it reads the app icon off the bundle — the packaged one from Info.plist, the
-// dev one from the electron.icns that the postinstall branding step overwrites with ours. Handing Electron the
-// 1024² PNG on top of that only decoded bitmaps into the main process and left them there: measured +33.5 MB
-// for dock.setIcon, +14.3 MB for the first window's `icon:`, +5.2 MB per window after that, which is most of
-// the 64 MB of CG image this process was holding. Everywhere else it IS the window/taskbar icon, so it stays.
-const windowIcon = process.platform === "darwin" ? undefined : iconPath;
+function windowIconExceptWhereTheBundleSuppliesIt(): string | undefined {
+  return process.platform === "darwin" ? undefined : iconPath;
+}
+const windowIcon = windowIconExceptWhereTheBundleSuppliesIt();
 const preloadPath = join(dirname(fileURLToPath(import.meta.url)), "preload.cjs");
 
-// Development argv is `[electron, app-main.js, ...flags]`; a packaged app is
-// `[Kakapo, ...flags]`. Dropping two entries unconditionally erased `--cwd` from the installed app,
-// so scripted relaunches landed on the welcome/recent-project screen instead of the requested folder.
-const runtimeArgs = app.isPackaged ? process.argv.slice(1) : process.argv.slice(2);
-const options = parseArgs(runtimeArgs);
-// Electron forwards this small, serializable payload to the primary process. Keeping the canonical path
-// in additionalData avoids relying on platform-specific command-line/cwd behavior during handoff.
+const options = parseArgs(runtimeArgv(process.argv, app.isPackaged));
 const hasSingleInstanceLock = app.requestSingleInstanceLock({ workspaceRoot: options.root, explicitRoot: options.explicitRoot });
 const states = new Map<number, WinState>();
 const reviewBuilder = new ReviewBuilder();
@@ -206,20 +194,18 @@ if (!existsSync(options.root)) {
 function stateFromEvent(event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent): WinState | undefined {
   return states.get(event.sender.id);
 }
-function focusedState(): WinState | undefined {
+function focusedOrLoneWindowState(): WinState | undefined {
   const focused = BrowserWindow.getFocusedWindow();
   if (focused) {
     for (const state of states.values()) {
       if (!state.win.isDestroyed() && state.win.webContents.id === focused.webContents.id) return state;
     }
   }
-  // No OS-focused window (a menu accelerator can fire just after a focus change): fall back to the only
-  // window when there is exactly one, which is the ordinary case for a single-repo launch.
   const live = Array.from(states.values()).filter((state) => !state.win.isDestroyed());
   return live.length === 1 ? live[0] : undefined;
 }
 function sendToFocused(channel: string, payload?: unknown): void {
-  const state = focusedState();
+  const state = focusedOrLoneWindowState();
   if (state && !state.win.isDestroyed()) state.win.webContents.send(channel, payload);
 }
 
@@ -580,14 +566,11 @@ const updateGlobalCli = (event: Electron.IpcMainInvokeEvent) => new Promise<{ ok
   runAttempt(0);
 });
 
-// The merged-prompt dock implements its own whole-document Cmd+A/Cmd+C (select every card + prose region,
-// copy the assembled hand-off text — see openMergedView in 08-dock.js). The app menu's `role: "editMenu"`
-// (kept so real text fields get native Cut/Paste/Undo) binds the SAME accelerators, and on macOS the menu's
-// native Select All/Copy can fire independently of — and race — the page's own keydown handling. While the
-// dock signals it owns these keys, ignore the menu's accelerators for its window so only the page's handler
-// responds; the dock un-ignores on close so every other Cmd+A/Cmd+C in the app keeps its native behavior.
+function holdMenuAcceleratorsWhileThePageOwnsTheSameKeys(sender: Electron.WebContents, hold: boolean): void {
+  sender.setIgnoreMenuShortcuts(hold);
+}
 ipcMain.on("kakapo:set-ignore-menu-shortcuts", (event, msg: { ignore?: boolean }) => {
-  event.sender.setIgnoreMenuShortcuts(!!(msg && msg.ignore));
+  holdMenuAcceleratorsWhileThePageOwnsTheSameKeys(event.sender, !!(msg && msg.ignore));
 });
 
 if (hasSingleInstanceLock) app.on("second-instance", (_event, commandLine, workingDirectory, additionalData) => {
@@ -640,7 +623,7 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
   setInterval(watchLspWeight, LSP_WATCHDOG_MS);
   setTimeout(() => {
     reclaimServerCaches().then((reclaimed) => {
-      if (reclaimed.length) console.error(`[kakapo] reclaimed ${reclaimed.length} language-server caches unused for 30 days`);
+      if (reclaimed.length) console.error(`[kakapo] reclaimed ${reclaimed.length} language-server caches unused for ${RECLAIM_UNUSED_DAYS} days`);
     }, () => { });
   }, SERVER_CACHE_RECLAIM_DELAY_MS).unref?.();
 }).catch((error: unknown) => {
@@ -678,7 +661,7 @@ function syncDiffMenu(options: AppOptions): void {
 }
 
 async function rebuildFocusedReview(change: (options: AppOptions) => void): Promise<void> {
-  const state = focusedState();
+  const state = focusedOrLoneWindowState();
   if (!state) return;
   change(state.options);
   syncDiffMenu(state.options);
@@ -695,7 +678,7 @@ const READING_TOGGLE_KEYS = new Set([
 ]);
 
 function readingToggleOn(key: string): boolean {
-  const state = focusedState();
+  const state = focusedOrLoneWindowState();
   try {
     const settings = state
       ? preferences.rendererSettings(state.options.root)
@@ -732,8 +715,6 @@ function buildApplicationMenu(): void {
     ],
   });
   menuTemplate.push({ role: "editMenu" });
-  // Ctrl+Cmd+Shift+/ ("?") opens the merged review-comments view (questions, then change requests).
-  // ? is Shift+/ so Shift is part of the combo; Ctrl+Cmd avoids macOS's Cmd+? Help grab.
   menuTemplate.push({
     label: t("menu.review"),
     submenu: [
@@ -777,12 +758,6 @@ function buildApplicationMenu(): void {
       readingItem("compareClipboard"),
     ],
   });
-  // Zoom, for the same reason the terminal shortcuts are here: Chromium takes ⌘+/⌘−/⌘0 before any renderer
-  // keydown runs. Both ⌘= and ⌘+ are bound because the key is the same one with and without Shift, and
-  // binding only one means the shortcut works on some layouts and not others.
-  //
-  // Below the zoom: what IntelliJ keeps under View → Active Editor — whether the things that are in the
-  // file but not in its text are drawn. All eight are display only; none of them re-runs git.
   menuTemplate.push({
     label: t("menu.view"),
     submenu: [
@@ -980,13 +955,6 @@ function createWindow(root: string, explicitRoot = true): WinState {
     if (external) void shell.openExternal(external);
     return { action: "deny" };
   });
-  // Denying new windows is not enough: Electron injects the preload into EVERY document a webContents
-  // loads, and `states` is keyed by webContents id, which navigation does not change. So a top-level
-  // navigation to a remote origin would hand that origin the whole contextBridge surface — the project
-  // index, every source file, the comments file — against the repository the window still has open.
-  // The review page is only ever a local file (loadFile) or the data: loading screen, so nothing else is a
-  // legitimate destination. A link in reviewed content that wants a browser gets one from the OS, via the
-  // deny handler above; it never moves this window.
   const allowedNavigation = (url: string): boolean =>
     url.startsWith("file://") || url.startsWith("data:text/html") || url.startsWith("kakapo-asset://");
   const blockForeignNavigation = (event: { preventDefault(): void }, url: string): void => {
@@ -995,12 +963,8 @@ function createWindow(root: string, explicitRoot = true): WinState {
   win.webContents.on("will-navigate", blockForeignNavigation);
   win.webContents.on("will-redirect", blockForeignNavigation);
   if (DEV_BUILD) {
-    win.webContents.on("console-message", (...args: unknown[]) => {
-      // Electron 36+ passes a single details object ({ message, level, ... }); older builds passed
-      // positional (event, level, message). Handle both so the dev log works across versions.
-      const first = args[0] as { message?: string; level?: unknown } | undefined;
-      const message = first && typeof first === "object" && "message" in first ? first.message : args[2];
-      process.stdout.write(`[renderer] ${String(message)}\n`);
+    win.webContents.on("console-message", ({ message }) => {
+      process.stdout.write(`[renderer] ${message}\n`);
     });
   }
   win.webContents.on("did-finish-load", () => {
@@ -1275,14 +1239,14 @@ async function openReview(state: WinState, root: string): Promise<void> {
 }
 
 async function openFolderInCurrent(): Promise<void> {
-  const state = focusedState();
+  const state = focusedOrLoneWindowState();
   if (!state) return;
   const root = await pickRepo(BrowserWindow.getFocusedWindow() ?? undefined, state.options.root);
   if (root) await openReview(state, root);
 }
 async function openFolderInNewWindow(): Promise<void> {
   const parent = BrowserWindow.getFocusedWindow() ?? undefined;
-  const root = await pickRepo(parent, focusedState()?.options.root);
+  const root = await pickRepo(parent, focusedOrLoneWindowState()?.options.root);
   if (root) createWindow(root);
 }
 async function pickDirectory(parent: BrowserWindow | undefined, defaultPath?: string): Promise<string | undefined> {

@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -13,7 +14,9 @@ import {
   markServerCacheUsed,
   reclaimServerCaches,
   reclaimableServerCaches,
+  removeServerCache,
   serverCacheDirectory,
+  RECLAIM_UNUSED_DAYS,
 } from "../dist/server-cache.js";
 import { readUnifiedDiff } from "../dist/diff.js";
 import { reviewDiffSignature } from "../dist/review-bodies.js";
@@ -101,7 +104,7 @@ test("a family with no row cannot be given a cache by accident", () => {
   assert.throws(() => serverCacheDirectory("clang", "/tmp/anything"), /no language-server cache directory is declared/);
 });
 
-test("a cache nothing has opened for a month is reclaimed; a fresh one and the shared one are not", () => {
+test("a cache nothing has opened inside the window is reclaimed, the shared one included", () => {
   const home = base();
   const old = serverCacheDirectory("rust", "/gone/worktree", home);
   const fresh = serverCacheDirectory("java", "/live/worktree", home);
@@ -114,12 +117,13 @@ test("a cache nothing has opened for a month is reclaimed; a fresh one and the s
   utimesSync(old, longAgo, longAgo);
   utimesSync(shared, longAgo, longAgo);
 
-  assert.deepEqual(reclaimableServerCaches({ base: home }), [old]);
+  assert.deepEqual(reclaimableServerCaches({ base: home }).sort(), [old, shared].sort());
   return reclaimServerCaches({ base: home }).then((reclaimed) => {
-    assert.deepEqual(reclaimed, [old]);
+    assert.deepEqual(reclaimed.sort(), [old, shared].sort());
     assert.throws(() => statSync(old), /ENOENT/, "the stale cache is gone from disk, not just from the list");
-    assert.ok(statSync(fresh).isDirectory(), "a cache used this month survives");
-    assert.ok(statSync(shared).isDirectory(), "the shared cache has no worktree to outlive, so age must not reclaim it");
+    assert.ok(statSync(fresh).isDirectory(), "a cache used inside the window survives");
+    assert.throws(() => statSync(shared), /ENOENT/,
+      "a shared cache has no worktree to outlive, but a server start touches it, so its mtime still says when it was last wanted");
   });
 });
 
@@ -132,8 +136,8 @@ test("a family that moved to a shared cache still has its old per-worktree direc
   utimesSync(stranded, longAgo, longAgo);
   utimesSync(shared, longAgo, longAgo);
 
-  assert.deepEqual(reclaimableServerCaches({ base: home }), [stranded],
-    "the key a worktree hash produced is reclaimable; the shared one is not, whatever the family's scope says today");
+  assert.deepEqual(reclaimableServerCaches({ base: home }).sort(), [stranded, shared].sort(),
+    "a key a worktree hash produced is stranded the moment the family turns shared, and the shared key ages like any other");
 });
 
 test("opening a server freshens its cache, so the next sweep leaves it alone", () => {
@@ -153,15 +157,16 @@ test("one sweep cannot spend the whole launch deleting", () => {
   const home = base();
   const longAgo = new Date(Date.now() - 45 * DAY);
   const made = [];
-  for (let index = 0; index < 30; index += 1) {
+  for (let index = 0; index < 300; index += 1) {
     const directory = serverCacheDirectory("php", `/gone/worktree-${index}`, home);
     mkdirSync(directory, { recursive: true });
     utimesSync(directory, longAgo, longAgo);
     made.push(directory);
   }
-  assert.equal(reclaimableServerCaches({ base: home }).length, 24, "the sweep is bounded per launch");
+  assert.equal(reclaimableServerCaches({ base: home }).length, 256,
+    "the sweep is bounded per launch, high enough to drain the 376 stale keys measured on an 11.8-day uptime in two launches");
   assert.equal(reclaimableServerCaches({ base: home, limit: 5 }).length, 5);
-  assert.equal(made.length, 30);
+  assert.equal(made.length, 300);
 });
 
 test("a server that writes its cache inside the project declares that path, and only such a server may", () => {
@@ -254,4 +259,86 @@ test("every list of untracked files is filtered, or it will hand the user a serv
   }
   assert.deepEqual(unfiltered, [],
     "clangd writes its index inside the project, so a path list that skips both filters puts it in front of the user");
+});
+
+function goModuleCache(at) {
+  mkdirSync(join(at, "modules", "golang.org", "toolchain@v0.0.1", "bin"), { recursive: true });
+  writeFileSync(join(at, "modules", "golang.org", "toolchain@v0.0.1", "bin", "go"), "binary\n");
+  writeFileSync(join(at, "modules", "golang.org", "toolchain@v0.0.1", "LICENSE"), "text\n");
+  for (const directory of [
+    join(at, "modules", "golang.org", "toolchain@v0.0.1", "bin"),
+    join(at, "modules", "golang.org", "toolchain@v0.0.1"),
+  ]) chmodSync(directory, 0o555);
+  return at;
+}
+
+test("a Go module cache is removed although the module directories are read-only", async () => {
+  const home = base();
+  const hostile = goModuleCache(join(home, "kakapo-go", "aaaaaaaaaaaaaaaa"));
+
+  await assert.rejects(rm(hostile, { recursive: true, force: true }),
+    "go writes every extracted module read-only, so force alone cannot remove one and the measured cache held 1470 such directories");
+  assert.ok(statSync(hostile).mtimeMs > Date.now() - 60_000,
+    "and the entries it did remove refresh the mtime, so a failed sweep is never retried and the leak is permanent");
+
+  chmodSync(join(hostile, "modules", "golang.org", "toolchain@v0.0.1"), 0o555);
+  await removeServerCache(hostile);
+  assert.throws(() => statSync(hostile), "nothing of it is left behind");
+});
+
+test("a shared cache is reclaimed by the same age rule as a worktree one", async () => {
+  const home = base();
+  const stale = serverCacheDirectory("go", "/anywhere", home);
+  const fresh = serverCacheDirectory("ruby", "/anywhere", home);
+  assert.equal(stale.endsWith(SHARED_CACHE_KEY), true);
+  for (const directory of [stale, fresh]) mkdirSync(directory, { recursive: true });
+
+  const old = new Date(Date.now() - 40 * DAY);
+  utimesSync(stale, old, old);
+  markServerCacheUsed(fresh);
+
+  assert.deepEqual(reclaimableServerCaches({ base: home }), [stale],
+    "start touches the directory on every launch, so its mtime is a true last-used time and age can speak for it");
+  assert.deepEqual(await reclaimServerCaches({ base: home }), [stale]);
+  assert.ok(statSync(fresh).isDirectory(), "a shared cache something still opens stays");
+});
+
+test("the window a cache must go unused is one a cache can actually reach", async () => {
+  assert.equal(RECLAIM_UNUSED_DAYS, 7,
+    "the tmpdir is cleared at boot, so at the 30 days this once declared the measured 836 keys and 5.59 GB on an 11.8-day uptime were none of them reclaimable; 7 reclaims 3.12 GB of them and costs one cold index, 4.32s against 0.40s warm");
+
+  const home = base();
+  const used = serverCacheDirectory("rust", "/one", home);
+  const idle = serverCacheDirectory("rust", "/two", home);
+  for (const directory of [used, idle]) mkdirSync(directory, { recursive: true });
+  const yesterday = new Date(Date.now() - (RECLAIM_UNUSED_DAYS - 1) * DAY);
+  const lastWeek = new Date(Date.now() - (RECLAIM_UNUSED_DAYS + 1) * DAY);
+  utimesSync(used, yesterday, yesterday);
+  utimesSync(idle, lastWeek, lastWeek);
+
+  assert.deepEqual(await reclaimServerCaches({ base: home }), [idle],
+    "a worktree opened inside the window keeps its cache");
+});
+
+test("the bound spends itself on the oldest caches, not on whichever family is declared first", () => {
+  const home = base();
+  const crowd = [];
+  for (let index = 0; index < 300; index += 1) {
+    const directory = serverCacheDirectory("go", `/crowd/${index}`, home);
+    mkdirSync(directory, { recursive: true });
+    const when = new Date(Date.now() - (RECLAIM_UNUSED_DAYS + 1) * DAY);
+    utimesSync(directory, when, when);
+    crowd.push(directory);
+  }
+  const oldest = serverCacheDirectory("php", "/the/largest/store", home);
+  mkdirSync(oldest, { recursive: true });
+  const longAgo = new Date(Date.now() - 300 * DAY);
+  utimesSync(oldest, longAgo, longAgo);
+
+  const chosen = reclaimableServerCaches({ base: home });
+  assert.ok(crowd.length > chosen.length,
+    "the first family declared has more stale keys than one launch may remove, which is how php came last and starved");
+  assert.ok(chosen.includes(oldest),
+    "php is declared last and its measured store was the largest at 4.9 GB, so a bound spent in declaration order never reaches it");
+  assert.equal(chosen[0], oldest, "and the oldest goes first");
 });
