@@ -1,4 +1,5 @@
 var semanticPeekItems = [];
+var semanticPeekGuess = null;
 var semanticPeekActive = 0;
 
 function semanticTestPath(path) {
@@ -62,11 +63,33 @@ function openSemanticPeek(name, locations, response, kind) {
     meta.textContent = bits.join(' · ');
     meta.title = response && response.fallbackReason ? String(response.fallbackReason) : '';
   }
+  semanticPeekGuess = guessedAnalysisQuestionFor(response);
   renderSemanticPeekResults();
   panel.classList.remove('hidden');
   positionSemanticPeekAtCaret();
   var results = document.getElementById('semantic-peek-results');
   if (results && typeof results.focus === 'function') results.focus({ preventScroll: true });
+}
+
+function semanticPeekIsOpen() {
+  var panel = document.getElementById('semantic-peek');
+  return Boolean(panel) && !panel.classList.contains('hidden');
+}
+
+function refreshGuessedSemanticPeek() {
+  var question = semanticPeekGuess;
+  if (!question || !semanticPeekIsOpen()) return;
+  semanticPeekGuess = null;
+  queryProjectAnalysis(question.kind, question.symbol, question.loc, question.extra).then(function (response) {
+    if (!semanticPeekIsOpen() || !response || !response.ok) return;
+    var locations = semanticNavigationLocations(response.locations || [], question.kind);
+    if (!locations.length) {
+      closeSemanticPeek();
+      showSemanticNavigationFailure(question.kind, question.symbol, response);
+      return;
+    }
+    openSemanticPeek(question.symbol, locations, response, question.kind);
+  });
 }
 
 function openAnalysisUsagesFallback(name, locations, kind) {

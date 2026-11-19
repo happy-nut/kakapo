@@ -76,6 +76,7 @@ function renderAnalysisStatus(status) {
 function refreshAnalysisPaints() {
   paintSourceDecorations();
   refreshDiagnosticsFilter();
+  refreshGuessedSemanticPeek();
 }
 
 (function setupAnalysisStatus() {

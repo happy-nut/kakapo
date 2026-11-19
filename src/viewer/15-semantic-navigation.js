@@ -209,6 +209,11 @@ function alreadyAtLocation(loc, item) {
   return column >= start && column <= start + String(token.name || '').length;
 }
 
+var guessedAnalysisQuestionLast = null;
+function guessedAnalysisQuestionFor(response) {
+  var question = guessedAnalysisQuestionLast;
+  return question && question.response === response ? question : null;
+}
 function queryProjectAnalysis(kind, symbol, loc, extra) {
   if (!window.kakapoAnalysis || typeof window.kakapoAnalysis.query !== 'function') return Promise.resolve(null);
   var request = Object.assign({
@@ -221,7 +226,12 @@ function queryProjectAnalysis(kind, symbol, loc, extra) {
   }, extra || {});
   return Promise.resolve(window.kakapoAnalysis.query(request)).then(function (response) {
     if (!analysisGenerationIsCurrent(response)) return null;
-    if (!BACKGROUND_ANALYSIS_KINDS[kind]) noteProvisionalAnalysis(response, symbol);
+    if (!BACKGROUND_ANALYSIS_KINDS[kind]) {
+      noteProvisionalAnalysis(response, symbol);
+      guessedAnalysisQuestionLast = response && response.engine !== 'lsp' && analysisStillArriving()
+        ? { kind: kind, symbol: symbol, loc: loc, extra: extra, response: response }
+        : null;
+    }
     return response;
   }).catch(function () { return null; });
 }
