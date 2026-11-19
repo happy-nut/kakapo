@@ -11,7 +11,7 @@ import { makeTranslator, normalizeLocale, type Locale } from "./i18n.js";
 import { relaunchUpdatedApp, selfUpdateInstallAttempts } from "./self-update.js";
 import { bundlePathFor, installPackagedUpdate, isNewerVersion, macDmgAsset } from "./app-update.js";
 import { openSymbolCache } from "./analysis-cache.js";
-import { reclaimServerCaches } from "./server-cache.js";
+import { reclaimServerCaches, RECLAIM_UNUSED_DAYS } from "./server-cache.js";
 import { ProjectAnalysis } from "./analysis.js";
 import { ReviewPerformanceTrace } from "./perf.js";
 import type { SourceFile, WhitespaceMode } from "./types.js";
@@ -640,7 +640,7 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
   setInterval(watchLspWeight, LSP_WATCHDOG_MS);
   setTimeout(() => {
     reclaimServerCaches().then((reclaimed) => {
-      if (reclaimed.length) console.error(`[kakapo] reclaimed ${reclaimed.length} language-server caches unused for 30 days`);
+      if (reclaimed.length) console.error(`[kakapo] reclaimed ${reclaimed.length} language-server caches unused for ${RECLAIM_UNUSED_DAYS} days`);
     }, () => { });
   }, SERVER_CACHE_RECLAIM_DELAY_MS).unref?.();
 }).catch((error: unknown) => {

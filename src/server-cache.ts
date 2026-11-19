@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdirSync, readdirSync, statSync, utimesSync } from "node:fs";
+import { chmodSync, mkdirSync, readdirSync, statSync, utimesSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -40,8 +40,8 @@ export function isServerCacheInsideProject(path: string): boolean {
 
 export const SHARED_CACHE_KEY = "shared";
 
-const RECLAIM_UNUSED_DAYS = 30;
-const RECLAIM_PER_RUN = 24;
+export const RECLAIM_UNUSED_DAYS = 7;
+const RECLAIM_PER_RUN = 256;
 
 export function serverCacheKey(family: string, root: string): string {
   if (SERVER_CACHE_SCOPES[family] === "shared") return SHARED_CACHE_KEY;
@@ -74,7 +74,6 @@ export function reclaimableServerCaches(
     let keys: string[];
     try { keys = readdirSync(join(base, directory)); } catch { continue; }
     for (const key of keys) {
-      if (key === SHARED_CACHE_KEY) continue;
       if (stale.length >= limit) return stale;
       const candidate = join(base, directory, key);
       try {
@@ -86,13 +85,40 @@ export function reclaimableServerCaches(
   return stale;
 }
 
+function makeTreeWritable(directory: string): void {
+  const pending = [directory];
+  while (pending.length) {
+    const current = pending.pop() as string;
+    let entries: string[];
+    try {
+      chmodSync(current, 0o700);
+      entries = readdirSync(current);
+    } catch { continue; }
+    for (const entry of entries) {
+      const candidate = join(current, entry);
+      try {
+        if (statSync(candidate).isDirectory()) pending.push(candidate);
+      } catch { }
+    }
+  }
+}
+
+export async function removeServerCache(directory: string): Promise<void> {
+  try {
+    await rm(directory, { recursive: true, force: true });
+    return;
+  } catch { }
+  makeTreeWritable(directory);
+  await rm(directory, { recursive: true, force: true });
+}
+
 export async function reclaimServerCaches(
   options: { base?: string; unusedForDays?: number; now?: number; limit?: number } = {},
 ): Promise<string[]> {
   const reclaimed: string[] = [];
   for (const directory of reclaimableServerCaches(options)) {
     try {
-      await rm(directory, { recursive: true, force: true });
+      await removeServerCache(directory);
       reclaimed.push(directory);
     } catch { }
   }
