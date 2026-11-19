@@ -319,3 +319,26 @@ test("the window a cache must go unused is one a cache can actually reach", asyn
   assert.deepEqual(await reclaimServerCaches({ base: home }), [idle],
     "a worktree opened inside the window keeps its cache");
 });
+
+test("the bound spends itself on the oldest caches, not on whichever family is declared first", () => {
+  const home = base();
+  const crowd = [];
+  for (let index = 0; index < 300; index += 1) {
+    const directory = serverCacheDirectory("go", `/crowd/${index}`, home);
+    mkdirSync(directory, { recursive: true });
+    const when = new Date(Date.now() - (RECLAIM_UNUSED_DAYS + 1) * DAY);
+    utimesSync(directory, when, when);
+    crowd.push(directory);
+  }
+  const oldest = serverCacheDirectory("php", "/the/largest/store", home);
+  mkdirSync(oldest, { recursive: true });
+  const longAgo = new Date(Date.now() - 300 * DAY);
+  utimesSync(oldest, longAgo, longAgo);
+
+  const chosen = reclaimableServerCaches({ base: home });
+  assert.ok(crowd.length > chosen.length,
+    "the first family declared has more stale keys than one launch may remove, which is how php came last and starved");
+  assert.ok(chosen.includes(oldest),
+    "php is declared last and its measured store was the largest at 4.9 GB, so a bound spent in declaration order never reaches it");
+  assert.equal(chosen[0], oldest, "and the oldest goes first");
+});

@@ -69,20 +69,20 @@ export function reclaimableServerCaches(
   const days = options.unusedForDays ?? RECLAIM_UNUSED_DAYS;
   const cutoff = (options.now ?? Date.now()) - days * 86_400_000;
   const limit = options.limit ?? RECLAIM_PER_RUN;
-  const stale: string[] = [];
+  const stale: Array<{ path: string; mtimeMs: number }> = [];
   for (const directory of Object.values(SERVER_CACHE_DIRECTORIES)) {
     let keys: string[];
     try { keys = readdirSync(join(base, directory)); } catch { continue; }
     for (const key of keys) {
-      if (stale.length >= limit) return stale;
       const candidate = join(base, directory, key);
       try {
         const info = statSync(candidate);
-        if (info.isDirectory() && info.mtimeMs < cutoff) stale.push(candidate);
+        if (info.isDirectory() && info.mtimeMs < cutoff) stale.push({ path: candidate, mtimeMs: info.mtimeMs });
       } catch { }
     }
   }
-  return stale;
+  stale.sort((a, b) => a.mtimeMs - b.mtimeMs);
+  return stale.slice(0, limit).map((entry) => entry.path);
 }
 
 function makeTreeWritable(directory: string): void {
