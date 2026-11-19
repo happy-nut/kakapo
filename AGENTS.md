@@ -171,7 +171,12 @@ declaration is the check that matters — a server whose cache is keyed by conte
 front of it, and one that is keyed by path does not — so the bench exits non-zero when it goes missing.
 Speed alone cannot see that: sharing `CARGO_TARGET_DIR` was faster and wrong. The corpora a row was
 measured on are named in `CORPORA` at the top of the script, with the file and column each probe asks
-about, so a re-measurement asks the same question.
+about, so a re-measurement asks the same question. The bench runs against a `TMPDIR` of its own so a
+measurement never touches the real Kakapo caches, and `scripts/lib/scratch-dir.mjs` removes that directory
+again — on a crash and on `SIGTERM` too, since a long corpus run is interrupted more often than it
+finishes. Six runs had already left 1.7 GB behind before it did. `CACHE_BENCH_TMPDIR` names a directory
+the bench must not remove, `CACHE_BENCH_KEEP=1` keeps its own, and `test/scratch-dir.test.mjs` holds both
+plus the child process that is killed mid-run.
 
 clangd is the one server kakapo cannot place: it writes `.cache/clangd/index/*.idx` into the root of the
 repository being read, `--background-index` is on by default in the bundled build and nothing in

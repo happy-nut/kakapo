@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { removeWhenThisProcessEnds, scratchDirectory } from "./lib/scratch-dir.mjs";
 
 const CORPORA = {
   rubocop: {
@@ -49,8 +49,15 @@ if (!spec) {
 }
 const family = spec.family;
 
-process.env.TMPDIR = process.env.CACHE_BENCH_TMPDIR
-  || mkdtempSync(join(tmpdir(), "kakapo-cache-bench-"));
+const scratch = scratchDirectory({
+  given: process.env.CACHE_BENCH_TMPDIR,
+  prefix: "kakapo-cache-bench-",
+  keep: process.env.CACHE_BENCH_KEEP === "1",
+});
+process.env.TMPDIR = scratch.path;
+removeWhenThisProcessEnds(scratch, (path, removed) => {
+  console.log(removed ? `removed the cache base ${path}` : `kept the cache base ${path}`);
+});
 process.env.KAKAPO_LSP_BUNDLE_ROOT = process.env.KAKAPO_LSP_BUNDLE_ROOT
   || join(process.cwd(), "vendor", "language-servers");
 
