@@ -216,3 +216,23 @@ test("a server still indexing does not keep rebuilding the review behind the use
   assert.notEqual(reviewDiffSignature(options), quiet,
     "a real untracked file is still what the watch exists for");
 });
+
+test("every list of untracked files is filtered, or it will hand the user a server's own index", () => {
+  const sources = ["diff.ts", "git.ts", "review-bodies.ts", "analysis.ts", "app-main.ts", "git-log.ts", "workspace-data.ts"];
+  const unfiltered = [];
+  for (const name of sources) {
+    let source;
+    try { source = readFileSync(new URL(`../src/${name}`, import.meta.url), "utf8"); } catch { continue; }
+    const bodies = source.split(/\n(?=(?:export )?(?:async )?function )/);
+    for (const body of bodies) {
+      if (!body.includes('"--others"')) continue;
+      const declared = /^(?:export )?(?:async )?function (\w+)/.exec(body);
+      const where = `${name}:${declared ? declared[1] : "top level"}`;
+      if (declared?.[1] === "untrackedPaths") continue;
+      if (body.includes("isSourceCandidate(") || body.includes("isServerCacheInsideProject(")) continue;
+      unfiltered.push(where);
+    }
+  }
+  assert.deepEqual(unfiltered, [],
+    "clangd writes its index inside the project, so a path list that skips both filters puts it in front of the user");
+});
