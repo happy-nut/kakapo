@@ -186,7 +186,9 @@ renderer on macOS, whether a mark is painted at all, or what a label looks like 
 those has shipped broken with the suite green. Two things it will cost you otherwise: the smoke scripts
 want `KAKAPO_DEV=1` or they write into your real Kakapo state, and nothing may drive the app while
 `npm test` runs — `test/menu-accelerators.test.mjs` spawns the real Electron out of this same
-`node_modules`, and taking the app down takes that with it and invalidates the run silently.
+`node_modules`, and taking the app down takes that with it and invalidates the run silently. An
+`npm install` during a run does the same from the other side, so a suite that was already running when
+the tree's dependencies changed proves nothing and has to be started again.
 
 `formal-compare-mode` model-checks the compare controls against one promise: the compare menu always
 ticks the row describing the diff the window is actually built from. Six fields, five handlers and one
