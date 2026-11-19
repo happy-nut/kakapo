@@ -62,13 +62,22 @@ export function indexableContent(content: string): boolean {
 }
 
 const DECLARATION_PATTERNS: Array<{ kind: string; re: RegExp }> = [
-  { kind: "function", re: /^\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+([A-Za-z_$][A-Za-z0-9_$]*)/ },
-  { kind: "class", re: /^\s*(?:(?:public|private|protected|internal|abstract|final|open|sealed|data|inner|enum|annotation|static|export|default|expect|actual|value|pub(?:\([^)]*\))?)\s+)*(class|interface|object|enum|trait|struct)\s+([A-Za-z_$][A-Za-z0-9_$]*)/ },
-  { kind: "type", re: /^\s*(?:export\s+)?(interface|type|enum)\s+([A-Za-z_$][A-Za-z0-9_$]*)/ },
-  { kind: "variable", re: /^\s*(?:export\s+)?(?:const|let|var|val)\s+([A-Za-z_$][A-Za-z0-9_$]*)/ },
-  { kind: "function", re: /^\s*(?:(?:public|private|protected|internal|abstract|final|open|override|suspend|inline|operator|static|async)\s+)*(?:fun|def|fn|func)\s+([A-Za-z_$][A-Za-z0-9_$]*)/ },
-  { kind: "method", re: /^\s*(?:(?:public|private|protected|internal|abstract|final|open|override|suspend|inline|operator|static|async)\s+)*([A-Za-z_$][A-Za-z0-9_$]*)\s*\([^)]*\)\s*(?::\s*[^=]+)?\s*(?:\{|=>)/ },
+  { kind: "function", re: /^\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+(?<name>[A-Za-z_$][A-Za-z0-9_$]*)/ },
+  { kind: "class", re: /^\s*(?:(?:public|private|protected|internal|abstract|final|open|sealed|data|inner|enum|annotation|static|export|default|expect|actual|value|pub(?:\([^)]*\))?)\s+)*(?<keyword>class|interface|object|enum|trait|struct)\s+(?<name>[A-Za-z_$][A-Za-z0-9_$]*)/ },
+  { kind: "type", re: /^\s*(?:export\s+)?(?<keyword>interface|type|enum)\s+(?<name>[A-Za-z_$][A-Za-z0-9_$]*)/ },
+  { kind: "variable", re: /^\s*(?:export\s+)?(?:const|let|var|val)\s+(?<name>[A-Za-z_$][A-Za-z0-9_$]*)/ },
+  { kind: "function", re: /^\s*(?:(?:public|private|protected|internal|abstract|final|open|override|suspend|inline|operator|static|async)\s+)*(?:fun|def|fn|func)\s+(?<name>[A-Za-z_$][A-Za-z0-9_$]*)/ },
+  { kind: "method", re: /^\s*(?:(?:public|private|protected|internal|abstract|final|open|override|suspend|inline|operator|static|async)\s+)*(?<name>[A-Za-z_$][A-Za-z0-9_$]*)\s*\((?<parameters>[^)]*)\)\s*(?::\s*[^=]+)?\s*(?:\{|=>)/ },
 ];
+
+const NOT_A_DECLARED_NAME = /^(?:if|for|while|switch|catch|with|function|return|new|typeof|void|delete|throw|await|yield)$/;
+
+function isParameterList(text: string): boolean {
+  for (let at = text.indexOf("("); at >= 0; at = text.indexOf("(", at + 1)) {
+    if (!text.slice(0, at).trimEnd().endsWith(":")) return false;
+  }
+  return true;
+}
 
 const HASH_COMMENT_EXTENSIONS = new Set([".py", ".rb", ".yaml", ".yml", ".toml"]);
 const DOUBLE_DASH_COMMENT_EXTENSIONS = new Set([".sql"]);
@@ -157,14 +166,16 @@ function declarationFromLine(path: string, line: string, lineIndex: number, sour
   for (const pattern of DECLARATION_PATTERNS) {
     const match = pattern.re.exec(line);
     if (!match) continue;
-    const name = match[2] && ["class", "interface", "object", "enum", "trait", "struct", "type"].includes(match[1]) ? match[2] : match[1];
-    if (!name || /^(if|for|while|switch|catch)$/.test(name)) continue;
+    const name = match.groups?.name ?? "";
+    if (!name || NOT_A_DECLARED_NAME.test(name)) continue;
+    const parameters = match.groups?.parameters;
+    if (parameters !== undefined && !isParameterList(parameters)) continue;
     return {
       path,
       lineIndex,
       column: Math.max(0, line.indexOf(name)),
       name,
-      symbolKind: pattern.kind === "class" ? String(match[1] || "class") : pattern.kind,
+      symbolKind: pattern.kind === "class" ? (match.groups?.keyword ?? "class") : pattern.kind,
       declaration: sourceLine,
       text: sourceLine,
     };
