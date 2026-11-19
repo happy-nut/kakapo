@@ -55,7 +55,12 @@ KAKAPO_VERIFY_LOCALE=ko node .claude/skills/verify-kakapo/example.mjs   # the sa
 node .claude/skills/verify-kakapo/ledger.mjs                            # the patch-set ledger (CMP-8)
 node .claude/skills/verify-kakapo/caret-chords.mjs                      # what each caret chord selects (READ-8)
 node .claude/skills/verify-kakapo/compare-tip.mjs                       # the compare menu tells the truth (CMP-3/7)
+node .claude/skills/verify-kakapo/worktree-cache.mjs                    # a sibling worktree reuses the index
+node .claude/skills/verify-kakapo/clangd-index-hidden.mjs               # a server's own index stays out of the review
 ```
+
+`drive()` takes an options object as its fourth argument; `{ args: ["--include-untracked"] }` reaches the
+CLI, which is the only way to turn on a flag the window has no control for.
 
 `drive()` does, in order:
 
