@@ -35,7 +35,7 @@ export function makeRepo(prefix) {
   return { dir, git, put, commit };
 }
 
-export async function drive(name, repo, body) {
+export async function drive(name, repo, body, options = {}) {
   const { checkoutElectronPids, launchApp, portHolder, preflightPort, readyPage, stopApp } = harness;
 
   const refuse = (why) => {
@@ -70,7 +70,7 @@ export async function drive(name, repo, body) {
   };
 
   process.env.KAKAPO_DEV = "1";
-  const { child, log: appLog } = launchApp(typeof repo === "string" ? repo : repo.dir);
+  const { child, log: appLog } = launchApp(typeof repo === "string" ? repo : repo.dir, options.args ?? []);
 
   try {
     const page = await readyPage(120000);
