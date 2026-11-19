@@ -1,4 +1,5 @@
 import { realpathSync } from "node:fs";
+import { commonGitDir } from "./git.js";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -32,6 +33,11 @@ export function workspacePerformanceDirectory(userData: string, root: string): s
 
 export function workspaceSymbolCacheFile(userData: string, repoRoot: string): string {
   return join(workspaceDataDirectory(userData, repoRoot), "symbols", "index.json");
+}
+
+export function repositorySymbolCacheFile(userData: string, root: string): string {
+  const shared = commonGitDir(root).replace(/[\\/]\.git$/, "");
+  return workspaceSymbolCacheFile(userData, shared || root);
 }
 
 export function defaultKakapoUserDataDirectory(

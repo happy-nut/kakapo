@@ -735,6 +735,13 @@ That bundles the language servers, builds, packages the Apple Silicon app, runs 
 
 Measure performance with `npm run benchmark` (`-- --files 5000 --changed 200 --lines 120` for a larger synthetic repo).
 
+`npm run index:bench -- <path…>` measures the other half: what opening a window costs before anything is
+drawn. It splits a project index build into walking, reading, hashing, scanning and writing the symbol
+store, for a cold run, a warm one, a sibling git worktree and a tree with files edited under it — and it
+fails when a served index differs from a scanned one, so it is a correctness gate as much as a
+measurement. The symbol store is shared by every worktree of a repository, which is why a second worktree
+opens on what the first one scanned.
+
 Tests run against real temporary Git repositories and the built `dist/`, covering diff, search, comments, history, LSP fallback, state persistence and the Electron layout. Two checks go further than the suite can: `npm run mermaid:smoke` and `npm run nav:smoke` launch the real app and drive it over the Chrome DevTools Protocol — real key events, the real language server, and `getComputedStyle` on what was drawn. That is where a structure list with no nesting (tsserver answers in the flat symbol shape) and a bookmark mark that painted nothing (`attr()` on a pseudo-element reads the cell's attributes, not the row's) were caught; neither is visible to jsdom. Set `KAKAPO_SMOKE_SHOTS=<dir>` to keep screenshots from a run. The user-visible flows are listed in [test/USER_FLOWS.md](test/USER_FLOWS.md).
 
 ## Design principles

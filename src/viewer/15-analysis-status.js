@@ -33,6 +33,9 @@ function paintAnalysisStatusTitle() {
   var detail = [t('analysis.' + phase), t('analysis.generation', { n: Math.max(0, Number(status.generation) || 0) })];
   if (status.family) detail.push(String(status.family));
   if (status.server) detail.push(String(status.server) + (status.serverSource ? ' (' + String(status.serverSource) + ')' : ''));
+  if (typeof status.indexedFiles === 'number') {
+    detail.push(t('analysis.indexReuse', { n: status.indexedFiles, r: Math.max(0, Number(status.reusedFiles) || 0) }));
+  }
   if (status.fallbackReason) detail.push(String(status.fallbackReason));
   if (status.error) detail.push(String(status.error));
   el.title = detail.join('\n');
