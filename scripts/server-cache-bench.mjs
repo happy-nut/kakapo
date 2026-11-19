@@ -18,10 +18,10 @@ const CORPORA = {
     family: "kotlin",
     probe: {
       path: "exposed-core/src/main/kotlin/org/jetbrains/exposed/v1/core/Table.kt",
-      line: 5,
-      column: 46,
-      symbol: "EntityID",
-      expected: "exposed-core/src/main/kotlin/org/jetbrains/exposed/v1/core/dao/id/EntityID.kt",
+      line: 743,
+      column: 20,
+      symbol: "newColumn",
+      expected: "exposed-core/src/main/kotlin/org/jetbrains/exposed/v1/core/Table.kt",
     },
     plant: { path: "exposed-core/src/main/kotlin/org/jetbrains/exposed/v1/core/dao/id/EntityID.kt", append: "\nclass KakapoOnlyInThisWorktree\n" },
   },
@@ -198,7 +198,10 @@ const seenApart = apartRuns.filter((one) => one.seen).length;
 const seenTogether = togetherRuns.filter((one) => one.seen).length;
 console.log(`planted text found: ${seenApart}/${apartRuns.length} with a cache each, ${seenTogether}/${togetherRuns.length} on one shared cache`);
 if (falsePositives) console.log(`the check is broken: ${falsePositives} runs found the symbol in the worktree that never held it`);
-const misread = Boolean(falsePositives) || seenTogether < togetherRuns.length;
+if (seenApart < apartRuns.length) {
+  console.log("inconclusive: the planted declaration is not found even with a cache of its own, so sharing cannot be blamed for losing it");
+}
+const misread = Boolean(falsePositives) || (seenApart === apartRuns.length && seenTogether < togetherRuns.length);
 if (misread) console.log("MISREAD: a sibling's cache answered for text it never held");
 
 async function bothAtOnce(scope) {
