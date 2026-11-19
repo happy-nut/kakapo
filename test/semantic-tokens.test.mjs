@@ -32,11 +32,11 @@ const PLAIN_ON_PURPOSE = {
   brace: "IntelliJ DEFAULT_BRACES — punctuation is default foreground",
   bracket: "IntelliJ DEFAULT_BRACKETS — punctuation is default foreground",
   colon: "IntelliJ DEFAULT_SEMICOLON family — punctuation is default foreground",
-  comma: "IntelliJ DEFAULT_COMMA — punctuation is default foreground",
+  comma: "IntelliJ DEFAULT_COMMA — Darcula paints it the keyword colour, the Default scheme does not",
   dot: "IntelliJ DEFAULT_DOT — punctuation is default foreground",
   parenthesis: "IntelliJ DEFAULT_PARENTHS — punctuation is default foreground",
   punctuation: "IntelliJ DEFAULT_BRACES family — punctuation is default foreground",
-  semicolon: "IntelliJ DEFAULT_SEMICOLON — punctuation is default foreground",
+  semicolon: "IntelliJ DEFAULT_SEMICOLON — Darcula paints it the keyword colour, the Default scheme does not",
   operator: "IntelliJ DEFAULT_OPERATION_SIGN — operators are default foreground",
   arithmetic: "a rust-analyzer split of DEFAULT_OPERATION_SIGN",
   bitwise: "a rust-analyzer split of DEFAULT_OPERATION_SIGN",
@@ -172,17 +172,17 @@ const MODIFIER_PLAIN_ON_PURPOSE = {
   definition: "the same distinction as declaration, under gopls's name for it",
   async: "IntelliJ has no key for it",
   abstract: "IntelliJ italicises ABSTRACT_CLASS, and italic already means static here",
-  documentation: "it marks doc comments, which the comment colour already covers",
   defaultLibrary: "IntelliJ's PREDEFINED_SYMBOL is a colour, and the slot budget is spent",
   modification: "no bundled server sends it",
   deprecated: null,
   static: null,
+  documentation: null,
 };
 
 function modifierTable() {
-  const at = slice.indexOf("var SEMANTIC_MODIFIER_CLASS");
-  assert.ok(at >= 0, "the modifier table is still one object in the source-view slice");
-  const body = slice.slice(at, slice.indexOf("};", at));
+  const at = slice.indexOf("function semanticModifierClasses(");
+  assert.ok(at >= 0, "the modifier table is still one lazy builder in the source-view slice");
+  const body = slice.slice(at, slice.indexOf("\n}", at));
   return new Map([...body.matchAll(/([A-Za-z_$][\w$]*):\s*'([^']+)'/g)].map((m) => [m[1], m[2]]));
 }
 

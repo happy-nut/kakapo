@@ -268,16 +268,23 @@ function semanticTokenClasses() {
   };
   return semanticTokenClassTable;
 }
-var SEMANTIC_MODIFIER_CLASS = {
-  static: 'tokmod-static', deprecated: 'tokmod-deprecated', mutable: 'tokmod-mutable',
-};
+var semanticModifierClassTable;
+function semanticModifierClasses() {
+  if (semanticModifierClassTable) return semanticModifierClassTable;
+  semanticModifierClassTable = {
+    static: 'tokmod-static', deprecated: 'tokmod-deprecated', mutable: 'tokmod-mutable',
+    documentation: 'tokmod-documentation',
+  };
+  return semanticModifierClassTable;
+}
 function semanticTokenSpanClass(token) {
   var base = semanticTokenClasses()[token.type];
   if (!base) return base === '' ? '' : null;
   var modifiers = token.modifiers;
   if (!modifiers || !modifiers.length) return base;
+  var extras = semanticModifierClasses();
   for (var i = 0; i < modifiers.length; i += 1) {
-    var extra = SEMANTIC_MODIFIER_CLASS[modifiers[i]];
+    var extra = extras[modifiers[i]];
     if (extra && base.indexOf(extra) < 0) base += ' ' + extra;
   }
   return base;
@@ -302,14 +309,28 @@ function semanticTokensFor(path) {
       byLine.forEach(function (row) { row.sort(function (a, b) { return a.startColumn - b.startColumn; }); });
       semanticTokenCacheMap().set(path, { generation: analysisGeneration(), byLine: byLine, pending: false });
       if (sourceOpenPath() === path) openSourceFile(path, false);
+      repaintDiffSemanticTokens(path);
     }, function () {
       if (pageAlive()) semanticTokenCacheMap().delete(path);
     });
   return null;
 }
-function semanticLineHtml(text, tokens) {
+function semanticTokensForFile(file) {
+  if (!file || !file.path) return null;
+  if ((file.language || 'text') === 'text') return null;
+  if (file.size > codeInsightMaxBytes()) return null;
+  return semanticTokensFor(file.path);
+}
+
+function semanticLineHtml(text, tokens, language) {
   var out = '';
   var at = 0;
+  var between = function (from, to) {
+    if (to <= from) return '';
+    var slice = text.slice(from, to);
+    if (!language || !/[\w$]/.test(slice)) return escapeHtml(slice);
+    return highlightLine(slice, language);
+  };
   for (var i = 0; i < tokens.length; i += 1) {
     var token = tokens[i];
     var start = token.startColumn;
@@ -319,11 +340,84 @@ function semanticLineHtml(text, tokens) {
     if (end <= start) continue;
     var className = semanticTokenSpanClass(token);
     if (!className) continue;
-    out += escapeHtml(text.slice(at, start));
+    out += between(at, start);
     out += '<span class="' + className + '">' + escapeHtml(text.slice(start, end)) + '</span>';
     at = end;
   }
-  return out + escapeHtml(text.slice(at));
+  return out + between(at, text.length);
+}
+
+function semanticSpan(className, text) {
+  var span = document.createElement('span');
+  span.className = className;
+  span.textContent = text;
+  return span;
+}
+
+function overlaySemanticTokens(root, tokens) {
+  var entries = [];
+  var at = 0;
+  var walk = function (node) {
+    for (var child = node.firstChild; child; child = child.nextSibling) {
+      if (child.nodeType === 3) {
+        var value = child.nodeValue || '';
+        entries.push({ node: child, value: value, start: at });
+        at += value.length;
+      } else if (child.nodeType === 1) {
+        walk(child);
+      }
+    }
+  };
+  walk(root);
+  for (var n = 0; n < entries.length; n += 1) {
+    var entry = entries[n];
+    var stop = entry.start + entry.value.length;
+    var cut = entry.start;
+    var fragment = null;
+    for (var t = 0; t < tokens.length; t += 1) {
+      var token = tokens[t];
+      var from = Math.max(token.startColumn, entry.start);
+      var to = Math.min(token.startColumn + token.length, stop);
+      if (to <= from || from < cut) continue;
+      var className = semanticTokenSpanClass(token);
+      if (!className) continue;
+      if (!fragment) fragment = document.createDocumentFragment();
+      if (from > cut) fragment.appendChild(document.createTextNode(entry.value.slice(cut - entry.start, from - entry.start)));
+      fragment.appendChild(semanticSpan(className, entry.value.slice(from - entry.start, to - entry.start)));
+      cut = to;
+    }
+    if (!fragment) continue;
+    if (cut < stop) fragment.appendChild(document.createTextNode(entry.value.slice(cut - entry.start)));
+    if (entry.node.parentNode) entry.node.parentNode.replaceChild(fragment, entry.node);
+  }
+}
+
+function paintDiffSemanticTokens(wrapper, oldRows, newRows) {
+  var path = wrapper ? diffWrapperPathKey(wrapper) : '';
+  var byLine = path ? semanticTokensForFile(sourceByPath.get(path)) : null;
+  if (!byLine) return;
+  for (var i = 0; i < newRows.length; i += 1) {
+    var ctn = diffCellCtn(newRows[i]);
+    if (!ctn || ctn.dataset.semanticPainted === '1') continue;
+    var number = diffLineNumber(newRows[i]);
+    if (number === null) continue;
+    var tokens = byLine.get(number - 1);
+    if (!tokens || !tokens.length) continue;
+    var text = ctn.textContent || '';
+    ctn.dataset.semanticPainted = '1';
+    overlaySemanticTokens(ctn, tokens);
+    var mirror = diffCellCtn(oldRows[i]);
+    if (!mirror || mirror.dataset.semanticPainted === '1') continue;
+    if ((mirror.textContent || '') !== text) continue;
+    mirror.dataset.semanticPainted = '1';
+    overlaySemanticTokens(mirror, tokens);
+  }
+}
+
+function repaintDiffSemanticTokens(path) {
+  var wrapper = diffWrapperByPath(path);
+  var pairs = wrapper ? diffSideRowPairs(wrapper) : null;
+  if (pairs) paintDiffSemanticTokens(wrapper, pairs.oldRows, pairs.newRows);
 }
 
 function sourceFoldCandidates(file) {

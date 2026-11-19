@@ -863,7 +863,7 @@ document.getElementById('source-body')?.addEventListener('scroll', scheduleSourc
 
 function sourceLineHtml(line, byLine, index, language) {
   var tokens = byLine ? byLine.get(index) : null;
-  if (tokens && tokens.length) return semanticLineHtml(line, tokens);
+  if (tokens && tokens.length) return semanticLineHtml(line, tokens, language);
   return highlightLine(line, language);
 }
 
@@ -900,9 +900,7 @@ function renderSourceTable(file, query) {
   const renderLanguage = file.language || 'text';
   const lineLanguages = renderLanguage === 'markup' ? markupBlockLanguages(lines) : null;
   const languageAt = (index) => (lineLanguages ? lineLanguages[index] : renderLanguage);
-  const semanticByLine = renderLanguage === 'text' || file.size > codeInsightMaxBytes()
-    ? null
-    : semanticTokensFor(file.path);
+  const semanticByLine = semanticTokensForFile(file);
   const cursor = viewerCursor && viewerCursor.path === file.path ? viewerCursor : null;
   const changedSet = new Set(file.changedLines || []);
   const bookmarkedLines = bookmarkLinesFor(file.path);
