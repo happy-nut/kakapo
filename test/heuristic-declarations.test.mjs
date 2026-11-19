@@ -221,6 +221,11 @@ const RETURN_TYPE_CALLS = [
     "  }",
     "}",
   ].join("\n")],
+  ["src/Resize.h", [
+    "typedef NS_ENUM(NSInteger, ResizeMode) {",
+    "  ResizeModeCover = 1,",
+    "};",
+  ].join("\n")],
 ];
 
 test("a call is not a declaration even where a return type may precede a name", async () => {
@@ -229,6 +234,8 @@ test("a call is not a declaration even where a return type may precede a name", 
     assert.deepEqual(declaredLines(index, name), [],
       `${name} is called on these lines and declared on none of them`);
   }
+  assert.deepEqual(declaredLines(index, "NS_ENUM"), [],
+    "a macro header has the same shape as a method and declares nothing of that name");
   assert.deepEqual(declaredLines(index, "Configure"), [2], "the method around those calls is still found");
   assert.deepEqual(declaredLines(index, "check"), [2], "and so is the one in the Java file");
 });

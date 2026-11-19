@@ -124,8 +124,8 @@ A method that writes its return type before its name — `void Run(int which) {`
 method — was never in either table, because the name group took `void` and the parenthesis never
 arrived. Reading it costs a second row whose prefix is one or more type expressions, and the prefix is
 what makes a leading token safe: `return foo(a);`, `new Foo(a) {` and `throw new Error(m);` are calls of
-exactly that shape, so the words that can only be an operator or a statement are refused in the prefix,
-not in the name. The terminator `;` is allowed only on that row, because a bare `Register(handlers);` has
+exactly that shape, so the words that can only be an operator, a statement or a macro header
+(`typedef NS_ENUM(NSInteger, X) {`) are refused in the prefix, not in the name. The terminator `;` is allowed only on that row, because a bare `Register(handlers);` has
 no prefix to match. The row is scoped to the extensions whose languages write a return type there — a
 TypeScript line `void bootWindow(state, theme);` is the `void` operator applied to a call, and the only
 record the widened pattern added to this repository's own tree was that one. The scoping is a row field

@@ -61,7 +61,7 @@ export function indexableContent(content: string): boolean {
   return Buffer.byteLength(content, "utf8") <= MAX_INDEX_FILE_BYTES && !content.includes("\0");
 }
 
-const NOT_A_TYPE = "new|return|await|yield|throw|else|do|case|assert|delete|typeof|instanceof|export|import|function";
+const NOT_A_TYPE = "new|typedef|return|await|yield|throw|else|do|case|assert|delete|typeof|instanceof|export|import|function";
 const RETURN_TYPE_BEFORE_NAME =
   `(?!(?:${NOT_A_TYPE})\\b)[A-Za-z_$][A-Za-z0-9_$]*(?:\\.[A-Za-z_$][A-Za-z0-9_$]*)*(?:<(?:[^<>()]|<[^<>()]*>)*>)?(?:\\[\\s*\\]|[*?])*`;
 const RETURN_TYPE_BEFORE_NAME_EXTENSIONS = new Set([
