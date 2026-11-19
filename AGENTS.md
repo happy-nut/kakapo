@@ -120,6 +120,20 @@ generic are parameter lists. Count the table's rows before and after any change 
 pattern and the new one run over the same working tree: the index scans the tree, so a count taken on one
 checkout does not compare with a count taken on another.
 
+A method that writes its return type before its name — `void Run(int which) {`, and every C# and Java
+method — was never in either table, because the name group took `void` and the parenthesis never
+arrived. Reading it costs a second row whose prefix is one or more type expressions, and the prefix is
+what makes a leading token safe: `return foo(a);`, `new Foo(a) {` and `throw new Error(m);` are calls of
+exactly that shape, so the words that can only be an operator, a statement or a macro header
+(`typedef NS_ENUM(NSInteger, X) {`, `co_await flush(b);`, `emit valueChanged(n);`) are refused in the
+prefix, not in the name. That list is the whole guard, so grow it by feeding candidate lines through the
+real index rather than by reasoning about them — four of its words were found that way after the row was
+written, and none of the four appear in any tree this change was measured on. The terminator `;` is allowed only on that row, because a bare `Register(handlers);` has
+no prefix to match. The row is scoped to the extensions whose languages write a return type there — a
+TypeScript line `void bootWindow(state, theme);` is the `void` operator applied to a call, and the only
+record the widened pattern added to this repository's own tree was that one. The scoping is a row field
+in the index (`extensions`) and a path test in the renderer, and the two lists have to say the same thing.
+
 A guessed answer must be withdrawn once there is a real one. `queryProjectAnalysis` records the question
 behind any non-LSP answer that arrives while the analysis is still starting, `openSemanticPeek` keeps it
 only when the response that opened the peek is the one that produced it — `16-structure.js` opens peeks
@@ -159,6 +173,14 @@ Speed alone cannot see that: sharing `CARGO_TARGET_DIR` was faster and wrong. Th
 measured on are named in `CORPORA` at the top of the script, with the file and column each probe asks
 about, so a re-measurement asks the same question.
 
+clangd is the one server kakapo cannot place: it writes `.cache/clangd/index/*.idx` into the root of the
+repository being read, `--background-index` is on by default in the bundled build and nothing in
+`--help-list` moves the directory. So the path it writes is declared in the same file, in
+`SERVER_CACHE_INSIDE_PROJECT`, and `readUntrackedDiff` refuses it — `.cache/` was already refused by
+`isSourceCandidate` and by the non-git tree walk, but untracked paths never went through either, and a
+path that reaches the diff is added to the project list unconditionally. A sibling worktree still indexes
+C/C++ from nothing, and nothing in clangd's options can change that.
+
 Those directories are reclaimed by their own mtime, which is why `start()` touches
 `server.cacheDirectory` before it spawns. The key is a one-way hash of the worktree path, so nothing can
 ask which checkout a directory belonged to; a sweep that could not see it opened would delete a live one.
@@ -189,7 +211,9 @@ renderer on macOS, whether a mark is painted at all, or what a label looks like 
 those has shipped broken with the suite green. Two things it will cost you otherwise: the smoke scripts
 want `KAKAPO_DEV=1` or they write into your real Kakapo state, and nothing may drive the app while
 `npm test` runs — `test/menu-accelerators.test.mjs` spawns the real Electron out of this same
-`node_modules`, and taking the app down takes that with it and invalidates the run silently.
+`node_modules`, and taking the app down takes that with it and invalidates the run silently. An
+`npm install` during a run does the same from the other side, so a suite that was already running when
+the tree's dependencies changed proves nothing and has to be started again.
 
 `formal-compare-mode` model-checks the compare controls against one promise: the compare menu always
 ticks the row describing the diff the window is actually built from. Six fields, five handlers and one

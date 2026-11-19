@@ -133,8 +133,8 @@ export async function readyPage(timeoutMs) {
   return null;
 }
 
-export function launchApp(repo) {
-  const child = spawn("node", [join(ROOT, "bin/kakapo.js"), repo, "--foreground"], {
+export function launchApp(repo, extraArgs = []) {
+  const child = spawn("node", [join(ROOT, "bin/kakapo.js"), repo, "--foreground", ...extraArgs], {
     cwd: ROOT,
     env: { ...process.env, KAKAPO_REMOTE_DEBUG: String(PORT) },
     stdio: ["ignore", "pipe", "pipe"],

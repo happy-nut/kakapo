@@ -10,7 +10,7 @@ import {
   SOURCE_MAX_TOTAL_BYTES,
 } from "./constants.js";
 import { ByteBudgetCache, decodeTextBuffer, formatBytes, hashText, isContainedRelativePath, isLikelyBinary, languageForPath, readTextFile, stripDiffPath, unquoteGitPath } from "./util.js";
-import { canonicalWorkspaceRoot, git, isGitRepository, workspaceGitPrefix, RAW_PATHS } from "./git.js";
+import { canonicalWorkspaceRoot, git, isGitRepository, untrackedPaths, workspaceGitPrefix, RAW_PATHS } from "./git.js";
 
 type SourceContentEntry = { mtimeMs: number; size: number; content: string; signature: string };
 // ponytail: one global budget, evicting oldest-first. Enough to hold the workspace you are actually in, which
@@ -64,10 +64,7 @@ export function readUnifiedDiff(options: {
 }
 
 function readUntrackedDiff(root: string): string {
-  const files = git(root, ["ls-files", "--others", "--exclude-standard", "--", "."])
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
+  const files = untrackedPaths(root);
   const chunks: string[] = [];
 
   for (const file of files) {

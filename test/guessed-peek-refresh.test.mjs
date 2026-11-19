@@ -30,9 +30,50 @@ const SOURCE = [
   "}",
 ].join("\n");
 
+const CSHARP_FILE = "src/Runner.cs";
+const CSHARP_SOURCE = [
+  "class Runner {",
+  "  void Run(int which) {",
+  "    Configure(handlers, options);",
+  "    return Build(services);",
+  "    throw new InvalidOperationException(message);",
+  "  }",
+  "  public void RunAll(int count) {",
+  "  }",
+  "  private static async Task<int> FetchAsync(string url) {",
+  "    return 0;",
+  "  }",
+  "  public IEnumerable<KeyValuePair<string, int>> Pairs(string[] keys) {",
+  "    return null;",
+  "  }",
+  "  protected abstract void OnCreate(Bundle bundle);",
+  "}",
+].join("\n");
+
+const SESSION_FILE = "src/session.cpp";
+const SESSION_SOURCE = [
+  "Task<void> drain() {",
+  "  co_await flush(buffer);",
+  "  co_yield nextChunk(item);",
+  "  co_return assemble(result);",
+  "}",
+  "void bump() {",
+  "  emit valueChanged(next);",
+  "}",
+  "bool Sized() { return requires requires(T a) { a.size(); }; }",
+].join("\n");
+
+const BOOT_FILE = "src/boot.ts";
+const BOOT_SOURCE = ["function wrapBoot() {", "  void bootWindow(state, themeLight);", "}"].join("\n");
+
 let html;
 before(async () => {
-  ({ html } = await makeReviewHtml([{ path: FILE, before: "export class Store {}\n", after: SOURCE + "\n" }], { app: true }));
+  ({ html } = await makeReviewHtml([
+    { path: FILE, before: "export class Store {}\n", after: SOURCE + "\n" },
+    { path: CSHARP_FILE, before: "class Runner {}\n", after: CSHARP_SOURCE + "\n" },
+    { path: SESSION_FILE, before: "// empty\n", after: SESSION_SOURCE + "\n" },
+    { path: BOOT_FILE, before: "export {};\n", after: BOOT_SOURCE + "\n" },
+  ], { app: true }));
 });
 after(cleanupFixtures);
 
@@ -164,4 +205,41 @@ test("a keyword is not something the renderer will navigate to", async () => {
   assert.equal(v.window.findSymbolDefinition("function"), null,
     "`function () { … }` on its own line is not a declaration of anything called `function`");
   assert.equal(v.window.findSymbolDefinition("return"), null, "nor is `return () => {` one of `return`");
+});
+
+test("the renderer finds a method whose return type comes before its name", async () => {
+  const { v } = await openPeekWhileIndexing([]);
+  const found = (name) => v.window.findSymbolDefinition(name);
+  const at = (name) => found(name) && { path: found(name).path, line: found(name).lineIndex };
+  assert.deepEqual(at("Run"), { path: CSHARP_FILE, line: 1 }, "`void Run(int which) {` declares Run");
+  assert.deepEqual(at("RunAll"), { path: CSHARP_FILE, line: 6 }, "an access modifier may sit before the return type");
+  assert.deepEqual(at("FetchAsync"), { path: CSHARP_FILE, line: 8 }, "and so may several, with a generic return type");
+  assert.deepEqual(at("Pairs"), { path: CSHARP_FILE, line: 11 }, "a return type may hold a nested generic");
+  assert.deepEqual(at("OnCreate"), { path: CSHARP_FILE, line: 14 },
+    "an abstract method ends in a semicolon and is still a declaration");
+});
+
+test("the renderer does not take a call for a declaration where a return type may precede a name", async () => {
+  const { v } = await openPeekWhileIndexing([]);
+  for (const name of ["Configure", "Build", "InvalidOperationException"]) {
+    assert.equal(v.window.findSymbolDefinition(name), null,
+      `${name} is called inside Run and declared nowhere in the review`);
+  }
+  assert.equal(v.window.findSymbolDefinition("bootWindow"), null,
+    "`void expr` is an operator in TypeScript, so the renderer must not read that line as a declaration");
+  assert.deepEqual(v.window.findSymbolDefinition("wrapBoot") && { line: v.window.findSymbolDefinition("wrapBoot").lineIndex },
+    { line: 0 }, "the function around that line is still found");
+});
+
+test("the renderer does not read a coroutine statement or a Qt emit as a declaration", async () => {
+  const { v } = await openPeekWhileIndexing([]);
+  for (const [name, statement] of [["flush", "co_await"], ["nextChunk", "co_yield"], ["assemble", "co_return"], ["valueChanged", "emit"]]) {
+    assert.equal(v.window.findSymbolDefinition(name), null,
+      `${statement} is a statement keyword, so ${name} is called on that line and declared on none`);
+  }
+  assert.equal(v.window.findSymbolDefinition("requires"), null,
+    "`requires requires(T a) {` is a requires-expression and declares nothing of that name");
+  const at = (name) => v.window.findSymbolDefinition(name) && { path: v.window.findSymbolDefinition(name).path, line: v.window.findSymbolDefinition(name).lineIndex };
+  assert.deepEqual(at("drain"), { path: SESSION_FILE, line: 0 }, "the coroutine around those statements is still found");
+  assert.deepEqual(at("bump"), { path: SESSION_FILE, line: 5 }, "and so is the method that emits");
 });

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { closeSync, openSync, readFileSync, readSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { canonicalWorkspaceRoot, git } from "./git.js";
+import { canonicalWorkspaceRoot, git, untrackedPaths } from "./git.js";
 import type { WhitespaceMode } from "./types.js";
 
 export type ReviewWorkspaceOptions = {
@@ -96,8 +96,7 @@ export function reviewDiffSignature(
     }).join("\t");
   }).join("\n");
   const untracked = options.includeUntracked && !options.target
-    ? git(root, ["ls-files", "--others", "--exclude-standard", "--", "."])
-        .split("\n").filter(Boolean)
+    ? untrackedPaths(root)
         .map((path) => {
           try {
             const stat = statSync(join(root, path));

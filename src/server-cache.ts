@@ -24,6 +24,20 @@ export const SERVER_CACHE_SCOPES: Record<string, ServerCacheScope> = {
   php: "worktree",
 };
 
+export const SERVER_CACHE_INSIDE_PROJECT: Record<string, string> = {
+  clang: ".cache/clangd",
+};
+
+export function isServerCacheInsideProject(path: string): boolean {
+  const normalized = path.replace(/\\/g, "/");
+  for (const directory of Object.values(SERVER_CACHE_INSIDE_PROJECT)) {
+    if (normalized === directory) return true;
+    if (normalized.startsWith(`${directory}/`)) return true;
+    if (normalized.includes(`/${directory}/`)) return true;
+  }
+  return false;
+}
+
 export const SHARED_CACHE_KEY = "shared";
 
 const RECLAIM_UNUSED_DAYS = 30;
