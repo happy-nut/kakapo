@@ -13,6 +13,9 @@ export const SHORTCUTS: ShortcutDef[] = [
   { id: "openFolder", keys: ["⌘O"], where: "any", i18n: "kbd.openFolder", fixed: "menu" },
   { id: "openNewWindow", keys: ["⌘⇧O"], where: "any", i18n: "kbd.openNewWindow", fixed: "menu" },
   { id: "openSettings", keys: ["⌘,"], where: "any", i18n: "kbd.openSettings", fixed: "structural" },
+  { id: "zoomIn", keys: ["⌘+", "⌘="], where: "any", i18n: "kbd.zoomIn", fixed: "menu" },
+  { id: "zoomOut", keys: ["⌘-"], where: "any", i18n: "kbd.zoomOut", fixed: "menu" },
+  { id: "zoomReset", keys: ["⌘0"], where: "any", i18n: "kbd.zoomReset", fixed: "menu" },
   { id: "openHistory", keys: ["⌘9"], where: "any", i18n: "kbd.openHistory" },
   { id: "compareMode", keys: ["⌥A", "⌥U", "⌥T", "⌥N"], where: "any", i18n: "kbd.compareMode" },
   { id: "compareRef", keys: ["⌥C"], where: "any", i18n: "kbd.compareRef" },
@@ -155,6 +158,7 @@ export const MENU_OWNED_CHORDS_MAC: string[] = ["⌘H", "⌘M", "⌘Q", "⌘⌥H
 export const SHORTCUT_GROUPS: { i18n: string; ids: string[] }[] = [
   { i18n: "settings.kbd.cat.app", ids: [
     "openFolder", "openNewWindow", "openSettings", "openHistory", "compareMode", "compareRef",
+    "zoomIn", "zoomOut", "zoomReset",
     "openPullRequest", "patchSetStep",
     "gotoLine", "revealInTree", "rowActions", "closeDialog",
   ] },
@@ -212,7 +216,7 @@ export function electronAcceleratorFor(id: string, index = 0): string | undefine
   if (rest.startsWith("⌥")) { parts.push("Alt"); rest = rest.slice(1); }
   const NAMED: Record<string, string> = {
     "↑": "Up", "↓": "Down", "←": "Left", "→": "Right", "Enter": "Return", "Esc": "Escape",
-    Backspace: "Backspace", Delete: "Delete", Tab: "Tab", Space: "Space",
+    Backspace: "Backspace", Delete: "Delete", Tab: "Tab", Space: "Space", "+": "Plus",
     Home: "Home", End: "End", PageUp: "PageUp", PageDown: "PageDown",
   };
   if (NAMED[rest]) return [...parts, NAMED[rest]].join("+");

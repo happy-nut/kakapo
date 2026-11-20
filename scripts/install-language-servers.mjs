@@ -84,7 +84,7 @@ const RUST_ARCHIVES = Object.freeze({
   "darwin-arm64": ["rust-analyzer-aarch64-apple-darwin.gz", "9c6b3ebf06480e2c95a7b01750fa68d77834bffa34da81e4eb00cef3cdff4613"],
 });
 
-const RUSTUP_ARCHIVES = Object.freeze({
+const RUSTUP_TARGETS = Object.freeze({
   "darwin-x64": ["x86_64-apple-darwin", "259e2b84274434085163fe8d556510571772cda2aa6d87ca6aa664f57bc644e3"],
   "darwin-arm64": ["aarch64-apple-darwin", "ec1b9233e7f72990ecd8e62063fa7f6c3dfc2bec8e97f88bff165f9100ac696a"],
 });
@@ -118,6 +118,41 @@ const PHPACTOR_ARCHIVE = Object.freeze([
   "phpactor.phar",
   "832510fe4cdaf27ba056b8cb66a779d18352585c74fdaac54e45a37b589559e9",
 ]);
+
+const RUSTUP_ARCHIVE_NAME = "rustup-init";
+
+const JDTLS_ARCHIVE = Object.freeze([
+  `jdt-language-server-${SERVER_VERSIONS.jdtls}.tar.gz`,
+  "e94c303d8198f977930803582738771fd18c52c5492878410bf222b1aa81ef1d",
+  `https://download.eclipse.org/jdtls/milestones/${SERVER_VERSIONS.jdtls.split("-")[0]}`,
+]);
+
+const ARCHIVE_TABLES = Object.freeze([
+  GO_ARCHIVES, RUST_ARCHIVES, CLANG_ARCHIVES, KOTLIN_ARCHIVES, JAVA_ARCHIVES, SORBET_ARCHIVES, PHP_ARCHIVES,
+]);
+
+export function pinnedArchiveNames() {
+  const names = new Set([RUSTUP_ARCHIVE_NAME, JDTLS_ARCHIVE[0], PHPACTOR_ARCHIVE[0]]);
+  for (const table of ARCHIVE_TABLES) for (const [name] of Object.values(table)) names.add(name);
+  return names;
+}
+
+export function pruneDownloadCache(cacheDir) {
+  const keep = pinnedArchiveNames();
+  const removed = [];
+  let entries;
+  try { entries = readdirSync(cacheDir); } catch { return { removed, bytes: 0 }; }
+  for (const name of entries) {
+    if (keep.has(name)) continue;
+    const path = join(cacheDir, name);
+    let stat;
+    try { stat = statSync(path); } catch { continue; }
+    if (!stat.isFile()) continue;
+    try { rmSync(path, { force: true }); } catch { continue; }
+    removed.push({ name, bytes: stat.size });
+  }
+  return { removed, bytes: removed.reduce((total, item) => total + item.bytes, 0) };
+}
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, { stdio: "inherit", ...options });
@@ -201,9 +236,9 @@ async function installRust(target, output, cache) {
   mkdirSync(output, { recursive: true });
   await pipeline(createReadStream(archive), createGunzip(), createWriteStream(join(output, "rust-analyzer")));
   chmodSync(join(output, "rust-analyzer"), 0o755);
-  const [rustTarget, rustupChecksum] = RUSTUP_ARCHIVES[target];
+  const [rustTarget, rustupChecksum] = RUSTUP_TARGETS[target];
   const rustup = await download(
-    `https://static.rust-lang.org/rustup/archive/${SERVER_VERSIONS.rustup}/${rustTarget}/rustup-init`,
+    `https://static.rust-lang.org/rustup/archive/${SERVER_VERSIONS.rustup}/${rustTarget}/${RUSTUP_ARCHIVE_NAME}`,
     rustupChecksum,
     cache,
   );
@@ -242,9 +277,8 @@ async function installJava(target, output, cache, work) {
     verbatimSymlinks: true,
   });
 
-  const jdtName = `jdt-language-server-${SERVER_VERSIONS.jdtls}.tar.gz`;
-  const jdtUrl = `https://download.eclipse.org/jdtls/milestones/1.60.0/${jdtName}`;
-  const jdtArchive = await download(jdtUrl, "e94c303d8198f977930803582738771fd18c52c5492878410bf222b1aa81ef1d", cache);
+  const [jdtName, jdtChecksum, jdtBase] = JDTLS_ARCHIVE;
+  const jdtArchive = await download(`${jdtBase}/${jdtName}`, jdtChecksum, cache);
   const jdt = join(output, "jdtls");
   extract(jdtArchive, jdt);
   const launcher = walk(join(jdt, "plugins"), (path) => /org\.eclipse\.equinox\.launcher_[^/]+\.jar$/.test(path));
@@ -356,6 +390,12 @@ export async function installLanguageServers({
   const targetRoot = join(outputRoot, target);
   const installers = { go: installGo, rust: installRust, clang: installClang, java: installJava, kotlin: installKotlin, ruby: installRuby, php: installPhp };
   mkdirSync(cacheDir, { recursive: true });
+  const pruned = pruneDownloadCache(cacheDir);
+  if (pruned.removed.length) {
+    const megabytes = Math.round(pruned.bytes / 1e6);
+    const names = pruned.removed.map((item) => item.name).join(", ");
+    process.stdout.write(`cache: reclaimed ${megabytes} MB from ${pruned.removed.length} archive(s) no pin names: ${names}\n`);
+  }
   for (const family of families) {
     const install = installers[family];
     if (!install) throw new Error(`Unknown native language-server family: ${family}`);
