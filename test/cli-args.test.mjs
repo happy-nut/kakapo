@@ -28,6 +28,7 @@ test("parseReviewArgs: defaults", () => {
   assert.deepEqual(parseReviewArgs([]), {
     requestedCwd: undefined,
     openPath: undefined,
+    pullRequest: undefined,
     openedExplicitly: false, staged: false, baseValue: undefined,
     includeUntracked: false, context: 12, watch: true, ignoreWhitespace: false, whitespace: "none",
   });
@@ -35,7 +36,7 @@ test("parseReviewArgs: defaults", () => {
 
 test("parseReviewArgs: flags are read through", () => {
   assert.deepEqual(parseReviewArgs(["--cwd", "/repo", "--base", "main", "--context", "5", "--include-untracked", "--no-watch", "--ignore-whitespace"]), {
-    requestedCwd: "/repo", openPath: undefined, openedExplicitly: false, staged: false, baseValue: "main",
+    requestedCwd: "/repo", openPath: undefined, pullRequest: undefined, openedExplicitly: false, staged: false, baseValue: "main",
     includeUntracked: true, context: 5, watch: false, ignoreWhitespace: true, whitespace: "all",
   });
 });
@@ -104,6 +105,33 @@ test("the CLI refuses review flags it cannot honour, instead of launching into n
     assert.doesNotMatch(result.stdout, /Opened kakapo review app/, `${args.join(" ")} does not claim success`);
   }
   rmSync(repo, { recursive: true, force: true });
+});
+
+test("a pull request link is an argument, not a path that does not exist", () => {
+  const cli = fileURLToPath(new URL("../dist/cli.js", import.meta.url));
+  const plain = mkdtempSync(join(tmpdir(), "kakapo-cli-pr-"));
+  const run = (args, cwd) => {
+    try {
+      execFileSync(process.execPath, [cli, ...args], { cwd, encoding: "utf8", stdio: "pipe" });
+      return { status: 0, stderr: "" };
+    } catch (error) {
+      return { status: error.status, stderr: String(error.stderr || "") };
+    }
+  };
+
+  const refused = run(["https://github.com/acme/widgets/pull/7"], plain);
+  assert.equal(refused.status, 1);
+  assert.match(refused.stderr, /pull request is read into a clone of its repository/,
+    "read as a path it would have said the folder does not exist, which says nothing about what to do");
+
+  const elsewhere = run(["--cwd", plain, "--pull-request", "https://github.com/acme/widgets/pull/7"], process.cwd());
+  assert.equal(elsewhere.status, 1);
+  assert.match(elsewhere.stderr, new RegExp(plain.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+    "the repository a pull request is read into is the one --cwd names, not the one the command was typed in");
+
+  assert.match(parseReviewArgs(["--pull-request", "https://github.com/acme/widgets/pull/7"]).pullRequest ?? "",
+    /acme\/widgets\/pull\/7/, "and the app is handed the link rather than a revision the CLI resolved");
+  rmSync(plain, { recursive: true, force: true });
 });
 
 test("the compare selection stays in the repository it was typed in", () => {

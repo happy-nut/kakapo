@@ -5,6 +5,7 @@ export { parsePositiveInteger, readOption };
 export type ParsedReviewArgs = {
   requestedCwd: string | undefined;
   openPath: string | undefined;
+  pullRequest: string | undefined;
   // The launch NAMED a path (`kakapo <path>` / `--cwd`), rather than inheriting whatever cwd it started in.
   // A GUI launch inherits "/", which must reach the welcome screen and not a review of the whole disk.
   openedExplicitly: boolean;
@@ -37,6 +38,7 @@ export function parseReviewArgs(args: string[]): ParsedReviewArgs {
   return {
     requestedCwd: readOption(args, "--cwd"),
     openPath: readOption(args, "--open"),
+    pullRequest: readOption(args, "--pull-request"),
     openedExplicitly: args.includes("--opened"),
     staged,
     baseValue,

@@ -74,6 +74,22 @@ export function gitAsync(root: string, args: string[]): Promise<string> {
   });
 }
 
+export function gitAttempt(root: string, args: string[]): Promise<{ ok: boolean; stdout: string; stderr: string }> {
+  return new Promise((resolveOutput) => {
+    let stdout = "";
+    let stderr = "";
+    try {
+      const child = spawn("git", [...RAW_PATHS, ...args], { cwd: root });
+      child.stdout.on("data", (chunk) => { stdout += chunk; });
+      child.stderr.on("data", (chunk) => { stderr += chunk; });
+      child.on("error", (error) => resolveOutput({ ok: false, stdout: "", stderr: String(error) }));
+      child.on("close", (code) => resolveOutput({ ok: code === 0, stdout: stdout.trim(), stderr: stderr.trim() }));
+    } catch (error) {
+      resolveOutput({ ok: false, stdout: "", stderr: String(error) });
+    }
+  });
+}
+
 export type AutomaticReviewBase = {
   revision: string;
   upstream: string;

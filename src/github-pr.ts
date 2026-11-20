@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { git } from "./git.js";
+import { git, gitAttempt } from "./git.js";
 
 export type PullRequestRef = { owner: string; repo: string; number: number };
 
@@ -75,4 +75,49 @@ export function localRevisionFor(root: string, branch: string, prefer: "remote" 
     }
   }
   return undefined;
+}
+
+// git reads a leading `-` on any argument as an option, and both of these are captured out of text the
+// reader pasted. A GitHub login and repository name cannot start with one, so the shape is the guard.
+const GITHUB_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+const BRANCH_NAME = /^[^\s:?*[\\~^]+$/;
+
+export function pullRequestRemote(root: string, ref: PullRequestRef): string | undefined {
+  if (!GITHUB_NAME.test(ref.owner) || !GITHUB_NAME.test(ref.repo)) return undefined;
+  const slug = remoteSlug(root);
+  if (slug && slug.owner === ref.owner && slug.repo === ref.repo) return "origin";
+  return `https://github.com/${ref.owner}/${ref.repo}.git`;
+}
+
+export function pullRequestRefPrefix(ref: PullRequestRef): string {
+  return `refs/kakapo/pull/${ref.owner}/${ref.repo}/${ref.number}`;
+}
+
+export type FetchedPullRequest =
+  | { ok: true; base: string; head: string }
+  | { ok: false; error: "pr-remote-unreadable" | "pr-fetch-failed"; detail?: string };
+
+// `refs/pull/<n>/head` is GitHub's own ref for a pull request's tip, and the only one that exists for a
+// pull request from a fork — which has no branch in this checkout to resolve by hand.
+export async function fetchPullRequest(
+  root: string,
+  ref: PullRequestRef,
+  details: PullRequestDetails,
+  fetchGit = gitAttempt,
+): Promise<FetchedPullRequest> {
+  const remote = pullRequestRemote(root, ref);
+  if (!remote || !BRANCH_NAME.test(details.base)) return { ok: false, error: "pr-remote-unreadable" };
+  const prefix = pullRequestRefPrefix(ref);
+  const fetched = await fetchGit(root, [
+    "fetch", "--no-tags", remote,
+    `+refs/pull/${ref.number}/head:${prefix}/head`,
+    `+refs/heads/${details.base}:${prefix}/base`,
+  ]);
+  if (!fetched.ok) {
+    return { ok: false, error: "pr-fetch-failed", detail: fetched.stderr.split("\n").filter(Boolean).pop() || "" };
+  }
+  const head = git(root, ["rev-parse", "--verify", "--quiet", `${prefix}/head`]);
+  const baseTip = git(root, ["rev-parse", "--verify", "--quiet", `${prefix}/base`]);
+  if (!head || !baseTip) return { ok: false, error: "pr-fetch-failed", detail: "the fetch left no revision behind" };
+  return { ok: true, head, base: git(root, ["merge-base", baseTip, head]) || baseTip };
 }

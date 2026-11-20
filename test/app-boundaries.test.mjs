@@ -90,7 +90,7 @@ test("external-link boundary opens only http(s) URLs from untrusted text", () =>
 
 test("main process is a composition root for extracted persistence and IPC adapters", () => {
   const main = readFileSync(new URL("../src/app-main.ts", import.meta.url), "utf8");
-  assert.match(main, /new AppPreferences\(app\.getPath\("userData"\), isReviewableFolder\)/);
+  assert.match(main, /new AppPreferences\(app\.getPath\("userData"\), belongsInRecentProjects\)/);
   assert.match(main, /registerReviewIpc\(ipcMain, stateFromEvent, app\.getPath\("userData"\)\)/);
   assert.match(main, /registerProjectPathIpc\(ipcMain, shell, stateFromEvent\)/);
   assert.match(main, /registerSettingsIpc\(ipcMain, preferences, stateFromEvent[,)]/);

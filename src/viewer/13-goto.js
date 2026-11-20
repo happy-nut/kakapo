@@ -203,8 +203,9 @@ function openPullRequestPrompt() {
       if (error === 'pr-unreadable') say(t('pr.unreadable'), true);
       else if (error === 'gh-missing') say(t('pr.ghMissing'), true);
       else if (error === 'gh-failed') say(t('pr.ghFailed', { detail: (res && res.detail) || '' }), true);
-      else if (error === 'pr-head-missing') say(t('pr.headMissing', { ref: (res && res.ref) || '' }), true);
       else if (error === 'pr-base-missing') say(t('pr.baseMissing', { ref: (res && res.ref) || '' }), true);
+      else if (error === 'pr-fetch-failed') say(t('pr.fetchFailed', { detail: (res && res.detail) || '' }), true);
+      else if (error === 'pr-remote-unreadable') say(t('pr.remoteUnreadable'), true);
       else say(String(error || ''), true);
     }, function () { input.disabled = false; say(t('pr.unreadable'), true); });
   }

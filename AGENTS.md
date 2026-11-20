@@ -253,6 +253,23 @@ want `KAKAPO_DEV=1` or they write into your real Kakapo state, and nothing may d
 `npm install` during a run does the same from the other side, so a suite that was already running when
 the tree's dependencies changed proves nothing and has to be started again.
 
+A pull request is opened from one function, `openPullRequestIn`, which the ⌥L prompt and the
+`kakapo <pr link>` argument both call. Three things about it are easy to get wrong. The diff is
+`git diff <base> <target>`, two dots, so the base has to be made the merge base by hand or the review
+shows what landed on the base branch after the pull request was cut — which GitHub's own Files changed
+tab does not. `refs/pull/<n>/head` is asked for rather than a branch because a pull request from a fork
+has no branch in the checkout at all, and that is the whole case the fetch exists for; both sides land
+under `refs/kakapo/pull/…` so they survive a rebuild and a gc without appearing as branches. And
+`baseLabel` is not written: it means "a branch name stands behind this base", a merge base has none, and
+a set label makes the compare menu tick "all changes" over the pull request's diff once the target is
+cleared — `formal-compare-mode` finds that in four steps, and `label' = TRUE` in its `OpenPullRequest`
+action is the negative control.
+
+What the launch asked for and only the first window may have — `openPath`, `pullRequest` — is assigned
+to that window beside `createWindow`, because `makeOptions` spreads the launch options into every new
+window and has to blank both. Blanking one without assigning it is silent: the argument parses, the
+option exists, and nothing happens.
+
 `formal-compare-mode` model-checks the compare controls against one promise: the compare menu always
 ticks the row describing the diff the window is actually built from. Six fields, five handlers and one
 derivation, and nothing presses two of those controls in a row anywhere in the suite — which is the only

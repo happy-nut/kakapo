@@ -21,7 +21,7 @@ import { reviewBodyCount, reviewDiffSignature } from "./review-bodies.js";
 import { ReviewBuilder, type BuildSnapshot } from "./review-builder.js";
 import { resolveReadMark, usableCompareBase } from "./patch-sets.js";
 import { handoffRoot } from "./handoff.js";
-import { localRevisionFor, lookupPullRequest, parsePullRequestRef, remoteSlug } from "./github-pr.js";
+import { fetchPullRequest, localRevisionFor, lookupPullRequest, parsePullRequestRef, remoteSlug } from "./github-pr.js";
 import { decideWatchTick, shouldPushUpdate } from "./watch-decision.js";
 import { compareSelectionFor, parseReviewArgs, readOption, runtimeArgv } from "./cli-args.js";
 import { ByteBudgetCache, errorMessage, escapeAttr, escapeHtml } from "./util.js";
@@ -40,6 +40,7 @@ type AppOptions = {
   base?: string;
   baseLabel?: string;
   openPath?: string;
+  pullRequest?: string;
   explicitRoot: boolean;
   target?: string;
   staged: boolean;
@@ -355,31 +356,45 @@ ipcMain.handle("kakapo:set-review-compare", async (event, payload: { base?: unkn
   }
 });
 
+type PullRequestOpened =
+  | { ok: true; number: number; title: string; base: string; head: string }
+  | { ok: false; error: string; detail?: string; ref?: string };
+
+async function openPullRequestIn(state: WinState, text: string): Promise<PullRequestOpened> {
+  const root = state.options.root;
+  const ref = parsePullRequestRef(text, remoteSlug(root));
+  if (!ref) return { ok: false, error: "pr-unreadable" };
+  const found = lookupPullRequest(root, ref);
+  if (!found.ok) return { ok: false, error: found.error, detail: found.detail };
+
+  const fetched = await fetchPullRequest(root, ref, found.details);
+  let base: string | undefined;
+  let head: string | undefined;
+  if (fetched.ok) {
+    ({ base, head } = fetched);
+  } else {
+    head = localRevisionFor(root, found.details.head, "local");
+    base = localRevisionFor(root, found.details.base, "remote");
+    if (!head) return { ok: false, error: fetched.error, detail: fetched.detail };
+    if (!base) return { ok: false, error: "pr-base-missing", ref: found.details.base };
+  }
+
+  state.compareScope = undefined;
+  state.compareRef = undefined;
+  setCompareTip(state, false);
+  state.options.staged = false;
+  state.options.base = base;
+  state.options.baseLabel = undefined;
+  state.options.target = head;
+  await rebuildAndPushUpdate(state, true);
+  return { ok: true, number: ref.number, title: found.details.title, base, head };
+}
+
 ipcMain.handle("kakapo:open-pull-request", async (event, payload: { text?: unknown } | undefined) => {
   const state = stateFromEvent(event);
   if (!state || state.win.isDestroyed()) return { ok: false, error: "no-window" };
   try {
-    const text = typeof payload?.text === "string" ? payload.text : "";
-    const root = state.options.root;
-    const ref = parsePullRequestRef(text, remoteSlug(root));
-    if (!ref) return { ok: false, error: "pr-unreadable" };
-    const found = lookupPullRequest(root, ref);
-    if (!found.ok) return { ok: false, error: found.error, detail: found.detail };
-
-    const base = localRevisionFor(root, found.details.base, "remote");
-    const head = localRevisionFor(root, found.details.head, "local");
-    if (!head) return { ok: false, error: "pr-head-missing", ref: found.details.head };
-    if (!base) return { ok: false, error: "pr-base-missing", ref: found.details.base };
-
-    state.compareScope = undefined;
-    state.compareRef = undefined;
-    setCompareTip(state, false);
-    state.options.staged = false;
-    state.options.base = base;
-    state.options.baseLabel = base;
-    state.options.target = head;
-    await rebuildAndPushUpdate(state, true);
-    return { ok: true, number: ref.number, title: found.details.title, base, head };
+    return await openPullRequestIn(state, typeof payload?.text === "string" ? payload.text : "");
   } catch (error) {
     return { ok: false, error: errorMessage(error) };
   }
@@ -624,6 +639,7 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
 
   const first = createWindow(options.root, options.explicitRoot);
   first.options.openPath = options.openPath;
+  first.options.pullRequest = options.pullRequest;
   setInterval(watchLspWeight, LSP_WATCHDOG_MS);
   setTimeout(() => {
     reclaimServerCaches().then((reclaimed) => {
@@ -1086,9 +1102,22 @@ async function bootWindow(state: WinState, themeLight: boolean): Promise<void> {
     await state.win.loadFile(reviewPath(state.options.root));
     if (!state.win.isDestroyed()) state.win.webContents.focus();
     armWatchTimers(state);
+    await openRequestedPullRequest(state);
   } catch (error) {
     console.error(errorMessage(error));
   }
+}
+
+async function openRequestedPullRequest(state: WinState): Promise<void> {
+  const requested = state.options.pullRequest;
+  if (!requested) return;
+  state.options.pullRequest = undefined;
+  const opened = await openPullRequestIn(state, requested).catch((error: unknown) => {
+    return { ok: false as const, error: errorMessage(error) };
+  });
+  if (opened.ok) return;
+  console.error(`[kakapo] ${requested} could not be opened: ${opened.error}${"detail" in opened && opened.detail ? ` — ${opened.detail}` : ""}`);
+  if (!state.win.isDestroyed()) state.win.webContents.send("kakapo:pull-request-failed", opened);
 }
 
 async function rebuildAndPushUpdate(state: WinState, force = false): Promise<void> {
@@ -1279,7 +1308,7 @@ async function pickRepo(parent: BrowserWindow | undefined, defaultPath?: string)
 function makeOptions(root: string, explicitRoot = true): AppOptions {
   const resolved = resolveWorkspaceRoot(root);
   const compare = compareSelectionFor(resolveWorkspaceRoot(options.root), resolved, options);
-  return { ...options, ...compare, root: resolved, openPath: undefined, explicitRoot };
+  return { ...options, ...compare, root: resolved, openPath: undefined, pullRequest: undefined, explicitRoot };
 }
 
 function parseArgs(args: string[]): AppOptions {
@@ -1303,6 +1332,7 @@ function parseArgs(args: string[]): AppOptions {
     ignoreWhitespace: parsed.ignoreWhitespace,
     whitespace: parsed.whitespace,
     openPath: openPath && !openPath.startsWith("..") ? openPath : undefined,
+    pullRequest: parsed.pullRequest,
     explicitRoot: parsed.openedExplicitly || parsed.openPath !== undefined,
   };
 }

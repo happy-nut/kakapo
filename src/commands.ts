@@ -6,6 +6,7 @@ import { createRequire } from "node:module";
 import { errorMessage, readOption } from "./util.js";
 import { parseReviewArgs } from "./cli-args.js";
 import { isGitRepository, validateReviewBase } from "./git.js";
+import { parsePullRequestRef, remoteSlug } from "./github-pr.js";
 import { applicationsBundlePath, installApp, uninstallApp } from "./install-app.js";
 
 const nodeRequire = createRequire(import.meta.url);
@@ -54,7 +55,7 @@ function runUninstallApp(): void {
 
 export const DEFAULT_DIFF_CONTEXT = 12;
 
-const VALUE_OPTIONS = new Set(["--cwd", "--base", "--context"]);
+const VALUE_OPTIONS = new Set(["--cwd", "--base", "--context", "--pull-request"]);
 
 function positionalPath(args: string[]): string | undefined {
   for (let index = 0; index < args.length; index += 1) {
@@ -66,8 +67,21 @@ function positionalPath(args: string[]): string | undefined {
   return undefined;
 }
 
+function pullRequestArgument(value: string | undefined, root: string): string | undefined {
+  if (!value || existsSync(value)) return undefined;
+  return parsePullRequestRef(value, remoteSlug(root)) ? value : undefined;
+}
+
 function launchReviewApp(args: string[]): void {
-  const named = readOption(args, "--cwd") ?? positionalPath(args);
+  const positional = positionalPath(args);
+  const cwdOption = readOption(args, "--cwd");
+  const pullRequestRoot = resolve(cwdOption ?? process.cwd());
+  const pullRequest = readOption(args, "--pull-request") ?? pullRequestArgument(positional, pullRequestRoot);
+  const namedPullRequest = pullRequest !== undefined && pullRequest === positional;
+  if (pullRequest && !isGitRepository(pullRequestRoot)) {
+    throw new Error(`A pull request is read into a clone of its repository, and ${pullRequestRoot} is not one.`);
+  }
+  const named = cwdOption ?? (namedPullRequest ? undefined : positional);
   const requested = resolve(named ?? process.cwd());
   if (!existsSync(requested)) {
     throw new Error(`Path does not exist: ${requested}`);
@@ -89,6 +103,7 @@ function launchReviewApp(args: string[]): void {
     "--include-untracked",
   ];
   appArgs.push("--opened");
+  if (pullRequest) appArgs.push("--pull-request", pullRequest);
   if (openFile) appArgs.push("--open", openFile);
   const base = readOption(args, "--base");
   if (base !== undefined) appArgs.push("--base", base);
@@ -174,6 +189,9 @@ Usage:
   kakapo            open the review app for the current repository
   kakapo <path>     open a folder, or a single file (lands on it). Git is optional —
                     a folder without a repository opens as its source tree.
+  kakapo <pr link>  review a GitHub pull request from this clone: its commits are
+                    fetched and the diff opens against its merge base. Also
+                    owner/repo#12 and #12. Needs the GitHub CLI (gh).
 
 Commands:
   install-app       add a Kakapo icon to Applications (Spotlight, Launchpad, Dock).
@@ -194,6 +212,7 @@ Options:
                     Changeable in the app — Diff menu, or Cmd/Ctrl+Shift+W.
   --context <n>     unchanged lines kept around each hunk; default: 12.
                     Changeable in the app — Diff menu.
+  --pull-request <link>  same as the bare <pr link> form
   --no-watch        stop refreshing the review when the working tree changes
   -h, --help        this text
 
@@ -204,6 +223,7 @@ Diff review keys:
   Cmd/Ctrl+Shift+F  project search — its section rail also holds file search + recent files
   Alt/Option+A / +U all changes on the branch / only what is not committed yet
   Alt/Option+C      choose the branch those "all changes" are measured against
+  Alt/Option+L      paste a pull request link to review it
   Cmd/Ctrl+B        definition / usages (LSP first, regex fallback)
   Cmd/Ctrl+Down     jump to symbol under cursor
   Cmd/Ctrl+Alt+B    go to implementation

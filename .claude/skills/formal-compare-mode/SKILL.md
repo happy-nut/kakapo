@@ -25,7 +25,7 @@ models and the lines it was read from.
 | `kakapo:set-review-base` (the bar's numbers, ⌥] ⌥[) | `src/app-main.ts:285` | base, baseLabel, staged |
 | `kakapo:set-review-target` (the bar's right group) | `src/app-main.ts:306` | target, staged |
 | `kakapo:set-review-compare` (⌘9 range, the bar's reset) | `src/app-main.ts:342` | base, baseLabel, target, compareScope, staged |
-| `kakapo:open-pull-request` (⌥L) | `src/app-main.ts:367` | base, baseLabel, target, compareScope, staged, compareTip |
+| `openPullRequestIn` (⌥L, and the `<pr link>` argument) | `src/app-main.ts:363` | base, baseLabel, target, compareScope, staged, compareTip |
 | `restoreCompareRef` (on open) | `src/app-main.ts:235` | compareRef, compareTip |
 
 | Read by | File |
@@ -113,6 +113,19 @@ yield to `--base` and `--staged`.
 
 `RestoredTip` survives as a constant, pinned FALSE by `check.sh`. Set it TRUE in `CompareMode.cfg` and
 run TLC by hand to see that failure again; it is the shape of the finding, not a claim about today's code.
+
+### 3. A pull request's base claimed a branch stood behind it — fixed
+
+The model said `label' = FALSE` for `OpenPullRequest` and the handler set `baseLabel`, so the model was
+describing code that did not exist. Corrected to match, it failed in four steps: open, **⌥A**, **⌥L**,
+then the patch-set bar's **WT**. Clearing the target leaves the pull request's base in place, and a set
+`baseLabel` makes `ExplicitBase` false, so the menu ticks **all changes** over a diff measured against
+another pull request's merge base.
+
+`baseLabel` means "a branch name stands behind this base", and after this change the base is a merge
+base rather than a branch tip — so the claim was wrong on its own terms as well as dangerous. The handler
+no longer writes it, which is what the model always said. Setting `label' = TRUE` in that action is the
+negative control: it reproduces the violation above.
 
 ## Changing the code this covers
 
