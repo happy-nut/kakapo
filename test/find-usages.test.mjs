@@ -181,7 +181,8 @@ test("a list that is nothing but call sites gets no heading at all", async () =>
   await press(host, { ...F7, altKey: true });
   assert.deepEqual(rows(host), ["unclassified", "unclassified"], "a call has no usage type");
   assert.deepEqual(typeGroups(host), [], "and IntelliJ gives an untyped usage no node of its own either");
-  assert.deepEqual(groups(host).length, 1, "the file it is in is still a header — that is the file grouping");
+  const fileGroups = host.v.$all('#quick-open-results .usage-group[data-usage-group="file"]');
+  assert.deepEqual(fileGroups.length, 1, "the file it is in is still a header — that is the file grouping");
   host.v.close();
 });
 

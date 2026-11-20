@@ -136,6 +136,7 @@ function loadFindUsages() {
         scope: projectScopeOf(item.path),
         module: projectModuleName(item.path),
         moduleGroup: (projectModuleOf(item.path) || {}).group || '',
+        moduleRoot: (projectModuleOf(item.path) || {}).root || '',
       };
     });
     usageViewNote = usageViewRows.length ? ''
@@ -145,11 +146,23 @@ function loadFindUsages() {
             : response && response.serverAnswered ? ''
               : (response && response.fallbackReason ? String(response.fallbackReason) : '');
     quickActive = 0;
+    collapseUsageDirectoriesWhenCrowded();
     renderFindUsagesResults(String(quickInput && quickInput.value || ''));
   }, function () {
     if (seq !== usageViewSeq) return;
     usageViewBusy = false;
     renderFindUsagesResults(String(quickInput && quickInput.value || ''));
+  });
+}
+
+var USAGE_CROWDED_FILES = 10;
+
+function collapseUsageDirectoriesWhenCrowded() {
+  var files = {};
+  usageViewRows.forEach(function (row) { files[row.path] = 1; });
+  if (Object.keys(files).length <= USAGE_CROWDED_FILES) return;
+  usageViewEntries('', true).forEach(function (entry) {
+    if (entry.kind === 'group' && entry.id === 'directory') collapsedUsageGroups[entry.path] = true;
   });
 }
 
@@ -172,7 +185,7 @@ function visibleUsageRows(query) {
   });
 }
 
-var usageGrouping = { scope: false, type: true, module: true, flatten: true, directory: false, file: true };
+var usageGrouping = { scope: false, type: true, module: true, flatten: true, directory: true, file: true };
 var usageFiltering = { read: true, write: true, imports: true };
 
 var USAGE_SCOPE_ORDER = ['production', 'test', 'library', 'generated'];
@@ -181,6 +194,65 @@ function usageDirectoryOf(path) {
   var normalized = String(path || '').replace(/\\/g, '/');
   var slash = normalized.lastIndexOf('/');
   return slash > 0 ? normalized.slice(0, slash) : '';
+}
+
+function usageDirectoryPathOf(row) {
+  var dir = usageDirectoryOf(row.path);
+  if (!usageGrouping.module || !projectHasModules()) return dir;
+  var root = projectNormalizePath(row.moduleRoot || '');
+  if (!root) return dir;
+  if (dir === root) return '';
+  return dir.indexOf(root + '/') === 0 ? dir.slice(root.length + 1) : dir;
+}
+
+function usageDirectoryLevels(rows) {
+  var under = {};
+  var direct = {};
+  var childDirs = {};
+  var depth = 0;
+  rows.forEach(function (row) {
+    var dir = usageDirectoryPathOf(row);
+    var segments = dir ? dir.split('/') : [];
+    if (segments.length > depth) depth = segments.length;
+    direct[dir] = (direct[dir] || 0) + 1;
+    var prefix = '';
+    segments.forEach(function (segment) {
+      var parent = prefix;
+      prefix = prefix ? prefix + '/' + segment : segment;
+      if (!childDirs[parent]) childDirs[parent] = {};
+      childDirs[parent][prefix] = 1;
+      under[prefix] = (under[prefix] || 0) + 1;
+    });
+  });
+  var shown = {};
+  Object.keys(under).forEach(function (prefix) {
+    shown[prefix] = (direct[prefix] || 0) > 0 || Object.keys(childDirs[prefix] || {}).length > 1;
+  });
+  var label = {};
+  Object.keys(shown).forEach(function (prefix) {
+    if (!shown[prefix]) return;
+    var segments = prefix.split('/');
+    var taken = [];
+    for (var i = segments.length - 1; i >= 0; i -= 1) {
+      taken.unshift(segments[i]);
+      var ancestor = segments.slice(0, i).join('/');
+      if (!ancestor || shown[ancestor]) break;
+    }
+    label[prefix] = taken.join('/');
+  });
+  return { depth: depth, shown: shown, label: label };
+}
+
+function usageDirectoryRule(levels, depth) {
+  return {
+    id: 'directory',
+    keyOf: function (row) {
+      var segments = usageDirectoryPathOf(row).split('/').filter(Boolean);
+      return segments.length > depth ? segments.slice(0, depth + 1).join('/') : '';
+    },
+    orderOf: function () { return 0; },
+    labelOf: function (key) { return key && levels.shown[key] ? levels.label[key] : ''; },
+  };
 }
 
 function usageGroupingRules(rows) {
@@ -230,12 +302,10 @@ function usageGroupingRules(rows) {
     });
   }
   if (usageGrouping.directory) {
-    rules.push({
-      id: 'directory',
-      keyOf: function (row) { return usageDirectoryOf(row.path); },
-      orderOf: function () { return 0; },
-      labelOf: function (key) { return t('usagegroup.directory').replace('{path}', key || '.'); },
-    });
+    var levels = usageDirectoryLevels(rows);
+    for (var depth = 0; depth < levels.depth; depth += 1) {
+      rules.push(usageDirectoryRule(levels, depth));
+    }
   }
   if (usageGrouping.file) {
     rules.push({

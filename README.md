@@ -284,7 +284,19 @@ division — so a single-package repository looks exactly as it did.
 of grouping rules with ranks: non-code, then Production/Test, then usage type, then module, then
 directory, then file (`UsageGroupingRulesDefaultRanks` in intellij-community — the ranks are why that
 order is not a matter of taste). Each rank is a chip above the list, with IntelliJ's own default on or
-off: usage type, module and file on, modules flattened, Production/Test off until you ask for it. Beside
+off: usage type, module, directory and file on, modules flattened, Production/Test off until you ask
+for it. IntelliJ has two directory ranks and ships them differently — `isGroupByPackage` is on and
+`isGroupByDirectoryStructure` is off (read out of `UsageViewSettings`' own constructor; the six
+booleans the no-argument constructor passes are placeholders behind a Kotlin default mask). The one
+that is on is a node per path segment; the one that is off is a node for the whole path, which is what
+this rank used to be. So it is the first now: `src`, then `viewer`, then the file. A segment that
+branches nowhere is joined to the one below it, so `.claude/skills/verify-kakapo` is one node and not
+three with a single child each — IntelliJ makes that a toggle (`isCompactMiddleDirectories`, off), and
+kakapo does not, because a division that would divide nothing is not drawn here. The path is read from
+the module's own root while the module rank is on, which is why `packages` is not repeated under every
+module; `⌘⌥M` turns the modules off and the whole path comes back as depth. A result that reaches more
+than ten files opens with those directory nodes folded, because a tree that is open to every leaf is
+the flat list it replaced. Beside
 them is its filtering toolbar — show read access, show write access, show import statements — and `⌥P`,
 which was already here. The chords are IntelliJ's too, from `$default.xml`: `⌃⌥T`/`⌃⌥M`/`⌃⌥D`/`⌃⌥F`
 arrive here as `⌘⌥T`/`⌘⌥M`/`⌘⌥D`/`⌘⌥F` (that file gives the module rule a
