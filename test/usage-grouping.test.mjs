@@ -215,6 +215,21 @@ test("a result that reaches more than ten files opens with the directories folde
   crowded.v.close();
 });
 
+test("what a fold hides is still counted in the summary above it", async () => {
+  const host = await openUsages(MIXED);
+  const chipText = () => host.v.$("#quick-open-filter").textContent;
+  const before = chipText();
+  assert.match(before, /5/, "five usages before anything is folded");
+
+  host.v.$('[data-usage-tree="collapse"]').click();
+  await host.v.settle(40);
+  assert.deepEqual(host.v.$all("#quick-open-results .usage-result").length, 0,
+    "the fold did take the rows off the screen");
+  assert.equal(chipText(), before,
+    "and the summary still says what the answer is — it counts the answer, not what is drawn");
+  host.v.close();
+});
+
 test("a group node folds, and what it folds away is out of reach of the arrows too", async () => {
   const host = await openUsages(MIXED);
   const before = rowTypes(host).length;

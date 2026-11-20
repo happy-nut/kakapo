@@ -456,10 +456,11 @@ function renderFindUsagesResults(query) {
     };
   });
   clampQuickActive();
+  var counted = visibleUsageRows(query);
   var files = {};
-  flat.forEach(function (row) { files[row.path] = 1; });
-  var tests = flat.filter(function (row) { return row.isTest; }).length;
-  setQuickFilterChip(usageViewBusy, t('findusages.summary', { n: flat.length, files: Object.keys(files).length })
+  counted.forEach(function (row) { files[row.path] = 1; });
+  var tests = counted.filter(function (row) { return row.isTest; }).length;
+  setQuickFilterChip(usageViewBusy, t('findusages.summary', { n: counted.length, files: Object.keys(files).length })
     + (tests ? ' · ' + t('findusages.testCount', { n: tests }) : '')
     + (usageViewEngine ? ' · ' + usageViewEngine : ''));
   if (usageViewBusy) {
