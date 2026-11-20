@@ -216,14 +216,17 @@ const ROWS = [
   },
   {
     group: "code",
-    action: "Go to Declaration",
+    action: "Edit Source",
     chord: "⌘↓",
-    situation: "the app's second key for the same row",
-    intellij: "⌘↓ is EditSource there, not a declaration key",
-    source: `${MACKEYS}: EditSource`,
+    situation: "caret on a reference in the editor",
+    intellij: "does nothing, because EditSource acts on a selected row",
+    source: `${MACKEYS}: EditSource = meta DOWN, F4; GotoDeclaration = meta B alone`,
     at: ["src/use-store.ts", 4, "makeStore"],
-    expect: (s) => (s.caret === "src/store.ts:10" ? "goes to the declaration" : `caret ${s.caret}`),
-    differs: "kakapo keeps ⌘↓ as an alias; IntelliJ's ⌘↓ is a tool-window action with nothing to collide with here",
+    settle: (s) => s.caret !== "src/use-store.ts:4" || s.peek || Boolean(s.hint),
+    expect: (s) => (s.caret === "src/store.ts:10" ? "goes to the declaration"
+      : s.caret !== "src/use-store.ts:4" ? `caret ${s.caret}`
+        : s.peek ? "opened a popup"
+          : s.hint ? "said something" : "does nothing, because EditSource acts on a selected row"),
   },
   {
     group: "code",
