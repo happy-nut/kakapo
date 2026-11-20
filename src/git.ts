@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
-import { realpathSync } from "node:fs";
+import { realpathSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { GitSnapshot } from "./types.js";
 import { isServerCacheInsideProject } from "./server-cache.js";
@@ -179,6 +179,15 @@ export function absoluteGitDir(root: string): string {
 
 export function commonGitDir(root: string): string {
   return git(root, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
+}
+
+export function isLinkedWorktree(root: string): boolean {
+  let dotGit;
+  try { dotGit = statSync(join(root, ".git")); } catch { return false; }
+  if (dotGit.isDirectory()) return false;
+  const gitDir = absoluteGitDir(root);
+  const shared = commonGitDir(root);
+  return Boolean(gitDir) && Boolean(shared) && gitDir !== shared;
 }
 
 export function kakapoSharedDataFile(root: string, name: string): string | undefined {

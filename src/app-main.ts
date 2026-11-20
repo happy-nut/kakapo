@@ -5,7 +5,7 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, net, protocol, shell } from "electron";
 import type { WebContents } from "electron";
-import { git, gitAsync, isBranchRef, isCommitSha, isGitRepository, resolveWorkspaceRoot, validateReviewBase } from "./git.js";
+import { git, gitAsync, isBranchRef, isCommitSha, isGitRepository, isLinkedWorktree, resolveWorkspaceRoot, validateReviewBase } from "./git.js";
 import { renderWelcomeHtml } from "./render.js";
 import { makeTranslator, normalizeLocale, type Locale } from "./i18n.js";
 import { relaunchUpdatedApp, selfUpdateInstallAttempts } from "./self-update.js";
@@ -185,7 +185,11 @@ function isReviewableFolder(path: string): boolean {
   }
 }
 
-const preferences = new AppPreferences(app.getPath("userData"), isReviewableFolder);
+function belongsInRecentProjects(path: string): boolean {
+  return isReviewableFolder(path) && !isLinkedWorktree(path);
+}
+
+const preferences = new AppPreferences(app.getPath("userData"), belongsInRecentProjects);
 
 if (!existsSync(options.root)) {
   throw new Error(`Repository path does not exist: ${options.root}`);

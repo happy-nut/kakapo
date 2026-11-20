@@ -59,7 +59,8 @@ installed, so there is no second copy to go stale, and `kakapo uninstall-app` ta
 
 Run `kakapo` inside any Git repository or a package folder inside a monorepo — or any folder at all,
 whose review is its source tree with an empty diff, indexed and navigable like any other. File > Open
-Folder and the welcome screen's recent list take the same folders the command does:
+Folder takes the same folders the command does. The welcome screen's recent list takes all of them but
+a linked worktree, whose name and path say nothing about what it was cut for:
 
 ```bash
 kakapo
