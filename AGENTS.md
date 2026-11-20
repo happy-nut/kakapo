@@ -61,6 +61,13 @@ and checks the table against it; a row may collide only when it says `fixed: "me
 forwards the key on with `sendToFocused`. That guard runs on macOS only — the menu it checks is macOS's —
 so run the suite there before trusting a chord change; Linux CI skips it.
 
+`fixed: "menu"` is the one marker that exempts a row from the collision check, so the same test asks the
+opposite question of it: every key such a row spells must be a chord some menu item actually holds. The
+menu keeps its own hardcoded accelerator — the row is what the Settings sheet renders — and without that
+assertion the two can drift until the sheet advertises a key that does nothing. The zoom rows are the
+reason: four accelerators lived on the View submenu with no row at all, so there was no way to zoom
+listed anywhere in the app.
+
 Semantic highlighting is a pipeline with four places to lose a token, and losing one is silent: the
 capability declaration decides what a server may send, `legend.tokenTypes`/`tokenModifiers` decide what
 `src/lsp.ts` can name, the paint table in `semanticTokenClasses()` decides what gets a span, and the
@@ -223,6 +230,17 @@ Those directories are reclaimed by their own mtime, which is why `start()` touch
 `server.cacheDirectory` before it spawns. The key is a one-way hash of the worktree path, so nothing can
 ask which checkout a directory belonged to; a sweep that could not see it opened would delete a live one.
 Before the table there were hundreds of them and gigabytes, with nothing able to tell which were dead.
+
+The installer's download cache is a different directory with a different rule. `scripts/install-language-servers.mjs`
+keeps every archive it fetches so a reinstall — a wiped `vendor/`, a fresh worktree — does not download a
+gigabyte again, and `pruneDownloadCache` keeps exactly the archives the current pins name. No clock: an
+age window is what kept the runtime sweep from ever firing, and what goes stale here is not an old file
+but a dead generation, which a pin bump creates the moment it lands. The keep set is derived from the
+same tables the installers read, never written out a second time, and `test/install-cache-prune.test.mjs`
+fails when a `*_ARCHIVES` table is declared that `ARCHIVE_TABLES` does not read — a table left out has its
+archive deleted and re-downloaded on every install. `RUSTUP_TARGETS` is named for what it holds, target
+triples rather than filenames, because a table that must be exempt from that rule is a table waiting to
+be mis-read.
 
 `npm run index:bench [path…]` is the measurement and the gate. It prints a launch split into walk, read,
 hash, scan and flush for cold, warm, sibling-worktree and edited-tree runs, and exits non-zero when a

@@ -84,8 +84,12 @@ test("no shortcut row sits on a chord the application menu eats", {
   const fromRoles = JSON.parse(marker.slice("KAKAPO_MENU_ACCELERATORS=".length));
 
   const eaten = new Map();
+  const forwarded = new Set();
   for (const item of fromRoles) {
-    if (item.role && FORWARDING_ROLES.has(item.role.toLowerCase())) continue;
+    if (item.role && FORWARDING_ROLES.has(item.role.toLowerCase())) {
+      for (const chord of foldAll(item.accelerator)) forwarded.add(chord);
+      continue;
+    }
     for (const chord of foldAll(item.accelerator)) eaten.set(chord, `the ${item.role || item.label} menu item (${item.accelerator})`);
   }
   assert.ok(eaten.has("⌘⌥H"), "role: appMenu still binds Hide Others to ⌘⌥H");
@@ -113,6 +117,14 @@ test("no shortcut row sits on a chord the application menu eats", {
 
   assert.ok(eaten.has("⌘+") && eaten.has("⌘⇧="),
     "CommandOrControl+Plus is one keystroke with two spellings and both must be claimed");
+
+  const unheld = SHORTCUTS
+    .filter((row) => row.fixed === "menu")
+    .flatMap((row) => row.keys
+      .filter((key) => !claimed.has(key) && !forwarded.has(key))
+      .map((key) => `${row.id} on ${key}`));
+  assert.deepEqual(unheld, [],
+    `every fixed: "menu" row spells a chord a menu item holds:\n  ${unheld.join("\n  ")}`);
 
   const drawnMarker = result.stdout.split(/\r?\n/).find((line) => line.startsWith("KAKAPO_MENU_DRAWN="));
   assert.ok(drawnMarker, `drawn accelerators missing\nstdout: ${result.stdout}\nstderr: ${result.stderr}`);

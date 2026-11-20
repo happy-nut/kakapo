@@ -220,6 +220,7 @@ branches you already have and names what is missing.
 | `⌘⇧Enter` | Run every request in the `.http` file, in order |
 | `⌘⇧C` | Copy the `.http` request at the caret as a `curl` command |
 | `⌘K` | Copy the caret's `file:line` |
+| `⌘+` / `⌘-` / `⌘0` | Zoom the interface in / out / back to actual size |
 | `⌘,` | Settings |
 
 Settings ▸ Shortcuts lists the rest.
