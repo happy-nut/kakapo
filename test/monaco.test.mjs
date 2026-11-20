@@ -273,7 +273,7 @@ test("a failed definition lookup shows a short caret hint and does not open an e
   });
   await v.openSourceFile("src/app.ts");
   v.window.setSourceCursor("src/app.ts", 1, 26, false, -1);
-  v.key("ArrowDown", { metaKey: true });
+  v.key("b", { metaKey: true, code: "KeyB" });
   await v.settle(60);
 
   const hint = v.$(".mc-caret-hint");
@@ -335,7 +335,7 @@ test("a lone index guess is offered while the server is still coming up, not jum
   await v.openSourceFile("src/app.ts");
   const before = v.$("#source-viewer")?.dataset.openPath;
   v.window.setSourceCursor("src/app.ts", 0, 14, false, -1);
-  v.key("ArrowDown", { metaKey: true });
+  v.key("b", { metaKey: true, code: "KeyB" });
   await v.settle(80);
 
   assert.equal(v.$("#source-viewer")?.dataset.openPath, before, "the reviewer has not been moved anywhere");
@@ -354,7 +354,7 @@ test("the same lone index hit is navigated to when no server is coming", async (
   });
   await v.openSourceFile("src/app.ts");
   v.window.setSourceCursor("src/app.ts", 0, 14, false, -1);
-  v.key("ArrowDown", { metaKey: true });
+  v.key("b", { metaKey: true, code: "KeyB" });
   await v.settle(80);
 
   assert.equal(v.$("#source-viewer")?.dataset.openPath, "src/target.ts", "it navigates, as it always did");

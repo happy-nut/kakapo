@@ -8,8 +8,9 @@ decompiles for itself.
 
 ## Sub-features
 
-- `NAV-1` **`⌘B` / `⌘↓` / `⌘`-click** — go to declaration, or to the usages when the caret is already on
-  it. One key, two results — IntelliJ's own behaviour.
+- `NAV-1` **`⌘B` / `⌘`-click** — go to declaration, or to the usages when the caret is already on
+  it. One key, two results — IntelliJ's own behaviour. `⌘↓` is not a second key for it: IntelliJ gives
+  that chord to Edit Source, which is `NAV-8`.
 - `NAV-2` **`⌥F7`** — find usages, grouped by what each one is; `⌘⌥F7` for the flat popup.
 - `NAV-3` **`⌘F7` / `⌘⇧F7`** — highlight the symbol in the open file, writes apart from reads;
   `⌘⌥↓` / `⌘⌥↑` to step occurrences.
@@ -18,6 +19,9 @@ decompiles for itself.
 - `NAV-6` **the source view** — `#source-viewer`, opened by any of the above or by `#diff-open-source`.
   Tabs, `⌘W`, `⌘⇧[` / `⌘⇧]`.
 - `NAV-7` **`⌘6` problems, `F2` / `⇧F2`** — the language server's diagnostics. *(Not mapped in detail.)*
+- `NAV-8` **`⌘↓` / `F4`** — Edit Source: open the source of the row selected in the sidebar, or of the
+  diff line at the caret, which is what `#diff-open-source` clicks. Does nothing in the source view,
+  where IntelliJ disables it.
 
 ## How to get to it (user POV)
 

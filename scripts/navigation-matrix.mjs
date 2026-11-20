@@ -396,6 +396,13 @@ const ROWS = [
 
 async function place(page, [path, line, symbol]) {
   await page.key(...CHORD.Escape);
+  await page.evaluate(`(() => {
+    document.querySelectorAll('.mc-caret-hint, #mc-toast, .mc-toast').forEach((el) => {
+      el.classList.remove('show');
+      el.textContent = '';
+    });
+    return true;
+  })()`);
   await page.evaluate(`(() => { openSourceFile(${JSON.stringify(path)}); return true; })()`);
   const ready = await settled(page, (s) => s.open === path, 20000);
   if (ready.open !== path) return { ok: false, why: `${path} never opened` };

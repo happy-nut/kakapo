@@ -212,8 +212,9 @@ branches you already have and names what is missing.
 | `⌘U` | Go to the supertype — or, on a member, to the one it overrides |
 | `F3` / `⌘F3` | Bookmark this line / show every bookmark |
 | `⇧⌥1`…`⇧⌥9` / `⌥1`…`⌥9` | Number this line / go to that number |
-| `⌘B` / `⌘↓` / `⌘`-click | Go to declaration, or its usages when the caret is already on it (IntelliJ's Go to Declaration is one key for both) — including into library code (a dependency, a stdlib module, a bundled type stub, an entry inside a `.phar`, a class a server can decompile for itself), which opens read-only. A definition the server publishes only on the web — Sorbet answers its stdlib with a github.com link — opens in your browser instead. A class in a JDK image reports where it is: reading one needs a decompiler kakapo does not ship, and only Java has a server that decompiles on its own |
+| `⌘B` / `⌘`-click | Go to declaration, or its usages when the caret is already on it (IntelliJ's Go to Declaration is one key for both) — including into library code (a dependency, a stdlib module, a bundled type stub, an entry inside a `.phar`, a class a server can decompile for itself), which opens read-only. A definition the server publishes only on the web — Sorbet answers its stdlib with a github.com link — opens in your browser instead. A class in a JDK image reports where it is: reading one needs a decompiler kakapo does not ship, and only Java has a server that decompiles on its own |
 | `⌥F1` | Reveal the open file in the sidebar |
+| `⌘↓` / `F4` | Open the source of the row selected in the sidebar, or of the diff line at the caret. IntelliJ's Edit Source, which acts on a selected row and does nothing in the editor — the declaration is `⌘B` alone there, and used to be `⌘↓` here too |
 | `F2` / `⇧F2` | Next / previous problem the language server found |
 | `⌥Enter` | On a flagged line: draft the change request that asks an agent to fix it |
 | `⌘Enter` | Run the `.http` request at the caret |
@@ -229,8 +230,8 @@ Settings ▸ Shortcuts lists the rest.
 
 Most of this is IntelliJ's keymap, because most of it was already: `⌘B` declaration or usages, `⌥F7` find usages,
 `⌘⌥B` implementations, `⌘⌥O` workspace symbols, `⌘E` recent files, `⌘⇧F` find in path, `⌘L` go to line,
-`⌥F1` reveal in the sidebar, `F2`/`⇧F2` next problem, `⌘[`/`⌘]` back and forward, `⌘↓` or `⌘`-click for a
-definition.
+`⌥F1` reveal in the sidebar, `F2`/`⇧F2` next problem, `⌘[`/`⌘]` back and forward, `⌘↓`/`F4` open the
+selected row's source.
 
 What this adds:
 
@@ -368,7 +369,7 @@ the file, the key does nothing rather than selecting the wrong thing.
 
 **Stepping by declaration** (`⌘⌥]` / `⌘⌥[`) — the next or previous declaration, which is IntelliJ's
 next/previous method. Not on `⌃↓`/`⌃↑`: kakapo's shortcut table spells Command and Control the same way
-(one table, both platforms), and `⌘↓` is already Go to Definition. It used to sit on `⌥↓`/`⌥↑`, which
+(one table, both platforms), and `⌘↓` is already Edit Source. It used to sit on `⌥↓`/`⌥↑`, which
 turned out to be Extend Selection's own chords on IntelliJ's Mac keymap; it moved into the bracket family,
 where `⌘[`/`⌘]` already walk the cursor's history and `⌥[`/`⌥]` the patch sets.
 
@@ -416,7 +417,7 @@ action it belongs to, which is the other half of why this list gets opened. Only
 is offered: `⌘O` opens a folder through the OS menu and cannot be fired from here.
 
 **Quick definition** (`⌥Space`, `⌘Y`) — the definition's own lines, in a box at the caret, without going
-anywhere. `⌘↓` is for when you want to be there; this is for "what does this call do" in the middle of
+anywhere. `⌘B` is for when you want to be there; this is for "what does this call do" in the middle of
 reading something else. A definition outside the review says where it is instead of showing an empty box.
 
 **Code analysis** (`F1`, `⌘⇧P`, `⌘F1`, `⌘6`) — the language servers were already answering eight

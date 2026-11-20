@@ -1357,7 +1357,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "kbd.historyRange": "비교 범위를 두 번째 커밋까지 넓히기",
     "kbd.copyRevision": "선택한 커밋의 해시 복사",
     "kbd.revealInTree": "열린 파일을 사이드바에서 찾기",
-    "kbd.editSource": "선택한 행의 소스를 엶, diff에서는 캐럿이 있는 줄을",
+    "kbd.editSource": "선택한 행의 소스 열기, diff에서는 캐럿이 있는 줄",
     "kbd.findUsages": "사용 위치 찾기 (종류별로 묶어서)",
     "kbd.highlightUsages": "이 파일에서 이 심볼 강조",
     "kbd.nextPrevOccurrence": "이 심볼의 다음 / 이전 등장 위치",
