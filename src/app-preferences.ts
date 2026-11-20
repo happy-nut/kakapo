@@ -20,7 +20,7 @@ const GLOBAL_SETTING_KEYS = new Set([
 export class AppPreferences {
   constructor(
     private readonly userData: string,
-    private readonly isReviewProject: (path: string) => boolean = () => true,
+    private readonly belongsInRecentProjects: (path: string) => boolean = () => true,
   ) {}
 
   readGlobal(): Record<string, unknown> {
@@ -78,7 +78,7 @@ export class AppPreferences {
     if (!Array.isArray(raw)) return;
     const live = raw.filter((entry) => {
       const path = (entry as Partial<RecentProject> | null)?.path;
-      return typeof path === "string" && existsSync(path);
+      return typeof path === "string" && existsSync(path) && this.belongsInRecentProjects(path);
     });
     if (live.length !== raw.length) {
       settings[RECENT_KEY] = live;
@@ -88,7 +88,7 @@ export class AppPreferences {
 
   recordRecentProject(root: string): void {
     const path = resolve(root);
-    if (!this.isReviewProject(path)) return;
+    if (!this.belongsInRecentProjects(path)) return;
     const others = this.readRecentProjects().filter((project) => project.path !== path);
     const next: RecentProject[] = [
       { path, name: basename(path) || path, openedAt: Date.now() },

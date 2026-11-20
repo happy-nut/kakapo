@@ -54,8 +54,13 @@ test("the handoff does not read the forwarded command line until it has to", () 
 test("one predicate decides what folder this app can open", () => {
   const source = readFileSync(new URL("../src/app-main.ts", import.meta.url), "utf8");
   assert.match(source, /function isReviewableFolder\(path: string\): boolean \{/);
-  assert.match(source, /new AppPreferences\(app\.getPath\("userData"\), isReviewableFolder\)/,
-    "what gets remembered as a recent project asks it too");
+  assert.match(source, /new AppPreferences\(app\.getPath\("userData"\), belongsInRecentProjects\)/);
+  const remembered = source.match(/function belongsInRecentProjects\([\s\S]*?\n\}/)?.[0];
+  assert.ok(remembered, "what gets remembered as a recent project is decided in one place");
+  assert.match(remembered, /isReviewableFolder\(path\)/,
+    "and it narrows the one answer about what may be opened rather than asking a second question");
+  assert.match(remembered, /isLinkedWorktree/,
+    "the narrowing being the worktree whose name and path say nothing about what it was cut for");
   for (const entrance of [
     /ipcMain\.handle\("kakapo:open-folder"[\s\S]*?\n\}\);/,
     /ipcMain\.handle\("kakapo:open-recent"[\s\S]*?\n\}\);/,

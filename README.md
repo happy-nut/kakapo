@@ -59,7 +59,8 @@ installed, so there is no second copy to go stale, and `kakapo uninstall-app` ta
 
 Run `kakapo` inside any Git repository or a package folder inside a monorepo — or any folder at all,
 whose review is its source tree with an empty diff, indexed and navigable like any other. File > Open
-Folder and the welcome screen's recent list take the same folders the command does:
+Folder takes the same folders the command does. The welcome screen's recent list takes all of them but
+a linked worktree, whose name and path say nothing about what it was cut for:
 
 ```bash
 kakapo
@@ -120,22 +121,28 @@ object database only — no fetch, and nothing is written: not the working tree,
 also works on changes that are not committed yet, which is the usual case for work an agent just wrote, and
 a base that has not moved costs a single `git merge-base` call.
 
-### Opening a pull request (`⌥L`)
+### Opening a pull request (`⌥L`, or as an argument)
 
 Paste the link — or `owner/repo#12`, or just `12` for this repository — and the review becomes that pull
-request: its base branch on the left, its head on the right.
+request: its merge base on the left, its head on the right, which is the diff GitHub's own Files changed
+tab shows. The same link works from the terminal:
 
-This is the one thing in kakapo that reaches a network or uses an account, and it is worth saying why.
-A link carries a number, and a number is not a branch name anywhere on disk: `refs/pull/*` is not fetched by
-default and the base branch of a pull request is not recorded locally at all. So this asks the GitHub CLI
-(`gh pr view`), once, when you paste a link, and nothing it answers is written to the repository. Without
-`gh` installed the prompt says so and changes nothing.
+```bash
+kakapo https://github.com/owner/repo/pull/12
+kakapo owner/repo#12
+```
 
-Resolving those two branch names to revisions is local again, and still does not fetch: the base is taken
-from `origin/<branch>` where that exists (the pull request is measured against what is on the server, and a
-local branch left behind would quietly answer a different question), the head from your own branch where you
-have one. **If a branch is not in your repository it is named and nothing happens** — fetching into someone
-else's repository behind their back is a worse thing to do than making them type `git fetch`.
+This is the one thing in kakapo that reaches a network or uses an account, and it is worth saying what it
+does. A link carries a number, and a number is not a branch name anywhere on disk, so this asks the GitHub
+CLI (`gh pr view`) for the two branch names. Without `gh` installed it says so and changes nothing.
+
+Then it fetches, because a pull request from a fork has no branch in your checkout at all and `refs/pull/*`
+is not fetched by default — the case where there is nothing to resolve by hand. The two sides land under
+`refs/kakapo/pull/<owner>/<repo>/<n>/`, so the commits survive a rebuild and a `git gc` while showing up in
+no branch list, and re-opening the same pull request picks up whatever was pushed since. Nothing else in
+the repository is touched: no branch is created, nothing is checked out, your working tree is left alone.
+If the fetch fails — offline, or a private repository your credentials do not reach — it falls back to the
+branches you already have and names what is missing.
 
 ## Shortcuts
 
