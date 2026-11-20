@@ -170,9 +170,11 @@ var SHORTCUT_ACTIONS = {
   openPullRequest: function () { return openPullRequestPrompt() ? undefined : false; },
   patchSetStep: function (event, i) { return stepPatchSet(i ? -1 : 1) ? undefined : false; },
   compareRef: function () { openCompareBranchPicker(); },
-  goToDef: function (event, i) {
-    if (isSourceViewerVisible() || i === 0) goToDefinitionUnderCursor();
-    else openDiffFileAtCaret();
+  goToDef: function () { goToDefinitionUnderCursor(); },
+  editSource: function () {
+    if (treeFocusIndex >= 0) return openFocusedTreeRow() ? undefined : false;
+    if (!isDiffViewVisible()) return false;
+    openDiffFileAtCaret();
   },
   quickDefinition: function () {
     if (treeFocusIndex >= 0 || !quickDocPanel()) return false;

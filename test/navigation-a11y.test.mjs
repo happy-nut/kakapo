@@ -34,7 +34,7 @@ test("what navigation says is announced, not just drawn", async () => {
     };
     await v.openSourceFile(FILE);
     await v.clickSourceLine(1);
-    v.key("ArrowDown", { metaKey: true, code: "ArrowDown" });
+    v.key("b", { metaKey: true, code: "KeyB" });
     await v.settle(80);
 
     const hint = v.$(".mc-caret-hint");

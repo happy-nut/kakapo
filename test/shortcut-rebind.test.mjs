@@ -96,16 +96,16 @@ test("one row and all rows can be put back", async () => {
   const v = await loadViewer(html);
 
   rebind(v, "openHistory", 0, { key: "j", code: "KeyJ", metaKey: true, altKey: true });
-  rebind(v, "goToDef", 0, { key: "u", code: "KeyU", metaKey: true, altKey: true });
+  rebind(v, "editSource", 0, { key: "u", code: "KeyU", metaKey: true, altKey: true });
   assert.deepEqual(chipsOf(rowFor(v, "openHistory")), ["⌘⌥J"]);
-  assert.deepEqual(chipsOf(rowFor(v, "goToDef")), ["⌘⌥U", "⌘↓"]);
+  assert.deepEqual(chipsOf(rowFor(v, "editSource")), ["⌘⌥U", "F4"]);
 
   v.click(rowFor(v, "openHistory").querySelector(".keys-reset"));
   assert.deepEqual(chipsOf(rowFor(v, "openHistory")), ["⌘9"], "that row is back to the default");
-  assert.deepEqual(chipsOf(rowFor(v, "goToDef")), ["⌘⌥U", "⌘↓"], "the other one is untouched");
+  assert.deepEqual(chipsOf(rowFor(v, "editSource")), ["⌘⌥U", "F4"], "the other one is untouched");
 
   v.click(v.$("#settings-kbd-reset-all"));
-  assert.deepEqual(chipsOf(rowFor(v, "goToDef")), ["⌘B", "⌘↓"], "and reset-all puts every row back");
+  assert.deepEqual(chipsOf(rowFor(v, "editSource")), ["⌘↓", "F4"], "and reset-all puts every row back");
   assert.equal(v.$(".keys-row-custom"), null, "nothing is marked as changed any more");
   v.close();
 });

@@ -34,7 +34,7 @@ const hintShown = (v) => {
 async function jump(v) {
   await v.openSourceFile(FILE);
   await v.clickSourceLine(1);
-  v.key("ArrowDown", { metaKey: true, code: "ArrowDown" });
+  v.key("b", { metaKey: true, code: "KeyB" });
   await v.settle(60);
 }
 
@@ -83,7 +83,7 @@ test("the searching hint stays up for as long as the answer takes", async () => 
     };
     await v.openSourceFile(FILE);
     await v.clickSourceLine(1);
-    v.key("ArrowDown", { metaKey: true, code: "ArrowDown" });
+    v.key("b", { metaKey: true, code: "KeyB" });
 
     await v.settle(400);
     assert.ok(hintShown(v), "the hint appears while the answer is outstanding");

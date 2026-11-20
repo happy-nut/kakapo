@@ -182,7 +182,7 @@ test("⌥Space shows the definition's own lines without going there", async () =
   const lines = host.v.$all("#quick-doc .quick-def-line .quick-def-num").map((el) => el.textContent);
   assert.deepEqual(lines, ["8", "9", "10"], "the declaration's own lines, numbered as the file numbers them");
   assert.match(host.v.$("#quick-doc-body").textContent, /useButton/);
-  assert.equal(host.v.window.caretLocation(), before, "and the caret has not moved — that is ⌘↓'s job");
+  assert.equal(host.v.window.caretLocation(), before, "and the caret has not moved — that is ⌘B's job");
   host.v.close();
 });
 

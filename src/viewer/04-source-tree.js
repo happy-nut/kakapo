@@ -480,6 +480,14 @@ function revealTreeFor(path, shouldScroll) {
   var active = document.querySelector('.source-link.active');
   if (shouldScroll !== false && active && active.scrollIntoView) active.scrollIntoView({ block: 'nearest' });
 }
+function openFocusedTreeRow() {
+  var row = treeRows()[treeFocusIndex];
+  if (!row || !row.classList.contains('file-link')) return false;
+  row.click();
+  clearTreeFocus();
+  return true;
+}
+
 function handleTreeKey(event) {
   const ae = document.activeElement;
   if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT' || ae.isContentEditable)) return false;
@@ -509,8 +517,7 @@ function handleTreeKey(event) {
   }
   if (event.key === 'Enter') {
     event.preventDefault();
-    if (row && row.classList.contains('file-link')) { row.click(); clearTreeFocus(); }
-    else if (isFolder && row.parentElement) row.parentElement.open = !row.parentElement.open;
+    if (!openFocusedTreeRow() && isFolder && row.parentElement) row.parentElement.open = !row.parentElement.open;
     return true;
   }
   if (treeNav && event.key === 'ArrowRight') {

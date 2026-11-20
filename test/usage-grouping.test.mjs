@@ -66,7 +66,6 @@ const MIXED = [
 test("the groupings nest in IntelliJ's rank order, outermost first", async () => {
   const host = await openUsages(MIXED);
   await press(host, { code: "KeyS", key: "s", metaKey: true, altKey: true });
-  await press(host, { code: "KeyD", key: "d", metaKey: true, altKey: true });
 
   const ranks = headers(host).map((row) => row[0]);
   const firstOf = (rank) => ranks.indexOf(rank);
@@ -160,15 +159,74 @@ test("⌘⌥T turns the usage types off; the file grouping keeps the rows findab
   host.v.close();
 });
 
-test("⌘⌥D adds the directory, and the file header drops to the bare name under it", async () => {
+test("the directory is on by default, and the file header is the bare name under it", async () => {
   const host = await openUsages(MIXED);
-  assert.ok(headersOf(host, "file").some((label) => label.includes("/")),
-    "without a directory header the file node carries the whole path");
-  await press(host, { code: "KeyD", key: "d", metaKey: true, altKey: true });
-  assert.deepEqual(labelsAt(host, "directory"), ["Directory: packages/data/src", "Directory: packages/ui/src", "Directory: packages/ui/test"],
-    "directory.0 is `Directory:{0}`");
+  assert.equal(pressed(host, "directory"), true,
+    "isGroupByPackage is true in UsageViewSettings — the rank that is a node per path segment");
   assert.ok(headersOf(host, "file").every((label) => !label.includes("/")),
-    "and the path is now said once, above, so the file node is the name — IntelliJ's short file path");
+    "the path is said once, above, so the file node is the name — IntelliJ's short file path");
+
+  await press(host, { code: "KeyD", key: "d", metaKey: true, altKey: true });
+  assert.equal(pressed(host, "directory"), false);
+  assert.deepEqual(headersOf(host, "directory"), [], "and the division is gone");
+  assert.ok(headersOf(host, "file").some((label) => label.includes("/")),
+    "with no directory header the file node carries the whole path again");
+  assert.equal(rowTypes(host).length, 5, "with the rows still there either way");
+  host.v.close();
+});
+
+test("the directory is a node per path segment, read from the module root", async () => {
+  const host = await openUsages(MIXED);
+  assert.deepEqual(labelsAt(host, "directory"), ["src", "test"],
+    "under @acme/ui and @acme/data the path starts at the module's own root, so `packages` is not repeated");
+
+  await press(host, { code: "KeyM", key: "m", metaKey: true, altKey: true });
+  assert.deepEqual(labelsAt(host, "directory"), ["data/src", "packages", "src", "test", "ui"],
+    "with the modules off the whole path is depth again — and `data`, whose only child is `src`, is joined to it");
+
+  const depths = headers(host).filter((row) => row[0] === "directory");
+  const ui = depths.find((row) => row[2] === "ui");
+  const packages = depths.find((row) => row[2] === "packages");
+  assert.ok(packages[1] < ui[1], `packages is a depth above ui: ${JSON.stringify(depths)}`);
+  host.v.close();
+});
+
+const spread = (count) => Array.from({ length: count }, (_, i) =>
+  usage(`packages/ui/src/f${i}.ts`, i, "  const value = Store;"));
+
+test("a result that reaches more than ten files opens with the directories folded", async () => {
+  const roomy = await openUsages(spread(10));
+  const roomyDirs = roomy.v.$all('#quick-open-results .usage-group[data-usage-group="directory"]');
+  assert.ok(roomyDirs.length > 0, "ten files still get a directory node");
+  assert.ok(roomyDirs.every((row) => !row.classList.contains("is-collapsed")),
+    "and at ten it opens the way it always did — a fold the reader did not ask for costs a keystroke");
+  roomy.v.close();
+
+  const crowded = await openUsages(spread(11));
+  const crowdedDirs = crowded.v.$all('#quick-open-results .usage-group[data-usage-group="directory"]');
+  assert.ok(crowdedDirs.length > 0);
+  assert.ok(crowdedDirs.every((row) => row.classList.contains("is-collapsed")),
+    "at eleven the directory nodes arrive folded, because a tree open to every leaf is the flat list it replaced");
+  assert.deepEqual(crowded.v.$all("#quick-open-results .usage-result"), [],
+    "so nothing below them is drawn until one is opened");
+  assert.ok(crowded.v.$all('#quick-open-results .usage-group[data-usage-group="type"]')
+    .every((row) => !row.classList.contains("is-collapsed")),
+    "the ranks above the directory stay open — the fold is about the path, not about the answer");
+  crowded.v.close();
+});
+
+test("what a fold hides is still counted in the summary above it", async () => {
+  const host = await openUsages(MIXED);
+  const chipText = () => host.v.$("#quick-open-filter").textContent;
+  const before = chipText();
+  assert.match(before, /5/, "five usages before anything is folded");
+
+  host.v.$('[data-usage-tree="collapse"]').click();
+  await host.v.settle(40);
+  assert.deepEqual(host.v.$all("#quick-open-results .usage-result").length, 0,
+    "the fold did take the rows off the screen");
+  assert.equal(chipText(), before,
+    "and the summary still says what the answer is — it counts the answer, not what is drawn");
   host.v.close();
 });
 
