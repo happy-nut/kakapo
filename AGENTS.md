@@ -49,6 +49,14 @@ Every behavior change should include:
 
 When adding a command, update `printHelp` in `src/commands.ts` and both READMEs.
 
+A revert is a behavior change too, and the READMEs are where it gets forgotten. `usageFiltering.imports`
+was flipped to `false`, both READMEs were taught to say "imports start hidden", the default was put back
+to `true` when it broke twelve usage tests, and the sentences shipped anyway — for a release, describing
+a default the code does not have. Nothing can check this: a claim about a default is prose, the chords in
+those tables were measured against `src/shortcuts.ts` and drift by zero rows, and a check that greps for
+words would pass the next sentence written differently. So the rule is read here, at the moment the
+default goes back: whatever a change taught the docs to say, the revert unteaches in the same commit.
+
 A branch that carries a `chore(release): vX [skip ci]` commit mutes the release once it lands. GitHub
 reads `[skip ci]` out of the squashed merge message, and a squash merge collects every commit subject on
 the branch into that message, so `auto-release.yml` never runs: the fix is on `main`, no version follows,
