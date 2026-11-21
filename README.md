@@ -173,7 +173,7 @@ branches you already have and names what is missing.
 | `⌘⌥↓` / `⌘⌥↑` | Next / previous occurrence of the symbol under the caret |
 | `⌘⌥T` / `⌘⌥M` / `⌘⌥S` | In the usage view: group by usage type / by module / by production-test |
 | `⌘⌥D` / `⌘⌥F` / `⌘⇧⌥M` | In the usage view: group by directory / by file, and flatten the modules |
-| `⌘⌥R` / `⌘⌥W` / `⌘⌥I` | In the usage view: show read access / write access / import statements |
+| `⌘⌥R` / `⌘⌥W` / `⌘⌥I` | In the usage view: show read access / write access / import statements (imports start hidden) |
 | `⌘⌥B` / `⌘⌥O` | Go to implementation / workspace symbol |
 | `⌥O` | Go to a class by name (types only) |
 | `⌥G` | Files related to this one — its test, and its same-name siblings |
@@ -235,9 +235,11 @@ selected row's source.
 
 What this adds:
 
-**Find usages** (`⌥F7`) — the same answer `⌘⌥F7` gives, grouped by what each usage *is*: the imports
-together, the writes together, the `extends` clause, the `new`, the type parameters, the lines that only
-mention the name in a comment or a string. Forty references to one symbol is a list you scroll; the same
+**Find usages** (`⌥F7`) — the same answer `⌘⌥F7` gives, grouped by what each usage *is*: the
+writes together, the `extends` clause, the `new`, the type parameters, the lines that only
+mention the name in a comment or a string. An import is not one of them: naming a symbol in an
+`import`, `use`, `require`, `#include` or `@import` line is how a file reaches it, not a place that does
+anything with it, so those lines are hidden in both surfaces and `⌘⌥I` asks for them back. Forty references to one symbol is a list you scroll; the same
 forty under eight headings is a list you read, and "which of these forty write to it" is usually the
 question you pressed the key for. The group names are IntelliJ's own — "Value write", "Usage in
 extends/implements clause", "New instance creation" — taken from `UsageViewBundle.properties` in

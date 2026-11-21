@@ -3168,6 +3168,8 @@ body.dock-maximized .dock-panel { inset: 0; width: auto; max-height: none; trans
 .quick-open-search-options {
   display: none;
   align-items: center;
+  flex-wrap: wrap;
+  white-space: nowrap;
   gap: 12px;
   min-height: 38px;
   padding: 5px 12px;
@@ -3183,7 +3185,6 @@ body.dock-maximized .dock-panel { inset: 0; width: auto; max-height: none; trans
 .quick-open.quick-usages .quick-open-option-glyphs { display: none; }
 .quick-open.quick-usages .quick-open-panel { grid-template-rows: auto auto auto minmax(0, 1fr) auto; }
 .quick-open-usage-options { display: none; }
-.quick-open.quick-usages .quick-open-search-options { flex-wrap: wrap; }
 .quick-open.quick-usages .quick-open-usage-options {
   display: inline-flex;
   flex-wrap: wrap;
@@ -3231,6 +3232,8 @@ body.dock-maximized .dock-panel { inset: 0; width: auto; max-height: none; trans
 .quick-open-usage-chip.unavailable { opacity: .42; cursor: default; }
 .quick-open-extension-field { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .quick-open-scope-field { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.quick-open-search-options > * { flex: 0 0 auto; }
+.quick-open-extension-field { flex: 0 1 auto; }
 .quick-open-extension-field > span, .quick-open-scope-field > span { flex: none; }
 #quick-open-scope {
   border: 1px solid var(--border);
