@@ -1933,7 +1933,7 @@ h1 { margin: 0; font-size: 18px; }
   font: 600 11px ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; }
 .change-row .change-stat-add { color: var(--chrome-stat-add); }
 .change-row .change-stat-del { color: var(--chrome-stat-del); }
-.crumb-sep { flex: none; opacity: 0.55; }
+.crumb-sep { flex-shrink: 10; min-width: 0; overflow: hidden; opacity: 0.55; }
 .crumb-commit {
   display: inline-flex; align-items: center; gap: 2px; flex: none;
   color: var(--commit-accent); font-weight: 650;
