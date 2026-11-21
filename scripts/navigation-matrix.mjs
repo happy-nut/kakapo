@@ -136,6 +136,7 @@ const STATE = `(() => {
     peekTitle: String((document.getElementById('semantic-peek-title') || {}).textContent || ''),
     peekRows: rows('#semantic-peek-results .semantic-peek-item'),
     quick: shown('quick-open'),
+    quickMode: String((document.getElementById('quick-open-mode') || {}).textContent || ''),
     quickLabel: String((document.getElementById('quick-open-filter') || {}).textContent || ''),
     quickRows: rows('#quick-open-results .quick-open-item'),
     // .mc-caret-hint, and the toast it falls back to when there is no row to anchor against
@@ -173,6 +174,7 @@ const CHORD = {
   "⌘⌥↓": ["ArrowDown", "ArrowDown", 40, 4 + 1],
   "⌘U": ["u", "KeyU", 85, 4],
   "⌘⇧E": ["e", "KeyE", 69, 4 + 8],
+  "⇧⇧": ["Shift", "ShiftLeft", 16, 8],
   Escape: ["Escape", "Escape", 27, 0],
 };
 
@@ -326,6 +328,17 @@ const ROWS = [
     settle: (s) => s.quick,
     expect: (s) => (s.quick && s.quickRows > 0 ? "lists where the caret has been" : "nothing"),
   },
+  {
+    group: "code",
+    action: "Search Everywhere",
+    chord: "⇧⇧",
+    situation: "the source view has focus",
+    intellij: "opens Search Everywhere on its All tab",
+    source: `${MACKEYS}: SearchEverywhere is the double Shift tap, and its first tab is All`,
+    at: ["src/store.ts", 10, "makeStore"],
+    settle: (s) => s.quick,
+    expect: (s) => (!s.quick ? "nothing" : /All|전체/.test(s.quickMode) ? "opens Search Everywhere on its All tab" : `opens ${s.quickMode.trim() || "an unnamed mode"}`),
+  },
 
   {
     group: "library",
@@ -451,6 +464,7 @@ async function run() {
         if (!placed.ok) { measured.push({ row, got: `could not set up: ${placed.why}` }); continue; }
         for (const chord of row.before ?? []) { await page.key(...CHORD[chord]); await sleep(600); }
         await page.key(...CHORD[row.chord]);
+        if (row.chord === "⇧⇧") await page.key(...CHORD[row.chord]);
       }
       const state = await settled(page, row.settle ?? ((s) => s.caret !== ""), row.reuse ? 1500 : 9000);
       measured.push({ row, got: row.expect(state) });

@@ -44,12 +44,21 @@ function analysisGenerationIsCurrent(response) {
   return !currentGeneration || Number(response.generation) === currentGeneration;
 }
 
+function withoutImportUsages(name, kind, items) {
+  if (kind === 'definition' || kind === 'implementation') return items;
+  var kept = items.filter(function (item) {
+    return classifyUsage(name, item.text, item.column, item.path) !== 'import';
+  });
+  return kept.length ? kept : items;
+}
+
 function openSemanticPeek(name, locations, response, kind) {
   var panel = document.getElementById('semantic-peek');
   if (!panel) { openAnalysisUsagesFallback(name, locations, kind); return; }
   semanticPeekItems = semanticNavigationLocations(locations, kind).map(function (item) {
     return { path: item.path, lineIndex: Number(item.lineIndex) || 0, column: Number(item.column) || 0, text: String(item.text || ''), isTest: semanticTestPath(item.path) };
   });
+  semanticPeekItems = withoutImportUsages(name, kind, semanticPeekItems);
   if (!semanticPeekItems.length) { showSemanticNavigationFailure(kind || 'references', name); return; }
   semanticPeekActive = 0;
   var title = document.getElementById('semantic-peek-title');

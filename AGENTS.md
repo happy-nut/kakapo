@@ -30,6 +30,15 @@ npm run smoke
   not run agents, embed a terminal, or manage workspaces — those were deliberately removed.
 - Treat AI tools as producers of changes; kakapo is where a human reads those changes.
 
+## Scope
+
+A request for a mockup is a request for a mockup. "시안", "mock this up", "show me what it would
+look like" asks for a picture to judge, and the judging is the deliverable — building the thing, opening
+a pull request and merging it answers a question nobody asked and spends the decision before the user
+makes it. The same holds for a design sketched in a reply: showing it is not consent to build it. Wait for
+the user to pick. Nothing in this repository can check this — it is read off the user's words, not off the
+tree — so it is written here, where the decision is made.
+
 ## Quality Bar
 
 Every behavior change should include:
@@ -256,6 +265,20 @@ the read and the hash. The read and the hash are most of a warm launch, and `sta
 but the index's own consumers need the content and every record's declaration text, so the saving is paid
 for by making both lazy and by trusting mtime — whose failure is not a slow launch but a jump to a line
 that is not there. Re-measure with the bench before deciding again.
+
+A label that wraps inside a word is a defect a reader sees before anything else and no assertion here
+can reach: jsdom lays nothing out, so every width, rect and line break is zero in `npm test`. `npm run
+ui:text` is the oracle. It opens each chrome surface in the real app and asks two measured questions —
+does any whitespace-delimited word render on more than one line (a Range around one token has one client
+rect when it fits and two when the line broke inside it), and does a leaf's own text overflow the box
+drawn for it. The word test is deliberately language-blind: CSS lets Korean break between any two
+syllables, so `word-break` calls the "주석·테스트 제 / 외" split legal and a reader still reads it as a
+typo. Every surface is audited at 1440 and at 900, because chrome that fits at the wider one is exactly
+the chrome that breaks at the narrower — this repository has lost the whole diff at that width. A
+surface the script cannot open is reported as such rather than counted clean, which is the only thing
+separating "nothing is broken" from "nothing was looked at". Run it after any change to chrome text, a
+label, an i18n string or a toolbar's layout; a Korean string is routinely half again as long as its
+English twin, so a toolbar that was measured only in English was not measured.
 
 Two checks live outside the suite because the suite cannot reach what they answer, and both are project
 skills under `.claude/skills/`.
