@@ -72,7 +72,8 @@ const AUDIT = `(() => {
     }
     const isLeaf = el.children.length === 0;
     const scrolls = style.overflow === 'auto' || style.overflowX === 'auto' || style.overflowX === 'scroll';
-    if (isLeaf && !scrolls && el.scrollWidth > el.clientWidth + 1) {
+    const clipsOnPurpose = style.textOverflow === 'ellipsis';
+    if (isLeaf && !scrolls && !clipsOnPurpose && el.scrollWidth > el.clientWidth + 1) {
       const key = 'overflow:' + text.trim().slice(0, 30) + ':' + Math.round(box.width);
       if (!seen.has(key)) {
         seen.add(key);
