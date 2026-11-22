@@ -54,3 +54,16 @@ com.foo.Bar.baz(Bar.java:42)
 	at com.foo.Bar.(Bar.java:42)
 org.junit.ComparisonFailure: expected:<1> but was:<2>
 	at org.junit.Assert.assertEquals(Assert.java:115)
+com.foo.Bar.baz() Bar.java:42
+	com.foo.Bar.baz() Bar.java:42
+- com.foo.Bar.baz() @bci=12, line=42 (Compiled frame)
+- java.lang.Thread.sleep(Native Method) @bci=0, line=-1 (Interpreted frame)
+| 5(0) | at org.example.Test.run(Test.kt:9) |
+	at com.foo.Bar.baz(Bar.java:42) at com.foo.Qux.run(Qux.java:7)
+java.lang.RuntimeException: boom at com.foo.Bar.baz(Bar.java:42)
+thread 'main' panicked at main.rs:3:9:
+	from /app/lib/inner.rb:3:in 'Object#deep'
+/app/lib/inner.js:1
+    at deep (/app/lib/inner.js:1:39)
+    at Object.<anonymous> (/app/app.js:3:1)
+	/app/inner/inner.go:5

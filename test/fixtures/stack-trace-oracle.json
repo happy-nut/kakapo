@@ -800,5 +800,159 @@
     },
     "fileName": "Assert.java",
     "lineNumber": 115
+  },
+  {
+    "line": "com.foo.Bar.baz() Bar.java:42",
+    "frame": true,
+    "classFqn": {
+      "start": 0,
+      "end": 11,
+      "text": "com.foo.Bar"
+    },
+    "method": {
+      "start": 12,
+      "end": 15,
+      "text": "baz"
+    },
+    "fileLine": {
+      "start": 18,
+      "end": 29,
+      "text": "Bar.java:42"
+    },
+    "fileName": "Bar.java",
+    "lineNumber": 42
+  },
+  {
+    "line": "\tcom.foo.Bar.baz() Bar.java:42",
+    "frame": true,
+    "classFqn": {
+      "start": 0,
+      "end": 12,
+      "text": "\tcom.foo.Bar"
+    },
+    "method": {
+      "start": 13,
+      "end": 16,
+      "text": "baz"
+    },
+    "fileLine": {
+      "start": 19,
+      "end": 30,
+      "text": "Bar.java:42"
+    },
+    "fileName": "Bar.java",
+    "lineNumber": 42
+  },
+  {
+    "line": "- com.foo.Bar.baz() @bci=12, line=42 (Compiled frame)",
+    "frame": true,
+    "classFqn": {
+      "start": 2,
+      "end": 13,
+      "text": "com.foo.Bar"
+    },
+    "method": {
+      "start": 14,
+      "end": 17,
+      "text": "baz"
+    },
+    "fileLine": {
+      "start": 29,
+      "end": 36,
+      "text": "line=42"
+    },
+    "fileName": null,
+    "lineNumber": 42
+  },
+  {
+    "line": "- java.lang.Thread.sleep(Native Method) @bci=0, line=-1 (Interpreted frame)",
+    "frame": false
+  },
+  {
+    "line": "| 5(0) | at org.example.Test.run(Test.kt:9) |",
+    "frame": true,
+    "classFqn": {
+      "start": 12,
+      "end": 28,
+      "text": "org.example.Test"
+    },
+    "method": {
+      "start": 29,
+      "end": 32,
+      "text": "run"
+    },
+    "fileLine": {
+      "start": 33,
+      "end": 42,
+      "text": "Test.kt:9"
+    },
+    "fileName": "Test.kt",
+    "lineNumber": 9
+  },
+  {
+    "line": "\tat com.foo.Bar.baz(Bar.java:42) at com.foo.Qux.run(Qux.java:7)",
+    "frame": false
+  },
+  {
+    "line": "java.lang.RuntimeException: boom at com.foo.Bar.baz(Bar.java:42)",
+    "frame": true,
+    "classFqn": {
+      "start": 36,
+      "end": 47,
+      "text": "com.foo.Bar"
+    },
+    "method": {
+      "start": 48,
+      "end": 51,
+      "text": "baz"
+    },
+    "fileLine": {
+      "start": 52,
+      "end": 63,
+      "text": "Bar.java:42"
+    },
+    "fileName": "Bar.java",
+    "lineNumber": 42
+  },
+  {
+    "line": "thread 'main' panicked at main.rs:3:9:",
+    "frame": false
+  },
+  {
+    "line": "\tfrom /app/lib/inner.rb:3:in 'Object#deep'",
+    "frame": false
+  },
+  {
+    "line": "/app/lib/inner.js:1",
+    "frame": false
+  },
+  {
+    "line": "    at deep (/app/lib/inner.js:1:39)",
+    "frame": false
+  },
+  {
+    "line": "    at Object.<anonymous> (/app/app.js:3:1)",
+    "frame": true,
+    "classFqn": {
+      "start": 7,
+      "end": 13,
+      "text": "Object"
+    },
+    "method": {
+      "start": 14,
+      "end": 26,
+      "text": "<anonymous> "
+    },
+    "fileLine": {
+      "start": 27,
+      "end": 42,
+      "text": "/app/app.js:3:1"
+    },
+    "fileName": "/app/app.js:3",
+    "lineNumber": 1
+  },
+  {
+    "line": "\t/app/inner/inner.go:5",
+    "frame": false
   }
 ]
