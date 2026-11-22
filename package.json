@@ -57,7 +57,8 @@
     "dist:mac:dmg:ci": "npm run dist:mac:ci && node scripts/create-dmg.mjs",
     "index:bench": "npm run build && node scripts/index-bench.mjs",
     "cache:bench": "npm run build && node scripts/server-cache-bench.mjs",
-    "stack:oracle": "node scripts/stack-trace-oracle.mjs"
+    "stack:oracle": "node scripts/stack-trace-oracle.mjs",
+    "stack:samples": "node scripts/stack-trace-samples.mjs"
   },
   "keywords": [
     "ai",

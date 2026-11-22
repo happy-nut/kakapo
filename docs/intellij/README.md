@@ -98,3 +98,34 @@ Four things the corpus pins that a reading of the source got wrong:
   candidate is refused.
 - `com.foo.Bar.baz(Bar.java:42)` with no `at` at all is a frame, and `Bar.java : 42` with spaces
   around the colon is not.
+
+## Real traces, from real crashes
+
+The JVM reader has IntelliJ itself as an oracle. The other readers have none, so their fixture is the
+output of actual failing programs rather than lines written from memory:
+
+```bash
+npm run stack:samples
+```
+
+`scripts/stack-trace-samples.mjs` writes a small crashing program for node, python, go, rust and ruby
+into a temporary directory, runs it, and records stderr in
+`test/fixtures/stack-trace-samples.json` with the directory replaced by `<DIR>`. It refuses a program
+that stops crashing, a crash with nothing on stderr, and a trace that names no path inside the sample
+directory, since each of those would be captured as an empty success. A runtime that is not installed
+is reported as skipped, never counted as clean.
+
+Four things these captures say that a description of the formats got wrong:
+
+- Go's frame is `\t<path>:<line>` and the ` +0x4c` offset is **optional** — the inlined `Deep(...)`
+  frames carry no offset at all, so a reader that requires one loses half of every panic.
+- Node's first line is a bare `<path>:<line>` with no `at`, and it is the most useful frame in the
+  trace: it is where the error was thrown. `at Array.map (<anonymous>)` in the same trace is prose.
+- Rust's panic header is `thread 'main' (…) panicked at main.rs:3:9:` — a relative path with a
+  trailing colon, nothing like the `at …` lines of the backtrace below it.
+- Ruby's frames are `<path>:<line>:in 'Object#deep'` and `\tfrom <path>:<line>:in '…'`, a shape none
+  of the other readers match.
+
+The rust capture is not byte-stable: it carries a thread id, instruction addresses and the rustc
+commit hash, so re-running the script rewrites those. Re-capture when a format changes, not to tidy
+the diff.
