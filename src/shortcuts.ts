@@ -34,6 +34,7 @@ export const SHORTCUTS: ShortcutDef[] = [
   { id: "errorDescription", keys: ["⌘F1"], where: "code", i18n: "kbd.errorDescription" },
   { id: "problemsView", keys: ["⌘6"], where: "any", i18n: "kbd.problemsView" },
   { id: "endpointsView", keys: ["⌘7"], where: "any", i18n: "kbd.endpointsView" },
+  { id: "analyzeStackTrace", keys: ["⌘⇧S"], where: "any", i18n: "kbd.analyzeStackTrace" },
   { id: "quickDoc", keys: ["F1"], where: "code", i18n: "kbd.quickDoc" },
   { id: "expressionType", keys: ["⌘⇧P"], where: "code", i18n: "kbd.expressionType" },
   { id: "filesChangesTab", keys: ["⌘1", "⌘2"], where: "any", i18n: "kbd.filesChangesTab" },
@@ -165,7 +166,7 @@ export const SHORTCUT_GROUPS: { i18n: string; ids: string[] }[] = [
   ] },
   { i18n: "settings.kbd.cat.nav", ids: [
     "nextChange", "prevChange", "nextComment", "gotoDiagnostic", "errorDescription", "problemsView",
-    "quickDoc", "expressionType", "endpointsView", "filesChangesTab",
+    "quickDoc", "expressionType", "endpointsView", "analyzeStackTrace", "filesChangesTab",
     "sidebarNavigate", "sidebarContent", "findInFile", "findNextPrev", "findEnter", "findInFiles", "recentFiles",
     "searchExtensions", "excludeSearchNoise", "searchMatchCase", "searchWholeWords", "searchRegex", "searchScope",
     "findInSelection", "searchChangesOnly", "findHistory",

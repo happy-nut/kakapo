@@ -9,6 +9,8 @@ function keyboardScope() {
   if (gotoLine && gotoLine.contains(document.activeElement)) return 'modal';
   var prPrompt = document.getElementById('pr-prompt');
   if (prPrompt && (prPrompt.contains(document.activeElement) || prPrompt.querySelector('input:disabled'))) return 'modal';
+  var stackTrace = document.getElementById('stack-trace');
+  if (stackTrace && !stackTrace.classList.contains('hidden')) return 'modal';
   var history = document.getElementById('history-view');
   if (history && !history.classList.contains('hidden')) return 'history';
   if (isDockFocused()) return 'panel';
@@ -82,6 +84,7 @@ var KEY_OWNERS = [
     if (!box || box.classList.contains('hidden')) return false;
     return handleUsagesKey(event);
   } },
+  { name: 'stack-trace', handle: function (event) { return handleStackTraceKey(event); } },
   { name: 'file-find', handle: function (event) { return handleFileFindKey(event); } },
   { name: 'lightbox', handle: function (event) {
     if (event.key !== 'Escape' || !lightboxOpen()) return false;
@@ -262,6 +265,7 @@ var SHORTCUT_ACTIONS = {
     if (treeFocusIndex >= 0) return false;
     return openEndpoints() ? undefined : false;
   },
+  analyzeStackTrace: function () { return openStackTracePanel() ? undefined : false; },
   recentLocations: function () { return openRecentLocations() ? undefined : false; },
   searchFiles: function () { openQuickOpen('all'); },
   searchEverywhere: function () { switchQuickLauncherSection('everywhere'); },
