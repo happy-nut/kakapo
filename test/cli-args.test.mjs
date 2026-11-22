@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { CLI_INTERNAL_ARGS } from "../dist/cli-surface.js";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -52,8 +53,8 @@ test("parseReviewArgs: --no-watch flips the default watch on", () => {
 
 test("every flag the parser understands is named in --help", () => {
   const parser = readFileSync(fileURLToPath(new URL("../dist/cli-args.js", import.meta.url)), "utf8");
-  const INTERNAL = new Set(["--open", "--opened"]);
-  const flags = new Set(Array.from(parser.matchAll(/"(--[a-z][a-z-]*)"/g), (m) => m[1]).filter((f) => !INTERNAL.has(f)));
+  const internal = new Set(CLI_INTERNAL_ARGS.map((entry) => entry.flag));
+  const flags = new Set(Array.from(parser.matchAll(/"(--[a-z][a-z-]*)"/g), (m) => m[1]).filter((f) => !internal.has(f)));
   assert.ok(flags.size >= 6, `expected the parser to declare flags, found ${[...flags].join(", ") || "none"}`);
 
   const cli = fileURLToPath(new URL("../dist/cli.js", import.meta.url));
