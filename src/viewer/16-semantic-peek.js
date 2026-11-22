@@ -198,6 +198,13 @@ function openActiveSemanticPeekSource() {
 }
 
 document.getElementById('semantic-peek-results')?.addEventListener('click', function (event) {
+  var step = event.target && event.target.closest && event.target.closest('.semantic-peek-node.is-step');
+  if (step && semanticPeekInGraph()) {
+    var depth = Number(step.dataset.step) || 0;
+    while (semanticPeekTrail.length > depth) semanticPeekTrail.pop();
+    if (!semanticPeekTrail.length) leaveSemanticPeekGraph(); else renderSemanticPeekResults();
+    return;
+  }
   var node = event.target && event.target.closest && event.target.closest('.semantic-peek-node');
   if (node && semanticPeekInGraph()) {
     var level = Number(node.dataset.level);
@@ -264,9 +271,17 @@ function semanticPeekLevel() {
   return semanticPeekTrail && semanticPeekTrail.length ? semanticPeekTrail[semanticPeekTrail.length - 1] : null;
 }
 
-function semanticPeekColumns() {
-  var root = { name: semanticPeekRoot ? semanticPeekRoot.name : '', items: [], active: 0, isRoot: true };
-  return [root].concat(semanticPeekTrail || []);
+var SEMANTIC_PEEK_GRAPH_COLUMNS = 2;
+
+function semanticPeekSpine() {
+  var trail = semanticPeekTrail || [];
+  var absorbed = Math.max(0, trail.length - SEMANTIC_PEEK_GRAPH_COLUMNS);
+  var rows = [{ name: semanticPeekRoot ? semanticPeekRoot.name : '', depth: 0 }];
+  for (var i = 0; i < absorbed; i++) {
+    var picked = trail[i].items[trail[i].active];
+    rows.push({ name: picked ? picked.name : '', depth: i + 1 });
+  }
+  return rows;
 }
 
 function semanticCallSiteOf(item) {
@@ -282,6 +297,14 @@ function semanticCallSiteLabel(item) {
   if (!sites.length) return file + ':' + ((Number(item && item.lineIndex) || 0) + 1);
   var lines = sites.slice(0, 4).map(function (site) { return (Number(site.lineIndex) || 0) + 1; });
   return file + ':' + lines.join(', ') + (sites.length > lines.length ? '…' : '');
+}
+
+function semanticCallSiteCode(item) {
+  var site = semanticCallSiteOf(item);
+  var file = typeof sourceByPath !== 'undefined' ? sourceByPath.get(item.path) : null;
+  var lines = file ? sourceLinesOf(file) : null;
+  var text = (lines && lines[site.lineIndex]) || item.text || '';
+  return String(text).trim().slice(0, 180);
 }
 
 function semanticPeekLoadCallers(name, loc) {
@@ -304,6 +327,17 @@ function semanticPeekLoadCallers(name, loc) {
       };
     });
     renderSemanticPeekResults();
+    semanticPeekLoadCallerSources(level);
+  });
+}
+
+function semanticPeekLoadCallerSources(level) {
+  var paths = Object.create(null);
+  level.items.forEach(function (item) { paths[item.path] = true; });
+  Object.keys(paths).forEach(function (path) {
+    Promise.resolve(loadSourceFile(path)).then(function () {
+      if (semanticPeekInGraph() && semanticPeekTrail.indexOf(level) >= 0) renderSemanticPeekResults();
+    });
   });
 }
 
@@ -362,19 +396,22 @@ function semanticPeekTrailLabel() {
 }
 
 function renderSemanticPeekGraph(results) {
-  var columns = semanticPeekColumns();
-  var start = Math.max(0, columns.length - 3);
-  var shown = columns.slice(start);
+  var trail = semanticPeekTrail || [];
+  var start = Math.max(0, trail.length - SEMANTIC_PEEK_GRAPH_COLUMNS);
+  var spine = semanticPeekSpine();
   var level = semanticPeekLevel();
-  results.innerHTML = '<div class="semantic-peek-graph">' + shown.map(function (column, offset) {
+  var html = '<div class="semantic-peek-col semantic-peek-spine">' + spine.map(function (row, i) {
+    var last = i === spine.length - 1;
+    return '<button type="button" class="semantic-peek-node is-step' + (last ? ' is-picked' : '') + '"'
+      + ' data-step="' + row.depth + '" title="' + escapeHtml(row.name) + '">'
+      + '<span class="semantic-peek-node-name">' + escapeHtml(row.name) + '</span>'
+      + '</button>';
+  }).join('') + '</div>';
+  html += trail.slice(start).map(function (column, offset) {
     var index = start + offset;
-    var isLast = index === columns.length - 1;
+    var isLast = index === trail.length - 1;
     var body;
-    if (column.isRoot) {
-      body = '<div class="semantic-peek-node is-root is-picked">'
-        + '<span class="semantic-peek-node-name">' + escapeHtml(column.name) + '</span>'
-        + '</div>';
-    } else if (column.loading) {
+    if (column.loading) {
       body = '<div class="semantic-peek-col-note">' + escapeHtml(t('peek.loadingCallers')) + '</div>';
     } else if (!column.items.length) {
       body = '<div class="semantic-peek-col-note">' + escapeHtml(t('peek.noCallers')) + '</div>';
@@ -383,15 +420,18 @@ function renderSemanticPeekGraph(results) {
         var picked = i === column.active;
         return '<button type="button" role="option" aria-selected="' + (picked && isLast ? 'true' : 'false') + '"'
           + ' class="semantic-peek-node' + (picked ? ' is-picked' : '') + (picked && isLast ? ' is-focus' : '') + (item.isTest ? ' is-test' : '') + '"'
-          + ' data-level="' + index + '" data-index="' + i + '"'
+          + ' data-level="' + (index + 1) + '" data-index="' + i + '"'
           + ' title="' + escapeHtml(item.path + ':' + (item.lineIndex + 1)) + '">'
           + '<span class="semantic-peek-node-name">' + escapeHtml(item.name) + '</span>'
           + '<span class="semantic-peek-node-where">' + escapeHtml(semanticCallSiteLabel(item)) + '</span>'
+          + '<span class="semantic-peek-node-code">' + semanticCodeHtml(item.path, semanticCallSiteCode(item)) + '</span>'
           + '</button>';
       }).join('');
     }
     return '<div class="semantic-peek-col' + (isLast ? ' is-current' : '') + '">' + body + '</div>';
-  }).join('') + '<svg class="semantic-peek-wires" aria-hidden="true"></svg></div>'
+  }).join('');
+  results.innerHTML = '<div class="semantic-peek-graph">' + html
+    + '<svg class="semantic-peek-wires" aria-hidden="true"></svg></div>'
     + '<div class="semantic-peek-list-hint">' + escapeHtml(t('peek.graphHint')) + '</div>';
   drawSemanticPeekWires(results);
   var meta = document.getElementById('semantic-peek-meta');

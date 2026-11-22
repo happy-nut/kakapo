@@ -24,11 +24,13 @@ const SURFACES = [
     open: "openSemanticPeek('formatBytesForDisplay', [{ path: 'src/render-http-response.ts', lineIndex: 118, column: 9, text: '  return formatBytesForDisplay(response.size);' }], { ok: true, engine: 'lsp', confidence: 'semantic' }, 'references');"
       + "semanticPeekRoot = { name: 'formatBytesForDisplay', loc: { path: 'src/render-http-response.ts', lineIndex: 118, column: 9 } };"
       + "semanticPeekTrail = [{ name: 'formatBytesForDisplay', loc: {}, active: 0, loading: false, items: ["
-      + "{ path: 'src/render-http-response.ts', lineIndex: 58, column: 16, name: 'renderHttpResponseFileRow', callSites: [{ lineIndex: 118, column: 9 }, { lineIndex: 119, column: 9 }] },"
-      + "{ path: 'src/render-http-response.ts', lineIndex: 247, column: 16, name: 'renderImageCapabilityNote', callSites: [{ lineIndex: 274, column: 9 }] }] },"
-      + "{ name: 'renderHttpResponseFileRow', loc: {}, active: 0, loading: false, items: [] }];"
+      + "{ path: 'src/render-http-response.ts', lineIndex: 58, column: 16, name: 'renderHttpResponseFileRow', text: '  return formatBytesForDisplay(response.size) + name;', callSites: [{ lineIndex: 118, column: 9 }, { lineIndex: 119, column: 9 }] },"
+      + "{ path: 'src/render-http-response.ts', lineIndex: 247, column: 16, name: 'renderImageCapabilityNote', text: '  return formatBytesForDisplay(capability.size);', callSites: [{ lineIndex: 274, column: 9 }] }] },"
+      + "{ name: 'renderHttpResponseFileRow', loc: {}, active: 0, loading: false, items: ["
+      + "{ path: 'src/render-http-response.ts', lineIndex: 12, column: 16, name: 'renderHttpResponseBody', text: '  rows.push(renderHttpResponseFileRow(part));', callSites: [{ lineIndex: 44, column: 11 }] }] },"
+      + "{ name: 'renderHttpResponseBody', loc: {}, active: 0, loading: false, items: [] }];"
       + "renderSemanticPeekResults();",
-    shown: "!document.getElementById('semantic-peek').classList.contains('hidden') && document.querySelector('.semantic-peek-col')",
+    shown: "!document.getElementById('semantic-peek').classList.contains('hidden') && document.querySelector('.semantic-peek-spine .semantic-peek-node')",
   },
   {
     name: "settings",

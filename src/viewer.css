@@ -2702,7 +2702,14 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 .semantic-peek-item-path { color: var(--chrome-text); font: 11px/1.4 Monaco, ui-monospace, monospace; }
 .semantic-peek-item-line { color: var(--muted); text-align: right; font: 11px/1.4 Monaco, ui-monospace, monospace; font-variant-numeric: tabular-nums; }
 .semantic-peek-item-code { color: var(--chrome-muted); font: 10.5px/1.4 Monaco, ui-monospace, monospace; }
-.semantic-peek-graph { position: relative; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); align-items: start; min-height: 0; }
+.semantic-peek-graph { position: relative; display: grid; grid-auto-flow: column; grid-template-columns: minmax(0, 0.62fr); grid-auto-columns: minmax(0, 1fr); align-items: start; min-height: 0; }
+.semantic-peek-spine { background: color-mix(in srgb, var(--chrome-line) 45%, transparent); }
+.semantic-peek-node.is-step { cursor: pointer; padding-left: 9px; }
+.semantic-peek-node.is-step + .semantic-peek-node.is-step { box-shadow: inset 2px 0 0 var(--chrome-border); }
+.semantic-peek-node.is-step .semantic-peek-node-name { color: var(--muted); }
+.semantic-peek-node.is-step.is-picked .semantic-peek-node-name { color: var(--chrome-text); font-weight: 650; }
+.semantic-peek-node-code { margin-top: 1px; color: var(--chrome-muted); font: 10.5px/1.4 Monaco, ui-monospace, monospace; }
+.semantic-peek-node.is-focus .semantic-peek-node-code { color: var(--chrome-selected-text); }
 .semantic-peek-col { min-width: 0; padding: 4px; border-right: 1px solid var(--chrome-border); overflow: hidden; }
 .semantic-peek-col:last-child { border-right: 0; }
 .semantic-peek-wires { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }

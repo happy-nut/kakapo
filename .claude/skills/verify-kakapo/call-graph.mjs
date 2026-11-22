@@ -43,6 +43,8 @@ repo.put("src/page.ts", [
 const columns = `Array.from(document.querySelectorAll('#semantic-peek-results .semantic-peek-col'))
   .map((c) => Array.from(c.querySelectorAll('.semantic-peek-node-name')).map((n) => n.textContent.trim()))`;
 const trail = `(document.getElementById('semantic-peek-meta') || {}).textContent || ''`;
+const spine = `Array.from(document.querySelectorAll('.semantic-peek-spine .semantic-peek-node-name')).map((n) => n.textContent.trim())`;
+const code = `Array.from(document.querySelectorAll('.semantic-peek-col:not(.semantic-peek-spine) .semantic-peek-node-code')).map((n) => n.textContent.trim())`;
 
 await drive("call-graph", repo, async (page, h) => {
   await page.evaluate(`openSourceFile('src/util.ts')`);
@@ -63,6 +65,9 @@ await drive("call-graph", repo, async (page, h) => {
   h.check(first.length === 2, "→ branches the list into columns", JSON.stringify(first));
   h.check(JSON.stringify(first[1] || []).includes("renderHttpResponseFileRow"),
     "the second column holds the functions that call it", JSON.stringify(first[1]));
+  const sites = await page.evaluate(code);
+  h.check(sites.some((line) => line.includes("formatBytesForDisplay(size)")),
+    "and each caller's row reads the line that makes the call, out of the file itself", JSON.stringify(sites));
   await h.shot("2-callers-column");
 
   await page.key("ArrowRight", "ArrowRight", 39, 0);
@@ -86,6 +91,9 @@ await drive("call-graph", repo, async (page, h) => {
   h.check(wire.drawn > 0 && wire.ratio >= 1.4,
     "the curves are drawn and can be told from the panel behind them",
     wire.drawn + " paths, contrast " + wire.ratio + ":1");
+  const path = await page.evaluate(spine);
+  h.check(path[0] === "formatBytesForDisplay",
+    "the spine still holds the symbol the question started on", JSON.stringify(path));
   await h.shot("3-two-steps-out");
 
   await page.key("ArrowLeft", "ArrowLeft", 37, 0);
