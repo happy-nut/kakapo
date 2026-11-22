@@ -456,8 +456,8 @@ view all do. `renderStackTrace` is the eleventh caller and the one that shows wh
 writing down: without the call the panel resolved exactly the frames whose files were in the diff, which
 for a crash is the minority, and both fixtures said it was fine because both made every file a changed
 file. The real-app check now commits `Untouched.java` in the initial commit and never touches it again,
-and the chrome-text audit's stack-trace surface will not open unless a frame resolves against the
-committed-but-unchanged `src/store.ts`, so each of them fails by name if the call goes away.
+and the chrome-text audit's stack-trace surface will not open unless a frame resolves against a file its
+fixture committed once and never touched again, so each of them fails by name if the call goes away.
 
 A sandboxed preload is handed `contextBridge`, `ipcRenderer`, `webFrame`, `webUtils`, `crashReporter` and
 `nativeImage`, and nothing else from `electron`; `app-main.ts` runs this one with `sandbox: true`. So

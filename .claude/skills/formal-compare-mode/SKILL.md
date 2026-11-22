@@ -69,7 +69,7 @@ Three constants. The first two are checked both ways, because both are ordinary 
 differs between them; the third is pinned (see finding 2).
 
 - `AutoResolves` — does the automatic base resolution find a base? `resolveAutomaticReviewBase`
-  (`src/review-base.ts`) returns nothing the moment `git status` says anything. **TRUE** = a clean
+  (`src/git.ts`) returns nothing the moment `git status` says anything. **TRUE** = a clean
   worktree with commits ahead, which is this product's own workflow (an agent committed and stopped).
   **FALSE** = a dirty worktree.
 - `MarkUsable` — does `resolveReadMark` (`src/patch-sets.ts`) answer? FALSE = nothing handed off yet, or
