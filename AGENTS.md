@@ -39,6 +39,17 @@ makes it. The same holds for a design sketched in a reply: showing it is not con
 the user to pick. Nothing in this repository can check this — it is read off the user's words, not off the
 tree — so it is written here, where the decision is made.
 
+Agreeing with a direction is not agreeing to build it. "그래프 시안으로 가자" — go with the graph one —
+picked one of three sketches, and it was read as approval to implement, which is the same mistake the
+paragraph above is about, made a second time on the same feature. A mockup round narrows to a direction;
+the next round is more mockups inside it, not a pull request. Nothing but the user saying to build it is
+approval to build it.
+
+One picture is not a mockup round. A round is several, because judging means choosing, and a single
+sketch leaves nothing to choose between — the ask that followed the first round was "한 4개 정도 보고서
+선택하고 싶은데", four to look at and pick from. Offer alternatives that differ in what they cost the
+reader, not in their styling, and say what each gives up.
+
 ## Quality Bar
 
 Every behavior change should include:
