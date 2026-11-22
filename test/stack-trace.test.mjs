@@ -12,9 +12,9 @@ const FILES = [
   { path: "src/main/java/com/foo/Bar.java", before: "", after: "package com.foo;\n\nclass Bar {\n  void baz() {\n    throw new RuntimeException(\"boom\");\n  }\n}\n" },
   { path: "src/main/java/com/qux/Bar.java", before: "", after: "package com.qux;\n\nclass Bar {\n}\n" },
   { path: "src/app/handler.ts", before: "", after: "export function handle() {\n  return 1;\n}\n" },
-  { path: "lib/vendor/handler.ts", before: "", after: "export const vendored = true;\n" },
-  { path: "src/aaa/Dup.java", before: "", after: "class Dup {}\n" },
-  { path: "src/bbb/Dup.java", before: "class Dup {}\n", after: "class Dup {}\n" },
+  { path: "z/handler.ts", before: "", after: "export const decoy = true;\n" },
+  { path: "src/zzz/Dup.java", before: "", after: "class Dup {}\n" },
+  { path: "src/aaa/Dup.java", before: "class Dup {}\n", after: "class Dup {}\n" },
 ];
 
 let html;
@@ -213,17 +213,19 @@ test("the resolver ranks by the class's package, then by what this review change
     "two files are called Bar.java, and the package in the class name is what tells them apart");
   assert.equal(resolve("\tat com.foo.Bar.baz(Bar.java:4)").lineIndex, 3, "the line number is 1-based, the index is not");
 
-  assert.equal(resolve("\tat Dup.main(Dup.java:1)").path, "src/aaa/Dup.java",
-    "with no package to go by, the file this review changed wins over the one it did not");
+  assert.equal(resolve("\tat Dup.main(Dup.java:1)").path, "src/zzz/Dup.java",
+    "with no package to go by, the file this review changed wins over the one it did not — "
+    + "src/aaa/Dup.java is the same length and sorts first, so only the read of what changed can pick this");
 
   const ambiguous = resolve("\tat com.zzz.Bar.baz(Bar.java:1)");
   assert.equal(ambiguous.ambiguous, 1, "neither Bar.java is in com/zzz, so the row is a guess and says so");
   assert.equal(resolve("\tat com.foo.Bar.baz(Bar.java:4)").ambiguous, 0, "and a ranked answer is not a guess");
 
   assert.equal(resolve("    at handle (/home/runner/work/repo/src/app/handler.ts:2:10)").path, "src/app/handler.ts",
-    "a CI machine's absolute path reaches the file by its longest shared suffix");
-  assert.equal(resolve("    at handle (/elsewhere/handler.ts:2:10)").path, "src/app/handler.ts",
-    "and a path that shares only the name falls back to the same ranking");
+    "a CI machine's absolute path reaches the file by its longest shared suffix — z/handler.ts is shorter, "
+    + "so only the shared suffix can pick this one");
+  assert.equal(resolve("    at handle (/elsewhere/handler.ts:2:10)").path, "z/handler.ts",
+    "and with nothing but the name in common, the shortest path wins");
 
   assert.equal(resolve("- com.foo.Bar.baz() @bci=12, line=4 (Compiled frame)").path, "src/main/java/com/foo/Bar.java",
     "a forced thread-dump frame names no file at all, and is reached through its class name");
