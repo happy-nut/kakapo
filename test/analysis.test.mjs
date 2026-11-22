@@ -96,8 +96,8 @@ test("Python heuristic navigation resolves class methods conservatively instead 
   const references = await analysis.query({ kind: "references", path: "src/alpha.py", line: 1, column: 9, symbol: "execute" });
   assert.deepEqual(
     references.locations.map((item) => `${item.path}:${item.lineIndex}`).sort(),
-    ["src/alpha.py:1", "src/use.py:4", "tests/test_alpha.py:2"],
-    "references retain the declaration and receivers bound to Alpha while excluding Beta/unknown.execute",
+    ["src/use.py:4", "tests/test_alpha.py:2"],
+    "references are the receivers bound to Alpha, without the declaration the question was asked from and without Beta/unknown.execute",
   );
   analysis.dispose();
 });
@@ -141,6 +141,8 @@ test("main-process fallback answers definition, references, implementation, and 
   assert.ok(references.locations.every((item) => !item.path.startsWith("docs/")), "navigation omits documentation paths");
   assert.ok(references.locations.every((item) => !(item.path === "src/caller.ts" && item.lineIndex === 1)), "navigation omits comment-only matches");
   assert.ok(references.locations.every((item) => !(item.path === "src/caller.ts" && item.lineIndex === 2)), "navigation omits string-only matches");
+  assert.ok(references.locations.every((item) => !(item.path === "src/service.ts" && item.lineIndex === 3)),
+    "a declaration is not a usage of itself, which is what the language server answers when it is the one asked");
 
   const implementation = await analysis.query({ kind: "implementation", path: "src/service.ts", line: 0, column: 17, symbol: "Store" });
   assert.ok(implementation.locations.some((item) => item.name === "MemoryStore"));

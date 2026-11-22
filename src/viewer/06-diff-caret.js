@@ -107,7 +107,7 @@ function diffRowInfoFromNode(node) {
 function diffCaretDomPosition(ctn, column) {
   if (!ctn) return null;
   var remaining = column;
-  var walker = document.createTreeWalker(ctn, NodeFilter.SHOW_TEXT);
+  var walker = sourceTextWalker(ctn);
   var node;
   while ((node = walker.nextNode())) {
     var len = node.textContent.length;

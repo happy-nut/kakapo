@@ -149,3 +149,39 @@ test("declarations that share a line share one lens row", async () => {
     v.close();
   }
 });
+
+test("the caret is drawn by the line's own characters, past text no one typed", async () => {
+  const { html } = await makeReviewHtml([{ path: FILE, before: "const total = 1;\n", after: AFTER }], { app: true });
+  const v = await loadViewer(html, {
+    analysisBridge: bridgeAtGeneration(0),
+    analysisStatus: { generation: 0, phase: "ready", updatedAt: new Date(1000).toISOString() },
+  });
+  await v.openSourceFile(FILE);
+  await v.settle(150);
+  const line = AFTER.split("\n")[0];
+  assert.equal(v.$("#source-body").querySelectorAll(".inlay-hint").length, 1,
+    "the hint is on the line, which is the whole point of the question");
+
+  v.window.setSourceCursor(FILE, 0, line.length, true, -1);
+  await v.settle(60);
+
+  const cell = v.$("#source-body .source-row.cursor-line .source-code");
+  const caret = cell.querySelector(".code-cursor");
+  assert.ok(caret, "the caret is painted on the line it is on");
+  let typed = "";
+  for (const node of walk(cell)) {
+    if (node === caret) break;
+    if (caret.compareDocumentPosition(node) & 4) break;
+    if (node.nodeType === 3 && !node.parentNode.closest(".inlay-hint")) typed += node.nodeValue;
+  }
+  assert.equal(typed, line,
+    "⌘→ asked for the end of the line, so every character of it stands before the caret");
+  v.close();
+});
+
+function walk(cell) {
+  const out = [];
+  const visit = (node) => { out.push(node); node.childNodes.forEach(visit); };
+  cell.childNodes.forEach(visit);
+  return out;
+}
