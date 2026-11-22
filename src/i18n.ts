@@ -1150,7 +1150,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
 
     "stack.title": "스택 트레이스 분석",
     "stack.placeholder": "스택 트레이스를 여기에 붙여 넣으세요",
-    "stack.empty": "스택 트레이스를 붙여 넣으면, 이 프로젝트에 있는 파일의 프레임이 그 줄로 가는 링크가 됩니다.",
+    "stack.empty": "스택 트레이스를 붙여 넣으면 이 프로젝트에 있는 파일의 프레임이 그 줄로 가는 링크가 됩니다.",
     "stack.summary": "프레임 {n}개 · 이 프로젝트에 {linked}개",
     "stack.notInProject": "이 프로젝트에 없는 파일: {file}",
     "stack.noFile": "파일 이름이 없는 프레임",

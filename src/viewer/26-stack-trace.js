@@ -356,13 +356,14 @@ function renderStackTrace() {
   var results = document.getElementById('stack-trace-results');
   if (!results) return;
   var input = document.getElementById('stack-trace-input');
-  var index = stackResolverIndex();
-  stackTraceLines = parseStackTrace(input ? input.value : '').map(function (one) {
+  var parsed = parseStackTrace(input ? input.value : '');
+  var frames = stackTraceFrameCount(parsed);
+  var index = frames ? stackResolverIndex() : null;
+  stackTraceLines = parsed.map(function (one) {
     if (one.kind !== 'frame') return one;
     one.resolved = resolveStackFrame(one, index);
     return one;
   });
-  var frames = stackTraceFrameCount(stackTraceLines);
   var linked = stackTraceOpenableIndexes();
   var summary = document.getElementById('stack-trace-summary');
   if (summary) {
@@ -463,6 +464,7 @@ function handleStackTraceKey(event) {
   }
   if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
     if (event.metaKey || event.ctrlKey || event.altKey) return false;
+    if (event.key === 'ArrowUp' && document.activeElement === document.getElementById('stack-trace-input')) return false;
     event.preventDefault();
     stepStackTraceRow(event.key === 'ArrowDown' ? 1 : -1);
     return true;

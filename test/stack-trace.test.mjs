@@ -305,10 +305,17 @@ test("the keyboard walks the rows, Cmd+Enter takes the first one, and Esc gives 
     await v.settle(200);
     assert.equal(v.$all("#stack-trace-results .stack-item").length, 2, "two of the three frames can be opened");
 
+    v.$("#stack-trace-input").focus();
+    v.key("ArrowUp");
+    await v.settle(20);
+    assert.equal(v.$("#stack-trace-results .stack-item.active"), null,
+      "the arrow up inside the textarea is the textarea's own — a pasted trace is still editable there");
+
     v.key("ArrowDown");
     await v.settle(20);
     let active = v.$("#stack-trace-results .stack-item.active");
     assert.match(active.textContent, /com\/foo\/Bar\.java:4/, "the first openable row, not the first row");
+    assert.equal(v.document.activeElement.id, "stack-trace-results", "and the keyboard left the textarea for the list");
     v.key("ArrowDown");
     await v.settle(20);
     active = v.$("#stack-trace-results .stack-item.active");
@@ -334,6 +341,25 @@ test("the keyboard walks the rows, Cmd+Enter takes the first one, and Esc gives 
     await v.settle(20);
     assert.ok(v.$("#stack-trace").classList.contains("hidden"), "Esc closed it");
     assert.equal(v.document.activeElement, opener, "and the keyboard went back to whatever opened it");
+  } finally {
+    v.close();
+  }
+});
+
+test("Find Action offers the panel, and running the row from there opens it", async () => {
+  const v = await loadViewer(html);
+  try {
+    const w = v.window;
+    w.openFindAction();
+    await v.settle(40);
+    const listed = Array.from(w.findActionItems()).map((item) => item.actionId);
+    assert.ok(listed.includes("findInFile"), "the palette is listing actions at all");
+    assert.ok(listed.includes("analyzeStackTrace"), `the new row is one of them: ${listed.length} actions listed`);
+
+    assert.ok(v.$("#stack-trace").classList.contains("hidden"), "the panel starts closed");
+    assert.equal(w.runFindActionItem({ kind: "action", actionId: "analyzeStackTrace" }), true, "the row runs");
+    await v.settle(40);
+    assert.ok(!v.$("#stack-trace").classList.contains("hidden"), "and it opened the panel");
   } finally {
     v.close();
   }
