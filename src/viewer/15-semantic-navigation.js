@@ -416,16 +416,22 @@ function symbolAtDiffCaret() {
   return null;
 }
 
-var NOT_A_DECLARED_NAME = /^(?:if|for|while|switch|catch|with|function|return|new|typeof|void|delete|throw|await|yield)$/;
+// Every word here comes from DECLARATION_HEURISTICS, the prelude the bundler injects from
+// dist/declaration-heuristics.js. The index asks the same question in the main process, and a second
+// spelling of any of these makes the renderer's turn disagree silently.
+var NOT_A_DECLARED_NAME = new RegExp('^(?:' + DECLARATION_HEURISTICS.notADeclaredName + ')$');
 
-var RETURN_TYPE_BEFORE_NAME = '(?!(?:new|typedef|co_await|co_return|co_yield|emit|requires|return|await|yield|throw|else|do|case|assert|delete|typeof|instanceof|export|import|function)\\b)'
+function extensionsRegExp(extensions) {
+  return new RegExp('\\.(?:' + extensions.map(function (e) { return e.slice(1); }).join('|') + ')$', 'i');
+}
+
+var RETURN_TYPE_BEFORE_NAME = '(?!(?:' + DECLARATION_HEURISTICS.notAType + ')\\b)'
   + '[A-Za-z_$][A-Za-z0-9_$]*(?:\\.[A-Za-z_$][A-Za-z0-9_$]*)*(?:<(?:[^<>()]|<[^<>()]*>)*>)?(?:\\[\\s*\\]|[*?])*';
-var RETURN_TYPE_BEFORE_NAME_EXTENSIONS = /\.(?:java|cs|c|h|cc|cpp|cxx|hpp|hxx)$/i;
+var RETURN_TYPE_BEFORE_NAME_EXTENSIONS = extensionsRegExp(DECLARATION_HEURISTICS.returnTypeExtensions);
 
-var STATEMENT_HEADS = [
-  { extensions: /\.(?:java|kt)$/i, name: /^synchronized$/ },
-  { extensions: /\.cs$/i, name: /^(?:lock|fixed|checked|unchecked|unsafe|using|foreach)$/ },
-];
+var STATEMENT_HEADS = DECLARATION_HEURISTICS.statementHeads.map(function (head) {
+  return { extensions: extensionsRegExp(head.extensions), name: new RegExp(head.name) };
+});
 
 function isStatementHeadInFile(path, name) {
   for (var at = 0; at < STATEMENT_HEADS.length; at += 1) {

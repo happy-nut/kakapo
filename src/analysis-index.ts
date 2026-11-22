@@ -5,6 +5,7 @@ import type { SymbolCache } from "./analysis-cache.js";
 import type { AnalysisLocation } from "./lsp.js";
 import { findRipgrepBinary } from "./search.js";
 import { listRevisionFiles, readRevisionBlobs } from "./git-tree.js";
+import { DECLARATION_HEURISTICS, returnTypeBeforeName } from "./declaration-heuristics.js";
 
 export type SymbolRecord = AnalysisLocation & {
   name: string;
@@ -61,17 +62,11 @@ export function indexableContent(content: string): boolean {
   return Buffer.byteLength(content, "utf8") <= MAX_INDEX_FILE_BYTES && !content.includes("\0");
 }
 
-const NOT_A_TYPE = "new|typedef|co_await|co_return|co_yield|emit|requires|return|await|yield|throw|else|do|case|assert|delete|typeof|instanceof|export|import|function";
-const RETURN_TYPE_BEFORE_NAME =
-  `(?!(?:${NOT_A_TYPE})\\b)[A-Za-z_$][A-Za-z0-9_$]*(?:\\.[A-Za-z_$][A-Za-z0-9_$]*)*(?:<(?:[^<>()]|<[^<>()]*>)*>)?(?:\\[\\s*\\]|[*?])*`;
-const RETURN_TYPE_BEFORE_NAME_EXTENSIONS = new Set([
-  ".java", ".cs", ".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".hxx",
-]);
+const RETURN_TYPE_BEFORE_NAME = returnTypeBeforeName();
+const RETURN_TYPE_BEFORE_NAME_EXTENSIONS = new Set<string>(DECLARATION_HEURISTICS.returnTypeExtensions);
 
-const STATEMENT_HEADS: Array<{ extensions: Set<string>; name: RegExp }> = [
-  { extensions: new Set([".java", ".kt"]), name: /^synchronized$/ },
-  { extensions: new Set([".cs"]), name: /^(?:lock|fixed|checked|unchecked|unsafe|using|foreach)$/ },
-];
+const STATEMENT_HEADS: Array<{ extensions: Set<string>; name: RegExp }> = DECLARATION_HEURISTICS.statementHeads
+  .map((head) => ({ extensions: new Set<string>(head.extensions), name: new RegExp(head.name) }));
 
 const DECLARATION_PATTERNS: Array<{ kind: string; re: RegExp; extensions?: Set<string>; refuseStatementHead?: true }> = [
   { kind: "function", re: /^\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+(?<name>[A-Za-z_$][A-Za-z0-9_$]*)/ },
@@ -93,7 +88,7 @@ const DECLARATION_PATTERNS: Array<{ kind: string; re: RegExp; extensions?: Set<s
   },
 ];
 
-const NOT_A_DECLARED_NAME = /^(?:if|for|while|switch|catch|with|function|return|new|typeof|void|delete|throw|await|yield)$/;
+const NOT_A_DECLARED_NAME = new RegExp(`^(?:${DECLARATION_HEURISTICS.notADeclaredName})$`);
 
 export function isStatementHead(extension: string, name: string): boolean {
   for (const head of STATEMENT_HEADS) {
