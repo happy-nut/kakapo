@@ -1,0 +1,958 @@
+[
+  {
+    "line": "\tat com.foo.Bar.baz(Bar.java:42)",
+    "frame": true,
+    "classFqn": {
+      "start": 4,
+      "end": 15,
+      "text": "com.foo.Bar"
+    },
+    "method": {
+      "start": 16,
+      "end": 19,
+      "text": "baz"
+    },
+    "fileLine": {
+      "start": 20,
+      "end": 31,
+      "text": "Bar.java:42"
+    },
+    "fileName": "Bar.java",
+    "lineNumber": 42
+  },
+  {
+    "line": "at com.foo.Bar.baz(Bar.java:42)",
+    "frame": true,
+    "classFqn": {
+      "start": 3,
+      "end": 14,
+      "text": "com.foo.Bar"
+    },
+    "method": {
+      "start": 15,
+      "end": 18,
+      "text": "baz"
+    },
+    "fileLine": {
+      "start": 19,
+      "end": 30,
+      "text": "Bar.java:42"
+    },
+    "fileName": "Bar.java",
+    "lineNumber": 42
+  },
+  {
+    "line": "    at com.foo.Bar.baz(Bar.java:42)",
+    "frame": true,
+    "classFqn": {
+      "start": 7,
+      "end": 18,
+      "text": "com.foo.Bar"
+    },
+    "method": {
+      "start": 19,
+      "end": 22,
+      "text": "baz"
+    },
+    "fileLine": {
+      "start": 23,
+      "end": 34,
+      "text": "Bar.java:42"
+    },
+    "fileName": "Bar.java",
+    "lineNumber": 42
+  },
+  {
+    "line": "\tat java.base@17.0.1/java.util.ArrayList.get(ArrayList.java:427)",
+    "frame": true,
+    "classFqn": {
+      "start": 21,
+      "end": 40,
+      "text": "java.util.ArrayList"
+    },
+    "method": {
+      "start": 41,
+      "end": 44,
+      "text": "get"
+    },
+    "fileLine": {
+      "start": 45,
+      "end": 63,
+      "text": "ArrayList.java:427"
+    },
+    "fileName": "ArrayList.java",
+    "lineNumber": 427
+  },
+  {
+    "line": "\tat java.base/java.util.ArrayList.get(ArrayList.java:427)",
+    "frame": true,
+    "classFqn": {
+      "start": 14,
+      "end": 33,
+      "text": "java.util.ArrayList"
+    },
+    "method": {
+      "start": 34,
+      "end": 37,
+      "text": "get"
+    },
+    "fileLine": {
+      "start": 38,
+      "end": 56,
+      "text": "ArrayList.java:427"
+    },
+    "fileName": "ArrayList.java",
+    "lineNumber": 427
+  },
+  {
+    "line": "\tat app//com.foo.Bar.baz(Bar.java:7)",
+    "frame": true,
+    "classFqn": {
+      "start": 9,
+      "end": 20,
+      "text": "com.foo.Bar"
+    },
+    "method": {
+      "start": 21,
+      "end": 24,
+      "text": "baz"
+    },
+    "fileLine": {
+      "start": 25,
+      "end": 35,
+      "text": "Bar.java:7"
+    },
+    "fileName": "Bar.java",
+    "lineNumber": 7
+  },
+  {
+    "line": "\tat com.foo.Bar.lambda$baz$0(Bar.java:42)",
+    "frame": true,
+    "classFqn": {
+      "start": 4,
+      "end": 15,
+      "text": "com.foo.Bar"
+    },
+    "method": {
+      "start": 16,
+      "end": 28,
+      "text": "lambda$baz$0"
+    },
+    "fileLine": {
+      "start": 29,
+      "end": 40,
+      "text": "Bar.java:42"
+    },
+    "fileName": "Bar.java",
+    "lineNumber": 42
+  },
+  {
+    "line": "\tat com.foo.Bar.<init>(Bar.java:11)",
+    "frame": true,
+    "classFqn": {
+      "start": 4,
+      "end": 15,
+      "text": "com.foo.Bar"
+    },
+    "method": {
+      "start": 16,
+      "end": 22,
+      "text": "<init>"
+    },
+    "fileLine": {
+      "start": 23,
+      "end": 34,
+      "text": "Bar.java:11"
+    },
+    "fileName": "Bar.java",
+    "lineNumber": 11
+  },
+  {
+    "line": "\tat com.foo.Bar.baz(Native Method)",
+    "frame": true,
+    "classFqn": {
+      "start": 4,
+      "end": 15,
+      "text": "com.foo.Bar"
+    },
+    "method": {
+      "start": 16,
+      "end": 19,
+      "text": "baz"
+    },
+    "fileLine": {
+      "start": 20,
+      "end": 33,
+      "text": "Native Method"
+    },
+    "fileName": null,
+    "lineNumber": -1
+  },
+  {
+    "line": "\tat com.foo.Bar.baz(Unknown Source)",
+    "frame": true,
+    "classFqn": {
+      "start": 4,
+      "end": 15,
+      "text": "com.foo.Bar"
+    },
+    "method": {
+      "start": 16,
+      "end": 19,
+      "text": "baz"
+    },
+    "fileLine": {
+      "start": 20,
+      "end": 34,
+      "text": "Unknown Source"
+    },
+    "fileName": null,
+    "lineNumber": -1
+  },
+  {
+    "line": "\tat com.foo.Bar.baz(Bar.java)",
+    "frame": false
+  },
+  {
+    "line": "\tat sun.misc.Unsafe.park(Native Method)",
+    "frame": true,
+    "classFqn": {
+      "start": 4,
+      "end": 19,
+      "text": "sun.misc.Unsafe"
+    },
+    "method": {
+      "start": 20,
+      "end": 24,
+      "text": "park"
+    },
+    "fileLine": {
+      "start": 25,
+      "end": 38,
+      "text": "Native Method"
+    },
+    "fileName": null,
+    "lineNumber": -1
+  },
+  {
+    "line": "\tat com.foo.Bar$Inner.baz(Bar.java:5)",
+    "frame": true,
+    "classFqn": {
+      "start": 4,
+      "end": 21,
+      "text": "com.foo.Bar$Inner"
+    },
+    "method": {
+      "start": 22,
+      "end": 25,
+      "text": "baz"
+    },
+    "fileLine": {
+      "start": 26,
+      "end": 36,
+      "text": "Bar.java:5"
+    },
+    "fileName": "Bar.java",
+    "lineNumber": 5
+  },
+  {
+    "line": "\tat com.foo.Bar.baz(Bar.kt:42)",
+    "frame": true,
+    "classFqn": {
+      "start": 4,
+      "end": 15,
+      "text": "com.foo.Bar"
+    },
+    "method": {
+      "start": 16,
+      "end": 19,
+      "text": "baz"
+    },
+    "fileLine": {
+      "start": 20,
+      "end": 29,
+      "text": "Bar.kt:42"
+    },
+    "fileName": "Bar.kt",
+    "lineNumber": 42
+  },
+  {
+    "line": "java.lang.NullPointerException: boom",
+    "frame": false
+  },
+  {
+    "line": "Caused by: java.lang.IllegalStateException: nope",
+    "frame": false
+  },
+  {
+    "line": "\t... 23 more",
+    "frame": false
+  },
+  {
+    "line": "Exception in thread \"main\" java.lang.RuntimeException",
+    "frame": false
+  },
+  {
+    "line": "\tat Object.foo (/p/a.js:1:2)",
+    "frame": true,
+    "classFqn": {
+      "start": 4,
+      "end": 10,
+      "text": "Object"
+    },
+    "method": {
+      "start": 11,
+      "end": 15,
+      "text": "foo "
+    },
+    "fileLine": {
+      "start": 16,
+      "end": 27,
+      "text": "/p/a.js:1:2"
+    },
+    "fileName": "/p/a.js:1",
+    "lineNumber": 2
+  },
+  {
+    "line": "\tat fn (/home/me/proj/src/file.ts:12:5)",
+    "frame": false
+  },
+  {
+    "line": "\tat /home/me/proj/src/file.js:3:1",
+    "frame": false
+  },
+  {
+    "line": "\tat Array.map (<anonymous>)",
+    "frame": false
+  },
+  {
+    "line": "\tat process.processTicksAndRejections (node:internal/process/task_queues:95:5)",
+    "frame": true,
+    "classFqn": {
+      "start": 4,
+      "end": 11,
+      "text": "process"
+    },
+    "method": {
+      "start": 12,
+      "end": 38,
+      "text": "processTicksAndRejections "
+    },
+    "fileLine": {
+      "start": 39,
+      "end": 77,
+      "text": "node:internal/process/task_queues:95:5"
+    },
+    "fileName": "node:internal/process/task_queues:95",
+    "lineNumber": 5
+  },
+  {
+    "line": "  File \"foo.py\", line 42, in bar",
+    "frame": false
+  },
+  {
+    "line": "  File \"/home/me/p/foo.py\", line 7, in <module>",
+    "frame": false
+  },
+  {
+    "line": "main.foo(0x1, 0x2)",
+    "frame": false
+  },
+  {
+    "line": "\t/home/me/go/src/app/main.go:42 +0x1d",
+    "frame": false
+  },
+  {
+    "line": "   at Foo.Bar() in /p/File.cs:line 42",
+    "frame": false
+  },
+  {
+    "line": "- locked <0x000000076b2e3f58> (a java.lang.Object) line=42 ",
+    "frame": false
+  },
+  {
+    "line": "|   at org.example.Test.run(Test.kt:9)",
+    "frame": true,
+    "classFqn": {
+      "start": 7,
+      "end": 23,
+      "text": "org.example.Test"
+    },
+    "method": {
+      "start": 24,
+      "end": 27,
+      "text": "run"
+    },
+    "fileLine": {
+      "start": 28,
+      "end": 37,
+      "text": "Test.kt:9"
+    },
+    "fileName": "Test.kt",
+    "lineNumber": 9
+  },
+  {
+    "line": "some prose with (parens) and no digits",
+    "frame": false
+  },
+  {
+    "line": "a line with one ) only",
+    "frame": false
+  },
+  {
+    "line": "value = foo(1) + bar(2)",
+    "frame": false
+  },
+  {
+    "line": "\tat com.foo.Bar.baz(Bar.java:0)",
+    "frame": true,
+    "classFqn": {
+      "start": 4,
+      "end": 15,
+      "text": "com.foo.Bar"
+    },
+    "method": {
+      "start": 16,
+      "end": 19,
+      "text": "baz"
+    },
+    "fileLine": {
+      "start": 20,
+      "end": 30,
+      "text": "Bar.java:0"
+    },
+    "fileName": "Bar.java",
+    "lineNumber": 0
+  },
+  {
+    "line": "\tat com.foo.Bar.baz(Bar.java:1234567890)",
+    "frame": false
+  },
+  {
+    "line": "\tat com.foo.Bar.baz(Bar.java:abc)",
+    "frame": false
+  },
+  {
+    "line": "\tat Bar.baz(Bar.java:42)",
+    "frame": true,
+    "classFqn": {
+      "start": 4,
+      "end": 7,
+      "text": "Bar"
+    },
+    "method": {
+      "start": 8,
+      "end": 11,
+      "text": "baz"
+    },
+    "fileLine": {
+      "start": 12,
+      "end": 23,
+      "text": "Bar.java:42"
+    },
+    "fileName": "Bar.java",
+    "lineNumber": 42
+  },
+  {
+    "line": "0x1234 at com.foo.Bar.baz(Bar.java:42)",
+    "frame": true,
+    "classFqn": {
+      "start": 10,
+      "end": 21,
+      "text": "com.foo.Bar"
+    },
+    "method": {
+      "start": 22,
+      "end": 25,
+      "text": "baz"
+    },
+    "fileLine": {
+      "start": 26,
+      "end": 37,
+      "text": "Bar.java:42"
+    },
+    "fileName": "Bar.java",
+    "lineNumber": 42
+  },
+  {
+    "line": "\tat com.foo.Bar.baz(Bar.java:42) ~[app.jar:1.0]",
+    "frame": true,
+    "classFqn": {
+      "start": 4,
+      "end": 15,
+      "text": "com.foo.Bar"
+    },
+    "method": {
+      "start": 16,
+      "end": 19,
+      "text": "baz"
+    },
+    "fileLine": {
+      "start": 20,
+      "end": 31,
+      "text": "Bar.java:42"
+    },
+    "fileName": "Bar.java",
+    "lineNumber": 42
+  },
+  {
+    "line": "\tat scala.collection.immutable.List.foreach(List.scala:333)",
+    "frame": true,
+    "classFqn": {
+      "start": 4,
+      "end": 35,
+      "text": "scala.collection.immutable.List"
+    },
+    "method": {
+      "start": 36,
+      "end": 43,
+      "text": "foreach"
+    },
+    "fileLine": {
+      "start": 44,
+      "end": 58,
+      "text": "List.scala:333"
+    },
+    "fileName": "List.scala",
+    "lineNumber": 333
+  },
+  {
+    "line": "\tat kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:104)",
+    "frame": true,
+    "classFqn": {
+      "start": 4,
+      "end": 37,
+      "text": "kotlinx.coroutines.DispatchedTask"
+    },
+    "method": {
+      "start": 38,
+      "end": 41,
+      "text": "run"
+    },
+    "fileLine": {
+      "start": 42,
+      "end": 63,
+      "text": "DispatchedTask.kt:104"
+    },
+    "fileName": "DispatchedTask.kt",
+    "lineNumber": 104
+  },
+  {
+    "line": "\tat com.foo.Bar$$Lambda$14/0x0000000800c01208.run(Unknown Source)",
+    "frame": true,
+    "classFqn": {
+      "start": 4,
+      "end": 45,
+      "text": "com.foo.Bar$$Lambda$14/0x0000000800c01208"
+    },
+    "method": {
+      "start": 46,
+      "end": 49,
+      "text": "run"
+    },
+    "fileLine": {
+      "start": 50,
+      "end": 64,
+      "text": "Unknown Source"
+    },
+    "fileName": null,
+    "lineNumber": -1
+  },
+  {
+    "line": "\tat java.base/java.lang.Thread.run(Thread.java:840)",
+    "frame": true,
+    "classFqn": {
+      "start": 14,
+      "end": 30,
+      "text": "java.lang.Thread"
+    },
+    "method": {
+      "start": 31,
+      "end": 34,
+      "text": "run"
+    },
+    "fileLine": {
+      "start": 35,
+      "end": 50,
+      "text": "Thread.java:840"
+    },
+    "fileName": "Thread.java",
+    "lineNumber": 840
+  },
+  {
+    "line": "\tat MyApp/com.foo.Bar.baz(Bar.java:3)",
+    "frame": true,
+    "classFqn": {
+      "start": 10,
+      "end": 21,
+      "text": "com.foo.Bar"
+    },
+    "method": {
+      "start": 22,
+      "end": 25,
+      "text": "baz"
+    },
+    "fileLine": {
+      "start": 26,
+      "end": 36,
+      "text": "Bar.java:3"
+    },
+    "fileName": "Bar.java",
+    "lineNumber": 3
+  },
+  {
+    "line": "\tat jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)",
+    "frame": true,
+    "classFqn": {
+      "start": 4,
+      "end": 49,
+      "text": "jdk.internal.reflect.NativeMethodAccessorImpl"
+    },
+    "method": {
+      "start": 50,
+      "end": 57,
+      "text": "invoke0"
+    },
+    "fileLine": {
+      "start": 58,
+      "end": 71,
+      "text": "Native Method"
+    },
+    "fileName": null,
+    "lineNumber": -1
+  },
+  {
+    "line": "\tat com.foo.Bar.baz(Bar.java:42) [classes/:?]",
+    "frame": true,
+    "classFqn": {
+      "start": 4,
+      "end": 15,
+      "text": "com.foo.Bar"
+    },
+    "method": {
+      "start": 16,
+      "end": 19,
+      "text": "baz"
+    },
+    "fileLine": {
+      "start": 20,
+      "end": 31,
+      "text": "Bar.java:42"
+    },
+    "fileName": "Bar.java",
+    "lineNumber": 42
+  },
+  {
+    "line": "com.foo.Bar.baz(Bar.java:42)",
+    "frame": true,
+    "classFqn": {
+      "start": 0,
+      "end": 11,
+      "text": "com.foo.Bar"
+    },
+    "method": {
+      "start": 12,
+      "end": 15,
+      "text": "baz"
+    },
+    "fileLine": {
+      "start": 16,
+      "end": 27,
+      "text": "Bar.java:42"
+    },
+    "fileName": "Bar.java",
+    "lineNumber": 42
+  },
+  {
+    "line": "\tcom.foo.Bar.baz(Bar.java:42)",
+    "frame": true,
+    "classFqn": {
+      "start": 1,
+      "end": 12,
+      "text": "com.foo.Bar"
+    },
+    "method": {
+      "start": 13,
+      "end": 16,
+      "text": "baz"
+    },
+    "fileLine": {
+      "start": 17,
+      "end": 28,
+      "text": "Bar.java:42"
+    },
+    "fileName": "Bar.java",
+    "lineNumber": 42
+  },
+  {
+    "line": "\tat com.foo.Bar.baz(a/b/Bar.java:42)",
+    "frame": true,
+    "classFqn": {
+      "start": 4,
+      "end": 15,
+      "text": "com.foo.Bar"
+    },
+    "method": {
+      "start": 16,
+      "end": 19,
+      "text": "baz"
+    },
+    "fileLine": {
+      "start": 20,
+      "end": 35,
+      "text": "a/b/Bar.java:42"
+    },
+    "fileName": "a/b/Bar.java",
+    "lineNumber": 42
+  },
+  {
+    "line": "\tat com.foo.Bar.baz(Bar.java : 42)",
+    "frame": false
+  },
+  {
+    "line": "\tat com.foo.Bar.baz(Bar.java:42):extra",
+    "frame": true,
+    "classFqn": {
+      "start": 4,
+      "end": 15,
+      "text": "com.foo.Bar"
+    },
+    "method": {
+      "start": 16,
+      "end": 19,
+      "text": "baz"
+    },
+    "fileLine": {
+      "start": 20,
+      "end": 31,
+      "text": "Bar.java:42"
+    },
+    "fileName": "Bar.java",
+    "lineNumber": 42
+  },
+  {
+    "line": "\tat com.foo.Bar.baz()",
+    "frame": false
+  },
+  {
+    "line": "\tat .baz(Bar.java:42)",
+    "frame": true,
+    "classFqn": {
+      "start": 4,
+      "end": 4,
+      "text": ""
+    },
+    "method": {
+      "start": 5,
+      "end": 8,
+      "text": "baz"
+    },
+    "fileLine": {
+      "start": 9,
+      "end": 20,
+      "text": "Bar.java:42"
+    },
+    "fileName": "Bar.java",
+    "lineNumber": 42
+  },
+  {
+    "line": "\tat com.foo.Bar.(Bar.java:42)",
+    "frame": true,
+    "classFqn": {
+      "start": 4,
+      "end": 15,
+      "text": "com.foo.Bar"
+    },
+    "method": {
+      "start": 16,
+      "end": 16,
+      "text": ""
+    },
+    "fileLine": {
+      "start": 17,
+      "end": 28,
+      "text": "Bar.java:42"
+    },
+    "fileName": "Bar.java",
+    "lineNumber": 42
+  },
+  {
+    "line": "org.junit.ComparisonFailure: expected:<1> but was:<2>",
+    "frame": false
+  },
+  {
+    "line": "\tat org.junit.Assert.assertEquals(Assert.java:115)",
+    "frame": true,
+    "classFqn": {
+      "start": 4,
+      "end": 20,
+      "text": "org.junit.Assert"
+    },
+    "method": {
+      "start": 21,
+      "end": 33,
+      "text": "assertEquals"
+    },
+    "fileLine": {
+      "start": 34,
+      "end": 49,
+      "text": "Assert.java:115"
+    },
+    "fileName": "Assert.java",
+    "lineNumber": 115
+  },
+  {
+    "line": "com.foo.Bar.baz() Bar.java:42",
+    "frame": true,
+    "classFqn": {
+      "start": 0,
+      "end": 11,
+      "text": "com.foo.Bar"
+    },
+    "method": {
+      "start": 12,
+      "end": 15,
+      "text": "baz"
+    },
+    "fileLine": {
+      "start": 18,
+      "end": 29,
+      "text": "Bar.java:42"
+    },
+    "fileName": "Bar.java",
+    "lineNumber": 42
+  },
+  {
+    "line": "\tcom.foo.Bar.baz() Bar.java:42",
+    "frame": true,
+    "classFqn": {
+      "start": 0,
+      "end": 12,
+      "text": "\tcom.foo.Bar"
+    },
+    "method": {
+      "start": 13,
+      "end": 16,
+      "text": "baz"
+    },
+    "fileLine": {
+      "start": 19,
+      "end": 30,
+      "text": "Bar.java:42"
+    },
+    "fileName": "Bar.java",
+    "lineNumber": 42
+  },
+  {
+    "line": "- com.foo.Bar.baz() @bci=12, line=42 (Compiled frame)",
+    "frame": true,
+    "classFqn": {
+      "start": 2,
+      "end": 13,
+      "text": "com.foo.Bar"
+    },
+    "method": {
+      "start": 14,
+      "end": 17,
+      "text": "baz"
+    },
+    "fileLine": {
+      "start": 29,
+      "end": 36,
+      "text": "line=42"
+    },
+    "fileName": null,
+    "lineNumber": 42
+  },
+  {
+    "line": "- java.lang.Thread.sleep(Native Method) @bci=0, line=-1 (Interpreted frame)",
+    "frame": false
+  },
+  {
+    "line": "| 5(0) | at org.example.Test.run(Test.kt:9) |",
+    "frame": true,
+    "classFqn": {
+      "start": 12,
+      "end": 28,
+      "text": "org.example.Test"
+    },
+    "method": {
+      "start": 29,
+      "end": 32,
+      "text": "run"
+    },
+    "fileLine": {
+      "start": 33,
+      "end": 42,
+      "text": "Test.kt:9"
+    },
+    "fileName": "Test.kt",
+    "lineNumber": 9
+  },
+  {
+    "line": "\tat com.foo.Bar.baz(Bar.java:42) at com.foo.Qux.run(Qux.java:7)",
+    "frame": false
+  },
+  {
+    "line": "java.lang.RuntimeException: boom at com.foo.Bar.baz(Bar.java:42)",
+    "frame": true,
+    "classFqn": {
+      "start": 36,
+      "end": 47,
+      "text": "com.foo.Bar"
+    },
+    "method": {
+      "start": 48,
+      "end": 51,
+      "text": "baz"
+    },
+    "fileLine": {
+      "start": 52,
+      "end": 63,
+      "text": "Bar.java:42"
+    },
+    "fileName": "Bar.java",
+    "lineNumber": 42
+  },
+  {
+    "line": "thread 'main' panicked at main.rs:3:9:",
+    "frame": false
+  },
+  {
+    "line": "\tfrom /app/lib/inner.rb:3:in 'Object#deep'",
+    "frame": false
+  },
+  {
+    "line": "/app/lib/inner.js:1",
+    "frame": false
+  },
+  {
+    "line": "    at deep (/app/lib/inner.js:1:39)",
+    "frame": false
+  },
+  {
+    "line": "    at Object.<anonymous> (/app/app.js:3:1)",
+    "frame": true,
+    "classFqn": {
+      "start": 7,
+      "end": 13,
+      "text": "Object"
+    },
+    "method": {
+      "start": 14,
+      "end": 26,
+      "text": "<anonymous> "
+    },
+    "fileLine": {
+      "start": 27,
+      "end": 42,
+      "text": "/app/app.js:3:1"
+    },
+    "fileName": "/app/app.js:3",
+    "lineNumber": 1
+  },
+  {
+    "line": "\t/app/inner/inner.go:5",
+    "frame": false
+  }
+]

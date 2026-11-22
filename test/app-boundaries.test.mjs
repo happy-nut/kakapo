@@ -294,3 +294,20 @@ test("the server and the viewer agree on escaping, and on a size", async () => {
     assert.equal(viewerFormatBytes(bytes), util.formatBytes(bytes), `both print ${bytes} bytes alike`);
   }
 });
+
+test("the preload imports only what a sandboxed preload is given", () => {
+  const source = readFileSync(resolve(import.meta.dirname, "..", "src", "preload.cts"), "utf8");
+  const imports = Array.from(source.matchAll(/import\s*\{([^}]*)\}\s*from\s*"electron"/g))
+    .flatMap((match) => match[1].split(",").map((name) => name.trim().split(/\s+as\s+/)[0]).filter(Boolean));
+  assert.ok(imports.includes("contextBridge") && imports.includes("ipcRenderer"),
+    `the reader found the preload's electron imports at all: ${JSON.stringify(imports)}`);
+
+  const SANDBOX_SAFE = ["contextBridge", "crashReporter", "ipcRenderer", "nativeImage", "webFrame", "webUtils"];
+  const unavailable = imports.filter((name) => !SANDBOX_SAFE.includes(name));
+  assert.deepEqual(unavailable, [],
+    `app-main.ts runs this preload with sandbox: true, and a sandboxed preload is handed only `
+    + `${SANDBOX_SAFE.join(", ")} — every other electron export is undefined at runtime. `
+    + `${JSON.stringify(unavailable)} would be undefined, and the failure is silent: clipboard.readText() `
+    + `inside a try returned "" for a year while Compare with Clipboard quietly did nothing. `
+    + `Reach it from the main process over IPC instead, as kakapo:clipboard-read does.`);
+});

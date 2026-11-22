@@ -1,4 +1,4 @@
-import { clipboard, contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer } from "electron";
 
 // Bridges the sandboxed renderer to the main process so .http requests can be
 // executed without CORS or sandbox restrictions. Kept intentionally tiny: the
@@ -163,14 +163,12 @@ contextBridge.exposeInMainWorld("kakapoApp", {
   setIgnoreMenuShortcuts: (ignore: boolean): void => ipcRenderer.send("kakapo:set-ignore-menu-shortcuts", { ignore }),
 });
 
-// Clipboard bridge for review locations and grounded handoff prompts. Electron's clipboard is reliable
-// even when navigator.clipboard is unavailable for a local file.
 contextBridge.exposeInMainWorld("kakapoClipboard", {
-  write: (text: string): void => clipboard.writeText(typeof text === "string" ? text : String(text)),
-  // Read, for IntelliJ's Compare with Clipboard. The renderer never gets the clipboard on its own — a
-  // file:// page cannot read it — and this is the only feature that asks, so it stays beside the write.
+  write: (text: string): void => {
+    ipcRenderer.send("kakapo:clipboard-write", { text: typeof text === "string" ? text : String(text) });
+  },
   read: (): string => {
-    try { return clipboard.readText(); } catch { return ""; }
+    try { return (ipcRenderer.sendSync("kakapo:clipboard-read") as string) || ""; } catch { return ""; }
   },
 });
 

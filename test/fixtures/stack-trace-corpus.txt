@@ -1,0 +1,69 @@
+	at com.foo.Bar.baz(Bar.java:42)
+at com.foo.Bar.baz(Bar.java:42)
+    at com.foo.Bar.baz(Bar.java:42)
+	at java.base@17.0.1/java.util.ArrayList.get(ArrayList.java:427)
+	at java.base/java.util.ArrayList.get(ArrayList.java:427)
+	at app//com.foo.Bar.baz(Bar.java:7)
+	at com.foo.Bar.lambda$baz$0(Bar.java:42)
+	at com.foo.Bar.<init>(Bar.java:11)
+	at com.foo.Bar.baz(Native Method)
+	at com.foo.Bar.baz(Unknown Source)
+	at com.foo.Bar.baz(Bar.java)
+	at sun.misc.Unsafe.park(Native Method)
+	at com.foo.Bar$Inner.baz(Bar.java:5)
+	at com.foo.Bar.baz(Bar.kt:42)
+java.lang.NullPointerException: boom
+Caused by: java.lang.IllegalStateException: nope
+	... 23 more
+Exception in thread "main" java.lang.RuntimeException
+	at Object.foo (/p/a.js:1:2)
+	at fn (/home/me/proj/src/file.ts:12:5)
+	at /home/me/proj/src/file.js:3:1
+	at Array.map (<anonymous>)
+	at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+  File "foo.py", line 42, in bar
+  File "/home/me/p/foo.py", line 7, in <module>
+main.foo(0x1, 0x2)
+	/home/me/go/src/app/main.go:42 +0x1d
+   at Foo.Bar() in /p/File.cs:line 42
+- locked <0x000000076b2e3f58> (a java.lang.Object) line=42 
+|   at org.example.Test.run(Test.kt:9)
+some prose with (parens) and no digits
+a line with one ) only
+value = foo(1) + bar(2)
+	at com.foo.Bar.baz(Bar.java:0)
+	at com.foo.Bar.baz(Bar.java:1234567890)
+	at com.foo.Bar.baz(Bar.java:abc)
+	at Bar.baz(Bar.java:42)
+0x1234 at com.foo.Bar.baz(Bar.java:42)
+	at com.foo.Bar.baz(Bar.java:42) ~[app.jar:1.0]
+	at scala.collection.immutable.List.foreach(List.scala:333)
+	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:104)
+	at com.foo.Bar$$Lambda$14/0x0000000800c01208.run(Unknown Source)
+	at java.base/java.lang.Thread.run(Thread.java:840)
+	at MyApp/com.foo.Bar.baz(Bar.java:3)
+	at jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at com.foo.Bar.baz(Bar.java:42) [classes/:?]
+com.foo.Bar.baz(Bar.java:42)
+	com.foo.Bar.baz(Bar.java:42)
+	at com.foo.Bar.baz(a/b/Bar.java:42)
+	at com.foo.Bar.baz(Bar.java : 42)
+	at com.foo.Bar.baz(Bar.java:42):extra
+	at com.foo.Bar.baz()
+	at .baz(Bar.java:42)
+	at com.foo.Bar.(Bar.java:42)
+org.junit.ComparisonFailure: expected:<1> but was:<2>
+	at org.junit.Assert.assertEquals(Assert.java:115)
+com.foo.Bar.baz() Bar.java:42
+	com.foo.Bar.baz() Bar.java:42
+- com.foo.Bar.baz() @bci=12, line=42 (Compiled frame)
+- java.lang.Thread.sleep(Native Method) @bci=0, line=-1 (Interpreted frame)
+| 5(0) | at org.example.Test.run(Test.kt:9) |
+	at com.foo.Bar.baz(Bar.java:42) at com.foo.Qux.run(Qux.java:7)
+java.lang.RuntimeException: boom at com.foo.Bar.baz(Bar.java:42)
+thread 'main' panicked at main.rs:3:9:
+	from /app/lib/inner.rb:3:in 'Object#deep'
+/app/lib/inner.js:1
+    at deep (/app/lib/inner.js:1:39)
+    at Object.<anonymous> (/app/app.js:3:1)
+	/app/inner/inner.go:5

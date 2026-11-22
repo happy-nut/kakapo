@@ -3,7 +3,7 @@ import { execFile, spawn, spawnSync } from "node:child_process";
 import { homedir, tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, net, protocol, shell } from "electron";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, net, protocol, shell } from "electron";
 import type { WebContents } from "electron";
 import { git, gitAsync, isBranchRef, isCommitSha, isGitRepository, isLinkedWorktree, resolveWorkspaceRoot, validateReviewBase } from "./git.js";
 import { renderWelcomeHtml } from "./render.js";
@@ -217,6 +217,12 @@ function sendToFocused(channel: string, payload?: unknown): void {
 registerReviewIpc(ipcMain, stateFromEvent, app.getPath("userData"));
 registerProjectPathIpc(ipcMain, shell, stateFromEvent);
 registerCommentsIpc(ipcMain, stateFromEvent);
+ipcMain.on("kakapo:clipboard-write", (_event, msg: { text?: unknown }) => {
+  clipboard.writeText(typeof msg?.text === "string" ? msg.text : String(msg?.text ?? ""));
+});
+ipcMain.on("kakapo:clipboard-read", (event) => {
+  try { event.returnValue = clipboard.readText(); } catch { event.returnValue = ""; }
+});
 const COMPARE_REF_KEY = "kakapo-compare-ref";
 const COMPARE_TIP_KEY = "kakapo-compare-tip";
 function setCompareTip(state: WinState, tip: boolean): void {
