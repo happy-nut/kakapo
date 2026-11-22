@@ -196,6 +196,7 @@ branches you already have and names what is missing.
 | `⌘⇧P` | The type of the expression under the caret |
 | `⌘F1` | The full message of the problem on this line |
 | `⌘7` | Endpoints — every HTTP route this project declares |
+| `⌘⇧S` | Analyze Stack Trace — paste one, and every frame in this project becomes a link |
 | `⌘6` | Problems — everything the language servers found in this project, the review's own files first |
 | `⌘⇧B` | Go to the declaration of this thing's **type** |
 | `⌘F12` | This file's structure — filter, then jump |
@@ -396,6 +397,24 @@ It is a heuristic and says so: no language server reports routes, so this reads 
 that answer Go to Definition when no server does. Every row carries the file and line it was read from,
 which is the thing that makes a heuristic checkable. The request `⌘C` writes pairs with the HTTP client
 already here — paste it into a `.http` file and `⌘Enter` runs it.
+
+**Analyze Stack Trace** (`⌘⇧S`) — paste a stack trace and every frame that names a file in this project
+becomes a link to that file and line; `⌘Enter` opens the first one, which is where it blew up. The panel
+prefills from the clipboard when the clipboard holds a trace, re-reads as you edit the text, and has no
+parse button. A frame whose file is not here is dimmed and says which file it looked for; a line no reader
+recognises renders as prose rather than being dropped.
+
+The JVM half is a line-for-line port of IntelliJ's own `ExceptionWorker`, and it is measured against it:
+`npm run stack:oracle` runs the installed IDE's parser over a corpus and `test/stack-trace.test.mjs`
+asserts the port against every answer, class name and method included. Because kakapo reads more than
+Java, six more readers follow it — node, python, go, ruby, rust and .NET — each measured against the
+output of a real crash (`npm run stack:samples`) rather than against lines written from memory. The V8
+reader is deliberately tried first: IntelliJ's claims `at Object.foo (/p/a.js:1:2)` and reads the file as
+`/p/a.js:1`. Where a trace has been wrapped by mail or chat, both readings are parsed and the one that
+finds more frames wins, which is how rust's `panicked at main.rs:3:9:` keeps its link.
+
+**Thread dumps are not included.** IntelliJ's dialog does two jobs and this is the first one: frames to
+read. There is no thread grouping and no deadlock detection here.
 
 **Extend / shrink selection** (`⌥↑` / `⌥↓`) — IntelliJ's, on the chords its own Mac keymap gives them.
 Each press grows the selection to the next construct that encloses the caret — the word, the argument,

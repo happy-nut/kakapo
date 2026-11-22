@@ -42,6 +42,18 @@ const SURFACES = [
     shown: "document.querySelector('.media-diff-side .media-diff-kind')",
   },
   {
+    name: "analyze stack trace",
+    open: "openStackTracePanel();"
+      + "var i = document.getElementById('stack-trace-input');"
+      + "i.value = 'java.lang.RuntimeException: boom\\n\\tat com.foo.Bar.baz(Bar.java:42)\\n"
+      + "    at makeStore (/home/runner/work/repo/src/store.ts:1:17)\\n"
+      + "\\tat com.foo.Bar.park(Native Method)\\n';"
+      + "renderStackTrace();",
+    shown: "!document.getElementById('stack-trace').classList.contains('hidden')"
+      + " && document.querySelector('#stack-trace-results .stack-item')"
+      + " && document.querySelector('#stack-trace-results .stack-missing')",
+  },
+  {
     name: "settings",
     open: "document.getElementById('app-info-btn').click();",
     shown: "!document.getElementById('settings-modal').classList.contains('hidden')",
@@ -54,7 +66,8 @@ const SURFACES = [
 ];
 
 const TEXT_THE_USERS_REPOSITORY_WROTE = ['#source-body', '.d2h-code-line', '.d2h-code-side-line',
-  '.hljs', '#diff-output', 'pre', 'code', '.quick-open-path', '.usage-line', '.semantic-peek-text'];
+  '.hljs', '#diff-output', 'pre', 'code', '.quick-open-path', '.usage-line', '.semantic-peek-text',
+  '.stack-line'];
 
 const AUDIT = `(() => {
   const theirs = ${JSON.stringify(TEXT_THE_USERS_REPOSITORY_WROTE)};
