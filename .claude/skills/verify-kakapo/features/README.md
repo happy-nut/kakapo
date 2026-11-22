@@ -44,6 +44,7 @@ the file — a map that describes a build nobody is running teaches the wrong st
 | READ | Reading the diff — panels, change stepping, find, viewed | [03-reading-the-diff.md](03-reading-the-diff.md) |
 | CMT | Review comments and the hand-off | [04-comments-and-hand-off.md](04-comments-and-hand-off.md) |
 | NAV | Code navigation — declaration, usages, source view | [05-code-navigation.md](05-code-navigation.md) |
+| STACK | Analyze a stack trace — `⌘⇧S`, frames to places in this project | [06-analyze-stack-trace.md](06-analyze-stack-trace.md) |
 
 ## Not mapped yet
 
