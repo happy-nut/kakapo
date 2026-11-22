@@ -448,3 +448,27 @@ The panel's rows carry two kinds of text and the chrome-text audit has to tell t
 `scripts/ui-text-audit.mjs` as text this repository did not write, while `.stack-note` holds our own
 sentences and is measured. A note added to a row without that class is a Korean string nobody ever
 measured at 900px.
+
+A review's own file list holds only what the review changed, and a stack trace mostly names files it did
+not. `sourceFiles` starts as the changed set; the whole project arrives only when something asks for it
+with `ensureProjectIndex()`, which Quick Open, Search Everywhere, the comment prune and the endpoints
+view all do. `renderStackTrace` is the eleventh caller and the one that shows why the rule is worth
+writing down: without the call the panel resolved exactly the frames whose files were in the diff, which
+for a crash is the minority, and both fixtures said it was fine because both made every file a changed
+file. The real-app check now commits `Untouched.java` in the initial commit and never touches it again,
+and the chrome-text audit's stack-trace surface will not open unless a frame resolves against the
+committed-but-unchanged `src/store.ts`, so each of them fails by name if the call goes away.
+
+A sandboxed preload is handed `contextBridge`, `ipcRenderer`, `webFrame`, `webUtils`, `crashReporter` and
+`nativeImage`, and nothing else from `electron`; `app-main.ts` runs this one with `sandbox: true`. So
+`clipboard` was `undefined` there for as long as the bridge existed: `read()` returned `""` from inside
+its own `try`, `write()` threw and `copyTextToClipboard` swallowed it before falling through to
+`navigator.clipboard`, and Compare with Clipboard read an empty clipboard the whole time while copying
+appeared to work. It goes through the main process now (`kakapo:clipboard-read` / `-write`).
+`test/app-boundaries.test.mjs` refuses any import outside that list, because the next one will be
+`shell`, `dialog` or `nativeTheme` and the failure is silent every time; the jsdom suite stubs main and
+can never see it, so `.claude/skills/verify-kakapo/clipboard-bridge.mjs` measures the round trip against
+the real system clipboard from outside the app.
+
+A viewer slice's number is its load order, so two slices may not share one. `26-stack-trace.js` shipped
+beside `26-endpoints.js` and the pair sorted arbitrarily between themselves; it is `27-stack-trace.js`.

@@ -358,6 +358,9 @@ function renderStackTrace() {
   var input = document.getElementById('stack-trace-input');
   var parsed = parseStackTrace(input ? input.value : '');
   var frames = stackTraceFrameCount(parsed);
+  if (frames && REVIEW_LAZY_LOAD && !projectIndexLoaded) {
+    ensureProjectIndex().then(function () { if (stackTraceIsOpen()) renderStackTrace(); });
+  }
   var index = frames ? stackResolverIndex() : null;
   stackTraceLines = parsed.map(function (one) {
     if (one.kind !== 'frame') return one;
