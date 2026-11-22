@@ -61,3 +61,40 @@ Three places the two shipped schemes disagree, so there is no single IntelliJ an
 `DEFAULT_REASSIGNED_LOCAL_VARIABLE` and `DEFAULT_REASSIGNED_PARAMETER` are underlined in both schemes and
 cannot be reproduced at all: it takes dataflow to know a variable is reassigned, and no semantic token
 carries it.
+
+## The stack-trace parser
+
+`ExceptionWorker.parseStackTraceLine` is IntelliJ's answer to "is this line a stack frame, and which
+file and line does it name". It lives in the Java plugin, not the platform, and it is not a regex: it
+scans for the closing parenthesis that follows a digit, then walks backwards for the method name and
+the class. Prose about it is worth nothing, because the five rules interact — four claims written out
+of a careful reading of the source were still wrong about this corpus.
+
+So the answers are captured from the real parser rather than described:
+
+```bash
+npm run stack:oracle
+```
+
+It needs an installed IntelliJ IDEA (Community is enough, for
+`plugins/java/lib/java-impl.jar`) and a JDK on `PATH`. `docs/intellij/StackTraceOracle.java` is
+compiled against the IDE's own jars, run over `test/fixtures/stack-trace-corpus.txt`, and its answers
+land in `test/fixtures/stack-trace-oracle.json`, which `test/stack-trace.test.mjs` asserts the port
+against row by row. Add a line to the corpus and re-run to pin a new case.
+
+The extractor refuses two results that would otherwise look like success: zero frames, which means the
+classpath resolved but the parser never ran, and every line a frame, which means the corpus has lost
+the negative cases that give the positive ones meaning.
+
+Four things the corpus pins that a reading of the source got wrong:
+
+- `Bar.java:0` is a frame whose line number is `0`; `Native Method` and `Unknown Source` are frames
+  whose line number is `-1`. Conflating the two sentinels costs the `:0` frame its link.
+- `at Object.foo (/p/a.js:1:2)` IS claimed by the JVM reader, which reads the file as `/p/a.js:1` and
+  the line as `2`. A V8 reader has to be tried first or every Node frame resolves to a file that does
+  not exist.
+- `- locked <0x…> (a java.lang.Object) line=42` is not a frame, although it has the `- ` and the
+  `line=` that `parseForcedLine` looks for: there is no `.` before the parenthesis, so the method-name
+  candidate is refused.
+- `com.foo.Bar.baz(Bar.java:42)` with no `at` at all is a frame, and `Bar.java : 42` with spaces
+  around the colon is not.

@@ -56,7 +56,8 @@
     "dist:mac:ci": "npm run lsp:install && npm run build && npm run pack:mac && npm run verify:mac",
     "dist:mac:dmg:ci": "npm run dist:mac:ci && node scripts/create-dmg.mjs",
     "index:bench": "npm run build && node scripts/index-bench.mjs",
-    "cache:bench": "npm run build && node scripts/server-cache-bench.mjs"
+    "cache:bench": "npm run build && node scripts/server-cache-bench.mjs",
+    "stack:oracle": "node scripts/stack-trace-oracle.mjs"
   },
   "keywords": [
     "ai",
