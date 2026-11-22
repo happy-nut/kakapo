@@ -481,6 +481,7 @@ function applyDiffUpdate(u) {
       w.classList.toggle('df-inactive', diffWrapperPathKey(w) !== visibleDiffPath);
     });
   }
+  if (container) refreshDiffMediaPreviews();
   var changesPanel = document.getElementById('changes-panel');
   if (changesPanel) { changesPanel.innerHTML = u.changesPanel || ''; paintTreeRowAriaLabels(changesPanel); }
   var filesIsland = document.getElementById('files-tree-html');

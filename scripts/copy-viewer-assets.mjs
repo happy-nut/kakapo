@@ -15,7 +15,7 @@ const VIEWER_SLICES = [
   "11-http-run.js", "11-render-http.js", "12-history.js",
   "13-goto.js", "14-project-layout.js", "15-analysis-status.js", "15-semantic-navigation.js", "16-semantic-peek.js",
   "16-structure.js", "16-reading-modes.js", "17-file-find.js", "17-find-usages.js", "18-diagnostics.js", "18-code-insight.js", "19-find-action.js", "19-diff-stripe.js", "20-mermaid.js", "21-compare-menu.js",
-  "22-patchset.js", "23-agent-cards.js", "24-search-everywhere.js", "26-endpoints.js", "28-shortcut-coach.js", "29-shortcut-rebind.js",
+  "22-patchset.js", "23-agent-cards.js", "24-search-everywhere.js", "25-media-preview.js", "26-endpoints.js", "28-shortcut-coach.js", "29-shortcut-rebind.js",
 ];
 const onDisk = readdirSync(viewerDir).filter((f) => f.endsWith(".js")).sort();
 const listed = [...VIEWER_SLICES].sort();
@@ -39,12 +39,15 @@ const shortcutPrelude = `var SHORTCUT_DEFS = ${JSON.stringify(shortcutDefs)};\n`
   + `var MENU_OWNED_CHORDS = ${JSON.stringify(menuOwnedChords)}`
   + `.concat(/Electron/.test(navigator.userAgent) && /Mac|iPhone|iPad/.test(navigator.userAgent)`
   + ` ? ${JSON.stringify(menuOwnedMac)} : []);\n`;
+const { PREVIEW_MEDIA: previewMedia } = createRequire(import.meta.url)(join(distDir, "preview-media.js"));
+if (!previewMedia || !previewMedia.png) throw new Error("dist/preview-media.js exported no PREVIEW_MEDIA — did tsc run?");
+const previewPrelude = `var PREVIEW_MEDIA = ${JSON.stringify(previewMedia)};\n`;
 const { markWhitespaceRuns, moduleEntryFor } = createRequire(import.meta.url)(join(distDir, "util.js"));
 if (typeof markWhitespaceRuns !== "function") throw new Error("dist/util.js exported no markWhitespaceRuns — did tsc run?");
 if (typeof moduleEntryFor !== "function") throw new Error("dist/util.js exported no moduleEntryFor — did tsc run?");
 const whitespacePrelude = `var markWhitespaceRuns = ${markWhitespaceRuns.toString()};\n`
   + `var moduleEntryFor = ${moduleEntryFor.toString()};\n`;
-const bundle = vendorBundle + shortcutPrelude + whitespacePrelude + parts.map((f) => readFileSync(join(viewerDir, f), "utf8")).join("");
+const bundle = vendorBundle + shortcutPrelude + previewPrelude + whitespacePrelude + parts.map((f) => readFileSync(join(viewerDir, f), "utf8")).join("");
 writeFileSync(join(distDir, "viewer.client.js"), bundle);
 
 try {

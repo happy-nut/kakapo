@@ -70,7 +70,7 @@ contextBridge.exposeInMainWorld("kakapoFile", {
   get: (index: number, kind: string): Promise<string> => ipcRenderer.invoke("kakapo:get-file", { index, kind }),
   getIndex: (): Promise<unknown> => ipcRenderer.invoke("kakapo:get-project-index"),
   getSource: (path: string): Promise<unknown> => ipcRenderer.invoke("kakapo:get-source", { path }),
-  getAsset: (path: string): Promise<{ dataUrl: string } | null> => ipcRenderer.invoke("kakapo:get-asset", { path }),
+  getAsset: (path: string, side?: string): Promise<{ dataUrl: string } | null> => ipcRenderer.invoke("kakapo:get-asset", { path, side }),
   existingPaths: (paths: string[]): Promise<unknown> => ipcRenderer.invoke("kakapo:existing-project-paths", { paths }),
   getDiffContext: (request: unknown): Promise<unknown> => ipcRenderer.invoke("kakapo:get-diff-context", request),
 });

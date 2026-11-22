@@ -71,6 +71,15 @@ function openSourceFile(path, shouldSwitch = true, options) {
     if (shouldSwitch) showSourceView();
     return;
   }
+  if (file.media && (file.media.kind === 'video' || file.media.kind === 'audio')) {
+    setPanelClassNamePreservingFocus(body, 'source-body image-body');
+    body.innerHTML = renderMediaView(file);
+    mountMediaView(body, file);
+    document.getElementById('http-env-select')?.classList.add('hidden');
+    updateRenderToggle(path);
+    if (shouldSwitch) showSourceView();
+    return;
+  }
   if (!file.embedded) {
     setPanelClassNamePreservingFocus(body, 'source-body empty');
     var why = skippedReasonText(file);

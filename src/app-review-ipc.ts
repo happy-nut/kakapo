@@ -14,7 +14,8 @@ import {
   readGitLog, readGitLineLog, readGitBlame,
   readGitReflog, readGitStashes, resolveGitRevision, type GitLogFilter,
 } from "./git-log.js";
-import { defaultBaseRef, git, listBranches, listRemotes } from "./git.js";
+import { canonicalWorkspaceRoot, defaultBaseRef, git, listBranches, listRemotes, workspaceGitPrefix, RAW_PATHS } from "./git.js";
+import { previewMediaForPath } from "./preview-media.js";
 import { readUnifiedDiff } from "./diff.js";
 import { readPatchSets, readPatchSetStats, resolveReadMark } from "./patch-sets.js";
 import { AppPreferences } from "./app-preferences.js";
@@ -48,12 +49,22 @@ export type ReviewIpcState = {
 type ReviewIpcEvent = IpcMainEvent | IpcMainInvokeEvent;
 type ReviewStateResolver = (event: ReviewIpcEvent) => ReviewIpcState | undefined;
 
-const REVIEW_ASSET_MIME: Record<string, string> = {
-  ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif",
-  ".webp": "image/webp", ".svg": "image/svg+xml", ".bmp": "image/bmp", ".ico": "image/x-icon",
-  ".avif": "image/avif", ".apng": "image/apng",
-};
-const MAX_REVIEW_ASSET_BYTES = 10 * 1024 * 1024;
+function reviewAssetMime(rel: string): string | null {
+  const media = previewMediaForPath(rel);
+  if (media) return media.mime;
+  return extname(rel).toLowerCase() === ".svg" ? "image/svg+xml" : null;
+}
+const MAX_REVIEW_ASSET_BYTES = 64 * 1024 * 1024;
+
+function readRevisionBlob(root: string, rel: string, revision: string): Buffer | null {
+  const workspace = canonicalWorkspaceRoot(root);
+  const prefix = workspaceGitPrefix(workspace);
+  const out = spawnSync("git", [...RAW_PATHS, "show", "--no-textconv", `${revision}:${prefix ? prefix + "/" : ""}${rel}`],
+    { cwd: workspace, encoding: "buffer", maxBuffer: MAX_REVIEW_ASSET_BYTES + 1024 });
+  if (out.status !== 0) return null;
+  const data = out.stdout as Buffer | undefined;
+  return data && data.length <= MAX_REVIEW_ASSET_BYTES ? data : null;
+}
 
 function librarySource(root: string, requested: string): SourceFile | null {
   if (isAbsolute(requested)) {
@@ -129,12 +140,18 @@ export function registerReviewIpc(ipc: IpcMain, stateFromEvent: ReviewStateResol
     return materialized;
   });
 
-  ipc.handle("kakapo:get-asset", (event, request: { path?: string }) => {
+  ipc.handle("kakapo:get-asset", (event, request: { path?: string; side?: string }) => {
     const state = stateFromEvent(event);
     const rel = String(request?.path ?? "").replace(/\\/g, "/").replace(/^\.\//, "");
     if (!state || !rel || rel.startsWith("../")) return null;
-    const mime = REVIEW_ASSET_MIME[extname(rel).toLowerCase()];
+    const mime = reviewAssetMime(rel);
     if (!mime) return null;
+    if (String(request?.side ?? "") === "base") {
+      const revision = state.reviewBase ?? state.options.base ?? defaultBaseRef(state.options.root);
+      if (!revision) return null;
+      const data = readRevisionBlob(state.options.root, rel, revision);
+      return data ? { dataUrl: `data:${mime};base64,${data.toString("base64")}` } : null;
+    }
     const target = containedRealPath(state.options.root, rel);
     if (!target) return null;
     try {

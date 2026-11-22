@@ -20,6 +20,28 @@ const SURFACES = [
     shown: "!document.getElementById('quick-open').classList.contains('hidden')",
   },
   {
+    name: "usages \u00b7 call graph",
+    open: "openSemanticPeek('formatBytesForDisplay', [{ path: 'src/render-http-response.ts', lineIndex: 118, column: 9, text: '  return formatBytesForDisplay(response.size);' }], { ok: true, engine: 'lsp', confidence: 'semantic' }, 'references');"
+      + "semanticPeekRoot = { name: 'formatBytesForDisplay', loc: { path: 'src/render-http-response.ts', lineIndex: 118, column: 9 } };"
+      + "semanticPeekTrail = [{ name: 'formatBytesForDisplay', loc: {}, active: 0, loading: false, items: ["
+      + "{ path: 'src/render-http-response.ts', lineIndex: 58, column: 16, name: 'renderHttpResponseFileRow', text: '  return formatBytesForDisplay(response.size) + name;', callSites: [{ lineIndex: 118, column: 9 }, { lineIndex: 119, column: 9 }] },"
+      + "{ path: 'src/render-http-response.ts', lineIndex: 247, column: 16, name: 'renderImageCapabilityNote', text: '  return formatBytesForDisplay(capability.size);', callSites: [{ lineIndex: 274, column: 9 }] }] },"
+      + "{ name: 'renderHttpResponseFileRow', loc: {}, active: 0, loading: false, items: ["
+      + "{ path: 'src/render-http-response.ts', lineIndex: 12, column: 16, name: 'renderHttpResponseBody', text: '  rows.push(renderHttpResponseFileRow(part));', callSites: [{ lineIndex: 44, column: 11 }] }] },"
+      + "{ name: 'renderHttpResponseBody', loc: {}, active: 0, loading: false, items: ["
+      + "{ path: 'src/render-http-response.ts', lineIndex: 12, column: 16, name: 'renderHttpResponseBody', text: '    renderHttpResponseBody(nested);', callSites: [{ lineIndex: 61, column: 11 }] },"
+      + "{ path: 'src/render-http-response.ts', lineIndex: 58, column: 16, name: 'formatBytesForDisplay', text: '  return formatBytesForDisplay(part.size);', callSites: [{ lineIndex: 70, column: 9 }] }] }];"
+      + "renderSemanticPeekResults();",
+    shown: "!document.getElementById('semantic-peek').classList.contains('hidden') && document.querySelector('.semantic-peek-spine .semantic-peek-node')",
+  },
+  {
+    name: "diff \u00b7 media",
+    open: "var c = document.getElementById('diff2html-container');"
+      + "var w = document.createElement('div'); w.className = 'd2h-file-wrapper'; w.dataset.path = 'assets/banner.png';"
+      + "w.innerHTML = '<div class=\"d2h-files-diff\"></div>'; c.appendChild(w); mountDiffMediaPreview(w);",
+    shown: "document.querySelector('.media-diff-side .media-diff-kind')",
+  },
+  {
     name: "settings",
     open: "document.getElementById('app-info-btn').click();",
     shown: "!document.getElementById('settings-modal').classList.contains('hidden')",

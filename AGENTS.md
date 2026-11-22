@@ -39,6 +39,17 @@ makes it. The same holds for a design sketched in a reply: showing it is not con
 the user to pick. Nothing in this repository can check this — it is read off the user's words, not off the
 tree — so it is written here, where the decision is made.
 
+Agreeing with a direction is not agreeing to build it. "그래프 시안으로 가자" — go with the graph one —
+picked one of three sketches, and it was read as approval to implement, which is the same mistake the
+paragraph above is about, made a second time on the same feature. A mockup round narrows to a direction;
+the next round is more mockups inside it, not a pull request. Nothing but the user saying to build it is
+approval to build it.
+
+One picture is not a mockup round. A round is several, because judging means choosing, and a single
+sketch leaves nothing to choose between — the ask that followed the first round was "한 4개 정도 보고서
+선택하고 싶은데", four to look at and pick from. Offer alternatives that differ in what they cost the
+reader, not in their styling, and say what each gives up.
+
 ## Quality Bar
 
 Every behavior change should include:
@@ -123,6 +134,24 @@ down for three of them were wrong — the two schemes disagree about commas, sem
 and prose about "what IntelliJ does" had been standing in for reading the file. `docs/intellij/README.md`
 has the re-extraction command.
 
+A probe that reports an absence has to show a presence first, in the same run. Six times now the app
+was blamed for a probe's own bug: `answer.targets` is always `[]` because the field is `locations`, so
+"this symbol has no declaration" was true of everything; `findSymbolDefinition` only scans files the
+renderer has materialised, so an unopened file has no symbols at all; `pgrep -f dist/app-main` matched
+the probe's own shell; a caret left on prose makes ⌘B, F1 and ⌘U all decline silently; and a reader
+written as `keys:\s*\[([^\]]*)\]` cannot hold the `]` inside `"⌥]"`, so two real chords were reported
+missing from both READMEs. Every one of them would have died instantly against a case whose answer was
+already known — and none of them was ever given one. So state the known-present case in the probe and
+check it before believing any absence, and when the fact has an owner in `src/`, import that owner
+rather than parsing it: `scripts/lib/chords.mjs` reads `SHORTCUTS` from the built module, and
+`test/readme-chords.test.mjs` asserts the reader finds six chords it is told are there before it is
+allowed to call anything a stray. Reverting either real mistake into that reader turns the first test
+red by name, which is the whole point: a blind reader says so instead of inventing findings.
+
+The same test is narrowed on purpose. It reads only lines that begin with `|`, because a chord in prose
+may belong to another program — `⌃⌥T`, `⌃⌥M`, `⌃⌥D`, `⌃⌥F` and `⌃⌥P` are IntelliJ's, quoted as
+IntelliJ's, and a wider reader called all five rot. Widening it means teaching it that difference first.
+
 Navigation is measured against IntelliJ, not against itself. `npm run nav:smoke` asks whether a key
 still works; `npm run nav:matrix` asks whether it still does what IntelliJ does, and prints the two
 answers side by side. The second exists because the first cannot see the defect this repo paid for: ⌘B
@@ -191,6 +220,60 @@ is showing is read only by `sourceOpenPath()`, Quick Open's active-row clamp / e
 occurrences only by `scanUsageLine()`, and a typed query's match only by `matchesQueryVariants()`. Reach
 for the accessor rather than the DOM or the formula; if you genuinely need a second reader, change the
 rule in that test and say why there.
+
+The same test holds the one walker that turns a column into a place in the rendered line.
+`sourceTextWalker` rejects `.inlay-hint` and `.mc-code-fold-button`, because a hint and a fold label are
+text nobody typed; six places use it and `diffCaretDomPosition`, the one place that paints the caret,
+built a plain `createTreeWalker` instead, so ⌘→ set the column to the end of the line and drew the caret
+as many characters earlier as that line's hints were long — nine, landing it inside `greet(name:`. The
+model was right the whole time, which is why a probe that asks `caretSourceLoc()` reports nothing wrong:
+ask where the caret was painted, by walking the cell's own text up to the `.code-cursor` span. The rule
+is a line number in that test, so move it when the function moves.
+
+A binary file reaches the diff as a wrapper with no rows — git says `Binary files … differ`, diff2html
+renders the header and an empty body, and for a year that empty body was the whole answer for every
+picture in a review. `25-media-preview.js` fills it with the two sides, and the hook is the emptiness
+itself: a wrapper whose `.d2h-files-diff` holds no `tr` and whose path is in the preview table. A file
+git did find a text diff for keeps that diff, because a text diff is the better answer.
+
+What may be previewed is one table, `src/preview-media.ts`, and the viewer does not own a copy of it:
+`scripts/copy-viewer-assets.mjs` injects it into the bundle as `PREVIEW_MEDIA`, the way it already injects
+`SHORTCUT_DEFS` from `dist/shortcuts.js`. Add an extension there and the main process, the asset IPC and
+the viewer all learn it at once; add one anywhere else and you have built the drift this avoids. `svg` is
+deliberately absent: it is text with a diff worth reading, and the markdown path already renders it.
+
+The bytes never travel inside the review. A picture is still inlined as a `data:` URI by the source
+readers, because that path predates this and a picture is capped at 10 MB, but video and audio carry only
+`media: { mime, kind }` and the viewer asks `kakapo:get-asset` for the bytes when the pane is reached —
+a screen recording is tens of megabytes, and base64 of one would sit in the diff's HTML whether or not
+anyone scrolls to it. That handler is the only place a revision is read for a preview, and it reads one
+revision only: `side: "base"` resolves to the review's own base, and nothing else the renderer sends is a
+ref. The viewer turns each answer into a blob URL rather than setting a `data:` URI on the element,
+which is the same reason `mountPdfPreview` already did.
+
+The caller graph walks outward and nothing in the data stops it from walking in a circle: a recursive
+function is its own caller, and two functions calling each other hand the columns back and forth forever.
+`semanticPeekCycleDepth` reads the path the trail already holds and marks a caller that repeats it, by
+name, and by declaration path where the step has one — a root's anchor is a usage, not a declaration, so
+it has none. The mark is a word (`recursive` when the caller is the symbol its own column asked about,
+`cycle` when it stands further back on the path), never only a colour, and it does not refuse the step:
+the reader may want to see the loop, and a disabled row cannot say why.
+
+The popup is anchored to the caret `⌘B` was pressed at, so it closes when the code under it scrolls —
+`positionPanelAtCaret` can only re-point a panel that still has an anchor on screen, and a `position:
+fixed` panel left behind sits over a line it is no longer about. The scroll listener is on `document` in
+the capture phase, as the diagnostic tooltip's and the ⌘-link hint's already are, and it ignores scrolls
+whose target is inside the panel: the arrow keys scroll the result list, and that is not the reader
+scrolling away. `#quick-doc`, positioned by the same function, deliberately stays — it is a document you
+read and resize, not a hint — so this is a property of the peek, not of caret-anchored panels, and it is
+held by a test rather than by a sweep.
+
+A usage list is answered by two engines and they must agree about the declaration. `textDocument/references`
+is asked with `includeDeclaration: false`, while the index path is a text search over the project that
+returns every match, so the same ⌘B listed the declaration or did not depending on which engine got there
+first. `fallbackReferences` drops the matches the index knows to be declarations of that symbol. A
+declaration the heuristic table cannot recognise is still not filtered — that is the table's limit, not a
+second rule.
 
 An analysis that survives a worktree switch is two caches, keyed differently on purpose. The symbol
 index's store is keyed by `(extension, content)` and lives once per repository: `commonGitDir` resolves a

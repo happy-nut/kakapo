@@ -1263,13 +1263,16 @@ export class ProjectAnalysis {
       }
       return fileBindings.has(receiver);
     });
-    return uniqueLocations(matches.map((match) => ({
-      path: match.path,
-      lineIndex: match.line - 1,
-      column: match.column - 1,
-      endColumn: match.endColumn - 1,
-      text: match.text,
-    })));
+    const declared = new Set((index?.definitions.get(symbol) ?? []).map((item) => `${item.path}:${item.lineIndex}`));
+    return uniqueLocations(matches
+      .filter((match) => !declared.has(`${match.path}:${match.line - 1}`))
+      .map((match) => ({
+        path: match.path,
+        lineIndex: match.line - 1,
+        column: match.column - 1,
+        endColumn: match.endColumn - 1,
+        text: match.text,
+      })));
   }
 
   private async fallbackImplementations(symbol: string): Promise<AnalysisLocation[]> {
