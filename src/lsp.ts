@@ -80,6 +80,7 @@ export type AnalysisLocation = {
   text?: string;
   library?: true;
   external?: true;
+  callSites?: { lineIndex: number; column: number }[];
 };
 
 export function externalLocationLabel(uri: string): string {
@@ -235,6 +236,7 @@ type LspLocationLike = {
   targetSelectionRange?: LspRange;
   name?: string;
   kind?: number;
+  callSites?: { lineIndex: number; column: number }[];
   location?: { uri?: string; range?: LspRange };
 };
 
@@ -971,12 +973,20 @@ export class LspClient {
     const normalized = rows.map((row) => {
       const item = (itemKey && row && typeof row === "object" ? (row as Record<string, unknown>)[itemKey] : row) as
         { uri?: string; name?: string; kind?: number; detail?: string; range?: unknown; selectionRange?: unknown } | undefined;
+      const ranges = Array.isArray((row as { fromRanges?: unknown })?.fromRanges)
+        ? ((row as { fromRanges: { start?: { line?: unknown; character?: unknown } }[] }).fromRanges)
+        : [];
+      const callSites = ranges.map((range) => ({
+        lineIndex: nonNegativeInt(range?.start?.line) ?? 0,
+        column: nonNegativeInt(range?.start?.character) ?? 0,
+      }));
       return {
         uri: item?.uri,
         targetSelectionRange: item?.selectionRange,
         targetRange: item?.range,
         name: item?.detail ? `${item.name} — ${item.detail}` : item?.name,
         kind: item?.kind,
+        callSites,
       };
     }).filter((item) => item.uri);
     return { supported: true, locations: normalizeLocationResult(normalized, this.root) };
@@ -1541,6 +1551,7 @@ export function normalizeLocationResult(result: unknown, root: string): Analysis
       endColumn: nonNegativeInt(range.end?.character) ?? nonNegativeInt(range.start.character) ?? 0,
       name: value.name,
       kind: value.kind,
+      ...(value.callSites?.length ? { callSites: value.callSites } : {}),
     });
   }
   return out;

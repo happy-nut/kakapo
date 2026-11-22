@@ -250,6 +250,14 @@ site has no usage type in IntelliJ either; it shows under *Unclassified*.
 
 The comment and string hits are kept, under a *Non-code usages* divider, which is a change: the caret
 popup drops them silently, and "no usages" when there are four mentions in comments is a wrong answer.
+
+**The caller graph** (`→` in the `⌘B` popup) — the flat list of usages branches into columns. The first
+holds the symbol, the next the functions that call it, the next theirs, and `→` keeps going; `←` walks
+back out and the last step gives back the list it came from. A row names the caller and the lines inside
+it where the call is — `render.ts:4, 8`, not the line the caller is declared on — so `Enter` lands on the
+call rather than on a function header. The answer is the language server's own `callHierarchy`, the same
+one `⌘⇧Y` asks in a tree; this is the shape for reading outward from a symbol with one hand on the
+arrows, and it is where the question starts.
 `⌥P` — the same chord and the same toggle Find in Files has — takes them and the test files out again.
 What a line *cannot* say is whether a declaration is a field or a local, so those two IntelliJ types are
 not in the table: a header that is right half the time is worse than no header.
