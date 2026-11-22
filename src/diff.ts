@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { previewMediaForPath } from "./preview-media.js";
 import { existsSync, lstatSync, readFileSync, readdirSync, readlinkSync, statSync, type Stats } from "node:fs";
 import { basename, join } from "node:path";
 import type { DiffFile, DiffHunk, DiffLine, ReviewFileState, SourceFile, WhitespaceMode } from "./types.js";
@@ -223,24 +224,6 @@ export function parseUnifiedDiff(content: string): DiffFile[] {
   ));
 }
 
-function previewMimeForPath(path: string): string | null {
-  const dot = path.lastIndexOf(".");
-  const ext = dot >= 0 ? path.slice(dot + 1).toLowerCase() : "";
-  switch (ext) {
-    case "png": return "image/png";
-    case "jpg":
-    case "jpeg": return "image/jpeg";
-    case "gif": return "image/gif";
-    case "webp": return "image/webp";
-    case "bmp": return "image/bmp";
-    case "ico": return "image/x-icon";
-    case "avif": return "image/avif";
-    case "apng": return "image/apng";
-    case "pdf": return "application/pdf";
-    default: return null;
-  }
-}
-
 function gitStatusMap(cwd: string): Map<string, "new" | "edited" | "staged"> {
   const map = new Map<string, "new" | "edited" | "staged">();
   let out = "";
@@ -406,7 +389,15 @@ export function collectSourceFiles(
       continue;
     }
 
-    const previewMime = previewMimeForPath(path);
+    const previewMedia = previewMediaForPath(path);
+    if (previewMedia && (previewMedia.kind === "video" || previewMedia.kind === "audio")) {
+      sourceFiles.push({
+        ...base, content: "", size: stats.size, embedded: false, media: previewMedia,
+        signature: hashText(`${path}\0media\0${previewMedia.mime}\0${stats.size}\0${stats.mtimeMs}`),
+      });
+      continue;
+    }
+    const previewMime = previewMedia?.mime ?? null;
     if (previewMime) {
       if (stats.size > IMAGE_MAX_BYTES) {
         const skippedReason = `file larger than ${formatBytes(IMAGE_MAX_BYTES)}`;
@@ -421,7 +412,7 @@ export function collectSourceFiles(
         });
       } else {
         const dataUri = `data:${previewMime};base64,${readFileSync(absolute).toString("base64")}`;
-        sourceFiles.push({ ...base, size: stats.size, image: dataUri, signature: hashText(`${path}\0image\0${stats.size}`) });
+        sourceFiles.push({ ...base, size: stats.size, image: dataUri, media: previewMedia ?? undefined, signature: hashText(`${path}\0image\0${stats.size}`) });
       }
       continue;
     }
@@ -514,7 +505,12 @@ function revisionExists(root: string, target: string): boolean {
 function readTargetBlobSource(root: string, file: SourceFile, target: string): SourceFile {
   const prefix = workspaceGitPrefix(root);
   const spec = `${target}:${prefix ? prefix + "/" : ""}${file.path}`;
-  const previewMime = previewMimeForPath(file.path);
+  const previewMedia = previewMediaForPath(file.path);
+  if (previewMedia && (previewMedia.kind === "video" || previewMedia.kind === "audio")) {
+    return { ...file, content: "", embedded: false, deferred: false, media: previewMedia, skippedReason: undefined,
+      signature: hashText(`${file.path}\0media-target\0${previewMedia.mime}\0${target}`) };
+  }
+  const previewMime = previewMedia?.mime ?? null;
   if (previewMime) {
     const out = spawnSync("git", [...RAW_PATHS, "show", "--no-textconv", spec], { cwd: root, encoding: "buffer", maxBuffer: 1024 * 1024 * 50 });
     if (out.status !== 0) {
@@ -527,7 +523,7 @@ function readTargetBlobSource(root: string, file: SourceFile, target: string): S
       const skippedReason = `file larger than ${formatBytes(IMAGE_MAX_BYTES)}`;
       return { ...file, content: "", size: data.length, embedded: false, deferred: false, skippedReason, skippedKind: "imageLarge", signature: hashText(`${file.path}\0image-large\0${data.length}`) };
     }
-    return { ...file, content: "", size: data.length, deferred: false, image: `data:${previewMime};base64,${data.toString("base64")}`, signature: hashText(`${file.path}\0image-target\0${data.length}`) };
+    return { ...file, content: "", size: data.length, deferred: false, media: previewMedia ?? undefined, image: `data:${previewMime};base64,${data.toString("base64")}`, signature: hashText(`${file.path}\0image-target\0${data.length}`) };
   }
   const out = spawnSync("git", [...RAW_PATHS, "show", "--no-textconv", spec], { cwd: root, encoding: "buffer", maxBuffer: 1024 * 1024 * 50 });
   if (out.status !== 0) {
@@ -562,7 +558,12 @@ export function materializeDeferredSourceFile(rootArg: string, file: SourceFile,
     const skippedReason = "not a regular file";
     return { ...file, content: "", embedded: false, deferred: false, skippedReason, skippedKind: "notFile", signature: hashText(`${file.path}\0not-file`) };
   }
-  const previewMime = previewMimeForPath(file.path);
+  const previewMedia = previewMediaForPath(file.path);
+  if (previewMedia && (previewMedia.kind === "video" || previewMedia.kind === "audio")) {
+    return { ...file, content: "", size: stats.size, embedded: false, deferred: false, media: previewMedia, skippedReason: undefined,
+      signature: hashText(`${file.path}\0media\0${previewMedia.mime}\0${stats.size}`) };
+  }
+  const previewMime = previewMedia?.mime ?? null;
   if (previewMime) {
     if (stats.size > IMAGE_MAX_BYTES) {
       const skippedReason = `file larger than ${formatBytes(IMAGE_MAX_BYTES)}`;
@@ -574,6 +575,7 @@ export function materializeDeferredSourceFile(rootArg: string, file: SourceFile,
       size: stats.size,
       deferred: false,
       skippedReason: undefined,
+      media: previewMedia ?? undefined,
       image: `data:${previewMime};base64,${readFileSync(absolute).toString("base64")}`,
       signature: hashText(`${file.path}\0image\0${stats.size}`),
     };

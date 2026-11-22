@@ -2709,6 +2709,12 @@ body:has(#settings-modal:not(.hidden)) .code-cursor { display: none; }
 .semantic-peek-node.is-step .semantic-peek-node-name { color: var(--muted); }
 .semantic-peek-node.is-step.is-picked .semantic-peek-node-name { color: var(--chrome-text); font-weight: 650; }
 .semantic-peek-node-code { margin-top: 1px; color: var(--chrome-muted); font: 10.5px/1.4 Monaco, ui-monospace, monospace; }
+.semantic-peek-node .row-tag { margin-left: 5px; }
+.row-tag.is-cycle {
+  border-color: color-mix(in srgb, var(--chrome-status-bad) 55%, transparent);
+  color: color-mix(in srgb, var(--chrome-status-bad) 88%, var(--chrome-text));
+}
+.semantic-peek-node.is-focus .row-tag.is-cycle { border-color: var(--chrome-selected-text); color: var(--chrome-selected-text); }
 .semantic-peek-node.is-focus .semantic-peek-node-code { color: var(--chrome-selected-text); }
 .semantic-peek-col { min-width: 0; padding: 4px; border-right: 1px solid var(--chrome-border); overflow: hidden; }
 .semantic-peek-col:last-child { border-right: 0; }
@@ -3688,6 +3694,18 @@ body.dock-maximized .dock-panel { inset: 0; width: auto; max-height: none; trans
 .pdf-view { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; width: 100%; gap: 6px; }
 .pdf-frame { flex: 1 1 auto; min-height: 0; width: 100%; border: 0; background: var(--bg); }
 .pdf-view .image-cap { flex: none; padding: 0 12px 8px; }
+.media-preview { max-width: 100%; max-height: calc(100vh - 230px); border: 1px solid var(--border); background: #000; }
+.media-preview.is-audio { width: min(520px, 100%); max-height: none; background: none; border: 0; }
+.media-diff { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--border); }
+.media-diff-side {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  min-width: 0; padding: 12px; background: var(--panel);
+}
+.media-diff-side .image-preview, .media-diff-side .media-preview { max-height: 420px; }
+.media-diff-side .pdf-frame { width: 100%; height: 420px; }
+.media-diff-kind { align-self: flex-start; color: var(--muted); font: 11px Monaco, ui-monospace, monospace; }
+.media-diff-absent { padding: 28px 0; color: var(--muted); font-size: 12px; }
+@media (max-width: 900px) { .media-diff { grid-template-columns: 1fr; } }
 
 .mermaid-zoomable { cursor: zoom-in; }
 .mermaid-zoomable a { cursor: pointer; }

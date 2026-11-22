@@ -160,3 +160,78 @@ test("reopening the popup leaves no column from the symbol before it", async () 
   assert.equal(v.$all("#semantic-peek-results .semantic-peek-col").length, 0, "a fresh question opens on its own answer");
   v.close();
 });
+
+const SELF_CALLERS = {
+  formatBytes: [{ path: "src/util.ts", lineIndex: 0, column: 16, name: "formatBytes", text: "export function formatBytes(n: number) {", callSites: [{ lineIndex: 1, column: 9 }] }],
+};
+
+const CYCLE_CALLERS = {
+  formatBytes: CALLERS.formatBytes,
+  renderRow: [{ path: "src/util.ts", lineIndex: 0, column: 16, name: "formatBytes", text: "export function formatBytes(n: number) {", callSites: [{ lineIndex: 1, column: 9 }] }],
+};
+
+function bridgeFor(table) {
+  return (request) => (request.kind !== "callers"
+    ? null
+    : { ok: true, engine: "lsp", confidence: "semantic", locations: table[request.symbol] ?? [] });
+}
+
+test("a symbol that calls itself is marked, so a column that would never end says so", async () => {
+  const v = await loadViewer(html, { analysisBridge: bridgeFor(SELF_CALLERS) });
+  await openPeek(v);
+  press(v, right);
+  await v.settle(10);
+
+  const node = v.$("#semantic-peek-results .semantic-peek-col:not(.semantic-peek-spine) .semantic-peek-node");
+  assert.ok(node, "formatBytes has one caller and it is formatBytes");
+  assert.ok(node.classList.contains("is-cycle"), "the row carrying the recursion is the row that says so");
+  assert.match(node.textContent, /재귀|recursive/, "and it says which kind: a symbol calling itself");
+  v.close();
+});
+
+test("a path that comes back to a symbol it already passed is marked as a cycle", async () => {
+  const v = await loadViewer(html, { analysisBridge: bridgeFor(CYCLE_CALLERS) });
+  await openPeek(v);
+  press(v, right);
+  await v.settle(10);
+  const first = v.$all("#semantic-peek-results .semantic-peek-col:not(.semantic-peek-spine) .semantic-peek-node");
+  assert.equal(first.filter((n) => n.classList.contains("is-cycle")).length, 0,
+    "renderRow is not on the path yet, so nothing is a cycle at the first step");
+
+  press(v, right);
+  await v.settle(10);
+  const node = v.$all("#semantic-peek-results .semantic-peek-col:not(.semantic-peek-spine) .semantic-peek-node").pop();
+  assert.ok(node.classList.contains("is-cycle"), "formatBytes ← renderRow ← formatBytes closes the loop");
+  assert.match(node.textContent, /순환|cycle/, "a loop through another symbol is a cycle, not plain recursion");
+  v.close();
+});
+
+test("a chain of distinct callers carries no cycle mark at all", async () => {
+  const v = await loadViewer(html, { analysisBridge: bridge });
+  await openPeek(v);
+  press(v, right);
+  await v.settle(10);
+  press(v, right);
+  await v.settle(10);
+  press(v, right);
+  await v.settle(10);
+  assert.equal(v.$all("#semantic-peek-results .semantic-peek-node.is-cycle").length, 0,
+    "formatBytes ← renderRow ← renderPage ← bootWindow repeats nothing");
+  v.close();
+});
+
+test("scrolling the code under the popup dismisses it; scrolling the popup's own list does not", async () => {
+  const v = await loadViewer(html, { analysisBridge: bridge });
+  await openPeek(v);
+  const panel = v.$("#semantic-peek");
+  assert.equal(panel.classList.contains("hidden"), false, "the popup is open");
+
+  v.$("#semantic-peek-results").dispatchEvent(new v.window.Event("scroll"));
+  assert.equal(panel.classList.contains("hidden"), false,
+    "the list scrolls as the arrows walk it, and that is not the reader scrolling away");
+
+  v.$("#source-body").dispatchEvent(new v.window.Event("scroll"));
+  assert.equal(panel.classList.contains("hidden"), true,
+    "the popup is anchored to a caret; once the code it points at moves, a popup pinned to the viewport is pointing nowhere");
+  v.close();
+});

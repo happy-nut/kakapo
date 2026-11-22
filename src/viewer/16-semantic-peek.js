@@ -259,6 +259,13 @@ document.addEventListener('mousedown', function (event) {
   if (panel && !panel.classList.contains('hidden') && !panel.contains(event.target)) closeSemanticPeek();
 }, true);
 window.addEventListener('resize', positionSemanticPeekAtCaret);
+document.addEventListener('scroll', function (event) {
+  var panel = document.getElementById('semantic-peek');
+  if (!panel || panel.classList.contains('hidden')) return;
+  var target = event.target;
+  if (target && target.nodeType === 1 && panel.contains(target)) return;
+  closeSemanticPeek();
+}, true);
 
 var semanticPeekTrail = null;
 var semanticPeekRoot = null;
@@ -282,6 +289,16 @@ function semanticPeekSpine() {
     rows.push({ name: picked ? picked.name : '', depth: i + 1 });
   }
   return rows;
+}
+
+function semanticPeekCycleDepth(item, depth) {
+  var trail = semanticPeekTrail || [];
+  for (var i = 0; i <= depth && i < trail.length; i++) {
+    if (trail[i].name !== item.name) continue;
+    var at = trail[i].loc && trail[i].loc.path;
+    if (i === 0 || !at || at === item.path) return i;
+  }
+  return -1;
 }
 
 function semanticCallSiteOf(item) {
@@ -418,11 +435,14 @@ function renderSemanticPeekGraph(results) {
     } else {
       body = column.items.map(function (item, i) {
         var picked = i === column.active;
+        var cycle = semanticPeekCycleDepth(item, index);
+        var cycleTag = cycle < 0 ? '' : ' <span class="row-tag is-cycle">'
+          + escapeHtml(t(cycle === index ? 'peek.recursive' : 'peek.cycle')) + '</span>';
         return '<button type="button" role="option" aria-selected="' + (picked && isLast ? 'true' : 'false') + '"'
-          + ' class="semantic-peek-node' + (picked ? ' is-picked' : '') + (picked && isLast ? ' is-focus' : '') + (item.isTest ? ' is-test' : '') + '"'
+          + ' class="semantic-peek-node' + (picked ? ' is-picked' : '') + (picked && isLast ? ' is-focus' : '') + (item.isTest ? ' is-test' : '') + (cycle < 0 ? '' : ' is-cycle') + '"'
           + ' data-level="' + (index + 1) + '" data-index="' + i + '"'
           + ' title="' + escapeHtml(item.path + ':' + (item.lineIndex + 1)) + '">'
-          + '<span class="semantic-peek-node-name">' + escapeHtml(item.name) + '</span>'
+          + '<span class="semantic-peek-node-name">' + escapeHtml(item.name) + cycleTag + '</span>'
           + '<span class="semantic-peek-node-where">' + escapeHtml(semanticCallSiteLabel(item)) + '</span>'
           + '<span class="semantic-peek-node-code">' + semanticCodeHtml(item.path, semanticCallSiteCode(item)) + '</span>'
           + '</button>';

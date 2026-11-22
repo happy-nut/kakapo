@@ -47,6 +47,7 @@ export type SourceFile = {
   skippedKind?: "missing" | "missingRevision" | "missingTarget" | "imageLarge" | "binary" | "large" | "budget" | "notFile" | "unreadable";
   skippedDetail?: string;
   image?: string;
+  media?: { mime: string; kind: "image" | "video" | "audio" | "pdf" };
   vcs?: "new" | "edited" | "staged";
   library?: true;
 };

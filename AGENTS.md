@@ -230,6 +230,44 @@ model was right the whole time, which is why a probe that asks `caretSourceLoc()
 ask where the caret was painted, by walking the cell's own text up to the `.code-cursor` span. The rule
 is a line number in that test, so move it when the function moves.
 
+A binary file reaches the diff as a wrapper with no rows — git says `Binary files … differ`, diff2html
+renders the header and an empty body, and for a year that empty body was the whole answer for every
+picture in a review. `25-media-preview.js` fills it with the two sides, and the hook is the emptiness
+itself: a wrapper whose `.d2h-files-diff` holds no `tr` and whose path is in the preview table. A file
+git did find a text diff for keeps that diff, because a text diff is the better answer.
+
+What may be previewed is one table, `src/preview-media.ts`, and the viewer does not own a copy of it:
+`scripts/copy-viewer-assets.mjs` injects it into the bundle as `PREVIEW_MEDIA`, the way it already injects
+`SHORTCUT_DEFS` from `dist/shortcuts.js`. Add an extension there and the main process, the asset IPC and
+the viewer all learn it at once; add one anywhere else and you have built the drift this avoids. `svg` is
+deliberately absent: it is text with a diff worth reading, and the markdown path already renders it.
+
+The bytes never travel inside the review. A picture is still inlined as a `data:` URI by the source
+readers, because that path predates this and a picture is capped at 10 MB, but video and audio carry only
+`media: { mime, kind }` and the viewer asks `kakapo:get-asset` for the bytes when the pane is reached —
+a screen recording is tens of megabytes, and base64 of one would sit in the diff's HTML whether or not
+anyone scrolls to it. That handler is the only place a revision is read for a preview, and it reads one
+revision only: `side: "base"` resolves to the review's own base, and nothing else the renderer sends is a
+ref. The viewer turns each answer into a blob URL rather than setting a `data:` URI on the element,
+which is the same reason `mountPdfPreview` already did.
+
+The caller graph walks outward and nothing in the data stops it from walking in a circle: a recursive
+function is its own caller, and two functions calling each other hand the columns back and forth forever.
+`semanticPeekCycleDepth` reads the path the trail already holds and marks a caller that repeats it, by
+name, and by declaration path where the step has one — a root's anchor is a usage, not a declaration, so
+it has none. The mark is a word (`recursive` when the caller is the symbol its own column asked about,
+`cycle` when it stands further back on the path), never only a colour, and it does not refuse the step:
+the reader may want to see the loop, and a disabled row cannot say why.
+
+The popup is anchored to the caret `⌘B` was pressed at, so it closes when the code under it scrolls —
+`positionPanelAtCaret` can only re-point a panel that still has an anchor on screen, and a `position:
+fixed` panel left behind sits over a line it is no longer about. The scroll listener is on `document` in
+the capture phase, as the diagnostic tooltip's and the ⌘-link hint's already are, and it ignores scrolls
+whose target is inside the panel: the arrow keys scroll the result list, and that is not the reader
+scrolling away. `#quick-doc`, positioned by the same function, deliberately stays — it is a document you
+read and resize, not a hint — so this is a property of the peek, not of caret-anchored panels, and it is
+held by a test rather than by a sweep.
+
 A usage list is answered by two engines and they must agree about the declaration. `textDocument/references`
 is asked with `includeDeclaration: false`, while the index path is a text search over the project that
 returns every match, so the same ⌘B listed the declaration or did not depending on which engine got there
