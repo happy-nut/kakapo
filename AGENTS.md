@@ -409,3 +409,42 @@ way the fields can disagree. Run it before and after changing anything that writ
 `options.baseLabel`, `options.target`, `options.staged`, `state.compareScope` or `state.compareTip`, or
 the `mode` derivation in `kakapo:compare-menu`. It holds today, and its SKILL.md records the two
 findings it was written for — including the wider fix the model refuted.
+
+A stack frame is read by a table of readers, `STACK_TRACE_READERS`, tried in a pinned order, and the
+order is the behaviour. The JVM reader is a line-for-line port of IntelliJ's own
+`ExceptionWorker.parseExceptionLine` — all four of its readers (normal, YourKit, forced, Lincheck) —
+and it is measured against the real thing rather than against a reading of it: `npm run stack:oracle`
+runs the installed IDE's parser over `test/fixtures/stack-trace-corpus.txt` and
+`test/stack-trace.test.mjs` asserts the port against every answer in
+`test/fixtures/stack-trace-oracle.json`, class FQN and method text included. Add a corpus line and
+re-run the script to pin a case; never hand-edit the JSON. Four things that fixture is the only
+witness for: `-1` means "this frame names no line" while `0` is an ordinary line number, so
+`Bar.java:0` keeps its link and `Native Method` does not get one; two frames on one line are read as
+*none*, because the parenthesis is found from index 0 and the method name then sits before the `at`,
+which `dot >= start` refuses; a forced thread-dump frame carries a line number and no file name at
+all, so it is resolved through its class name; and `at Object.foo (/p/a.js:1:2)` IS claimed by the
+JVM reader, which reads the file as `/p/a.js:1`. That last one is why `v8` is first in the table and
+why a test pins the order with that exact line.
+
+The other six readers have no oracle, so their fixture is the output of real failing programs:
+`npm run stack:samples` crashes a small program in node, python, go, rust and ruby and records what
+each printed into `test/fixtures/stack-trace-samples.json`. Reality disagreed with a description of
+those formats four times, and each disagreement is now a row in that capture: go's ` +0x4c` offset is
+optional and requiring it loses every inlined frame, node's first line is a bare `path:line` with no
+`at` and is the frame that says where the error was thrown, rust's panic header is a relative path
+with a trailing colon, and ruby's shape matches nothing else. The v8 bare form is deliberately
+restricted to an unindented line, because go's `\t<path>:<line>` is the same shape and v8 is tried
+first.
+
+Normalizing — IntelliJ's "Normalize" button, which unwraps a trace pasted out of mail or chat — is
+applied by counting rather than by a button: both readings are parsed and the one with more frames
+wins, ties to the text as pasted. It has to be a count, because the substitution that unwraps
+`… boom at Bar.baz(Bar.java:4) at Bar.run(Bar.java:7)` into two frames also splits rust's
+`panicked at main.rs:3:9:` in two and loses the panic site — measured at 34 frames as printed against
+33 unwrapped. A test asserts each direction.
+
+The panel's rows carry two kinds of text and the chrome-text audit has to tell them apart:
+`.stack-line` holds what the reader's crash wrote (a path, a symbol, a prose line) and is listed in
+`scripts/ui-text-audit.mjs` as text this repository did not write, while `.stack-note` holds our own
+sentences and is measured. A note added to a row without that class is a Korean string nobody ever
+measured at 900px.
