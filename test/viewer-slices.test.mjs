@@ -129,3 +129,16 @@ test("a fact the whole viewer asks about has exactly one reader", () => {
 
   assert.deepEqual(problems, [], "a fact grew a second reader:\n  " + problems.join("\n  "));
 });
+
+test("a column is mapped into a rendered line through one walker, which knows what nobody typed", () => {
+  const walkers = [];
+  for (const file of order) {
+    sources.get(file).split("\n").forEach((line, i) => {
+      if (/createTreeWalker\s*\([^)]*SHOW_TEXT/.test(line)) walkers.push(`${file}:${i + 1}`);
+    });
+  }
+  assert.deepEqual(walkers, ["10-source-view.js:1144"],
+    "sourceTextWalker is the only text walker: it rejects .inlay-hint and .mc-code-fold-button, "
+    + "and a second walker counts that text as the line's own — which is how ⌘→ painted the caret "
+    + "nine characters short of the end. Move the line number here when the function moves.");
+});

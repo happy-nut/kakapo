@@ -221,6 +221,22 @@ occurrences only by `scanUsageLine()`, and a typed query's match only by `matche
 for the accessor rather than the DOM or the formula; if you genuinely need a second reader, change the
 rule in that test and say why there.
 
+The same test holds the one walker that turns a column into a place in the rendered line.
+`sourceTextWalker` rejects `.inlay-hint` and `.mc-code-fold-button`, because a hint and a fold label are
+text nobody typed; six places use it and `diffCaretDomPosition`, the one place that paints the caret,
+built a plain `createTreeWalker` instead, so ⌘→ set the column to the end of the line and drew the caret
+as many characters earlier as that line's hints were long — nine, landing it inside `greet(name:`. The
+model was right the whole time, which is why a probe that asks `caretSourceLoc()` reports nothing wrong:
+ask where the caret was painted, by walking the cell's own text up to the `.code-cursor` span. The rule
+is a line number in that test, so move it when the function moves.
+
+A usage list is answered by two engines and they must agree about the declaration. `textDocument/references`
+is asked with `includeDeclaration: false`, while the index path is a text search over the project that
+returns every match, so the same ⌘B listed the declaration or did not depending on which engine got there
+first. `fallbackReferences` drops the matches the index knows to be declarations of that symbol. A
+declaration the heuristic table cannot recognise is still not filtered — that is the table's limit, not a
+second rule.
+
 An analysis that survives a worktree switch is two caches, keyed differently on purpose. The symbol
 index's store is keyed by `(extension, content)` and lives once per repository: `commonGitDir` resolves a
 worktree to the checkout it came from, and that is the only reason a sibling is served rather than
