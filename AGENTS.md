@@ -123,6 +123,24 @@ down for three of them were wrong — the two schemes disagree about commas, sem
 and prose about "what IntelliJ does" had been standing in for reading the file. `docs/intellij/README.md`
 has the re-extraction command.
 
+A probe that reports an absence has to show a presence first, in the same run. Six times now the app
+was blamed for a probe's own bug: `answer.targets` is always `[]` because the field is `locations`, so
+"this symbol has no declaration" was true of everything; `findSymbolDefinition` only scans files the
+renderer has materialised, so an unopened file has no symbols at all; `pgrep -f dist/app-main` matched
+the probe's own shell; a caret left on prose makes ⌘B, F1 and ⌘U all decline silently; and a reader
+written as `keys:\s*\[([^\]]*)\]` cannot hold the `]` inside `"⌥]"`, so two real chords were reported
+missing from both READMEs. Every one of them would have died instantly against a case whose answer was
+already known — and none of them was ever given one. So state the known-present case in the probe and
+check it before believing any absence, and when the fact has an owner in `src/`, import that owner
+rather than parsing it: `scripts/lib/chords.mjs` reads `SHORTCUTS` from the built module, and
+`test/readme-chords.test.mjs` asserts the reader finds six chords it is told are there before it is
+allowed to call anything a stray. Reverting either real mistake into that reader turns the first test
+red by name, which is the whole point: a blind reader says so instead of inventing findings.
+
+The same test is narrowed on purpose. It reads only lines that begin with `|`, because a chord in prose
+may belong to another program — `⌃⌥T`, `⌃⌥M`, `⌃⌥D`, `⌃⌥F` and `⌃⌥P` are IntelliJ's, quoted as
+IntelliJ's, and a wider reader called all five rot. Widening it means teaching it that difference first.
+
 Navigation is measured against IntelliJ, not against itself. `npm run nav:smoke` asks whether a key
 still works; `npm run nav:matrix` asks whether it still does what IntelliJ does, and prints the two
 answers side by side. The second exists because the first cannot see the defect this repo paid for: ⌘B
