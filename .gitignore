@@ -7,9 +7,5 @@ dist/
 release/
 vendor/language-servers/
 
-# Raw measurement samples: regenerate with scripts/gpu-probe.mjs, do not carry them in the repo.
-.unlazy/*.json
-.unlazy/locks/
-
 # Verification evidence: screenshots and transcripts from .claude/skills/verify-kakapo.
 .kakapo-verify/
