@@ -9,7 +9,8 @@ is to let a human read AI-generated changes: a real diff, language-server naviga
 that live beside the code.
 
 It is not an agent, an orchestration layer, a terminal or a workspace manager. Run it from your own terminal,
-in the repository you are working in. Keep the core simple, local, and reading-oriented.
+in the repository you are working in. Keep the core simple, local, and reading-oriented. Treat AI tools as
+producers of changes; kakapo is where a human reads those changes.
 
 ## Development
 
@@ -17,458 +18,146 @@ in the repository you are working in. Keep the core simple, local, and reading-o
 npm install
 npm run build
 npm run smoke
+npm test
 ```
 
-## Conventions
+Runtime code lives in `src/`. Prefer plain Markdown and JSON artifacts so users can inspect and edit
+everything. Do not introduce git worktree, terminal multiplexer, editor, or agent-specific requirements —
+kakapo does not run agents, embed a terminal, or manage workspaces, and those were deliberately removed.
 
-- Runtime code lives in `src/`.
-- The CLI should have no runtime dependencies unless there is a strong validation or review reason.
-- Keep generated validation artifacts under the application's canonical workspace-path mirror in its
-  user-data directory; never create or write application state inside a reviewed project.
-- Prefer plain Markdown and JSON artifacts so users can inspect and edit everything.
-- Do not introduce git worktree, terminal multiplexer, editor, or agent-specific requirements. kakapo does
-  not run agents, embed a terminal, or manage workspaces — those were deliberately removed.
-- Treat AI tools as producers of changes; kakapo is where a human reads those changes.
+Two things invalidate a test run silently, because `test/menu-accelerators.test.mjs` spawns the real
+Electron out of this same `node_modules`: driving the app while the suite runs (taking the app down takes
+that test's app with it), and an `npm install` or a rebuild during a run. Suite first, then drive, or the
+other way round — never at once, and a suite that was already running when the tree's dependencies changed
+proves nothing.
 
 ## Scope
 
-A request for a mockup is a request for a mockup. "시안", "mock this up", "show me what it would
-look like" asks for a picture to judge, and the judging is the deliverable — building the thing, opening
-a pull request and merging it answers a question nobody asked and spends the decision before the user
-makes it. The same holds for a design sketched in a reply: showing it is not consent to build it. Wait for
-the user to pick. Nothing in this repository can check this — it is read off the user's words, not off the
-tree — so it is written here, where the decision is made.
+A request for a mockup is a request for a mockup. "시안", "mock this up", "show me what it would look like"
+asks for a picture to judge, and the judging is the deliverable — building the thing, opening a pull request
+and merging it answers a question nobody asked and spends the decision before the user makes it. Agreeing
+with a direction is not agreeing to build it: "그래프 시안으로 가자" picked one of three sketches and was read
+as approval to implement, which is the same mistake made twice on one feature. A mockup round narrows to a
+direction; the next round is more mockups inside it. Nothing but the user saying to build it is approval to
+build it.
 
-Agreeing with a direction is not agreeing to build it. "그래프 시안으로 가자" — go with the graph one —
-picked one of three sketches, and it was read as approval to implement, which is the same mistake the
-paragraph above is about, made a second time on the same feature. A mockup round narrows to a direction;
-the next round is more mockups inside it, not a pull request. Nothing but the user saying to build it is
-approval to build it.
+One picture is not a mockup round. A round is several, because judging means choosing, and a single sketch
+leaves nothing to choose between — the ask that followed the first round was "한 4개 정도 보고서 선택하고
+싶은데". Offer alternatives that differ in what they cost the reader, not in their styling, and say what each
+gives up.
 
-One picture is not a mockup round. A round is several, because judging means choosing, and a single
-sketch leaves nothing to choose between — the ask that followed the first round was "한 4개 정도 보고서
-선택하고 싶은데", four to look at and pick from. Offer alternatives that differ in what they cost the
-reader, not in their styling, and say what each gives up.
+Nothing in this repository can check any of that. It is read off the user's words, not off the tree, which
+is why it is written here.
 
-## Quality Bar
+## Quality bar
 
-Every behavior change should include:
+Every behaviour change should include a focused implementation, a smoke test or command-level verification,
+and documentation updates when CLI behaviour changes.
 
-- a focused implementation
-- a smoke test or command-level verification
-- documentation updates when CLI behavior changes
+A revert is a behaviour change too, and the READMEs are where it gets forgotten. `usageFiltering.imports`
+was flipped to `false`, both READMEs were taught to say "imports start hidden", the default was put back to
+`true` when it broke twelve usage tests, and the sentences shipped anyway — describing, for a release, a
+default the code does not have. Whatever a change taught the docs to say, the revert unteaches in the same
+commit. A claim about a default is prose; `test/doc-citations.test.mjs` can tell you a name has rotted but
+not that a sentence about behaviour has.
 
-When adding a command, update `printHelp` in `src/commands.ts` and both READMEs.
+## A probe that reports an absence has to show a presence first
 
-A revert is a behavior change too, and the READMEs are where it gets forgotten. `usageFiltering.imports`
-was flipped to `false`, both READMEs were taught to say "imports start hidden", the default was put back
-to `true` when it broke twelve usage tests, and the sentences shipped anyway — for a release, describing
-a default the code does not have. Nothing can check this: a claim about a default is prose, the chords in
-those tables were measured against `src/shortcuts.ts` and drift by zero rows, and a check that greps for
-words would pass the next sentence written differently. So the rule is read here, at the moment the
-default goes back: whatever a change taught the docs to say, the revert unteaches in the same commit.
+Six times the app was blamed for a probe's own bug: `answer.targets` is always `[]` because the field is
+`locations`; `findSymbolDefinition` only scans files the renderer has materialised, so an unopened file has
+no symbols at all; `pgrep -f dist/app-main` matched the probe's own shell; a caret left on prose makes ⌘B,
+F1 and ⌘U all decline silently; and a reader written as `keys:\s*\[([^\]]*)\]` cannot hold the `]` inside
+`"⌥]"`, so two real chords were reported missing from both READMEs. Every one would have died instantly
+against a case whose answer was already known, and none was given one.
 
-A branch that carries a `chore(release): vX [skip ci]` commit mutes the release once it lands. GitHub
-reads `[skip ci]` out of the squashed merge message, and a squash merge collects every commit subject on
-the branch into that message, so `auto-release.yml` never runs: the fix is on `main`, no version follows,
-and nothing reports it. Merging `main` into a feature branch is how that commit gets there — rebase onto
-`main` instead, or open a fresh branch. The `no-skip-ci-on-the-branch` job in `.github/workflows/test.yml`
-refuses such a pull request, reading the commit list from the same place GitHub builds the message from.
+So state the known-present case in the probe and check it before believing any absence, and when the fact
+has an owner in `src/`, import that owner rather than parsing it. Every checking test added since is built
+that way, and reverting the reader's own eyes is what caught two bugs in `test/doc-citations.test.mjs` while
+it was being written.
 
-A keyboard shortcut is a row in `src/shortcuts.ts` and nothing else — the Settings sheet renders that
-table, the viewer dispatches from it, and a control advertises one with `data-keyhint-id`, so a chord
-written anywhere else is a copy that will drift. Give the row its label in `src/i18n.ts` (both locales)
-and, if it is dispatched, an entry in `SHORTCUT_ACTIONS` (`src/viewer/05-keymap.js`); a handler returning
-false declines the key. Mark a row `fixed` only when the page genuinely cannot rebind it — a menu
-accelerator, or a standard key of the surface. Mention it in the READMEs when it is worth knowing about.
+## Measured against IntelliJ, not against itself
 
-A chord the application menu holds never reaches the page: Electron consumes a menu accelerator before any
-renderer keydown runs, so such a row is advertised everywhere and fires nowhere, and jsdom tests stay green
-because they dispatch keydown straight at the page. `test/menu-accelerators.test.mjs` builds the real menu
-and checks the table against it; a row may collide only when it says `fixed: "menu"` or when the menu item
-forwards the key on with `sendToFocused`. That guard runs on macOS only — the menu it checks is macOS's —
-so run the suite there before trusting a chord change; Linux CI skips it.
+`npm run nav:smoke` asks whether a key still works; `npm run nav:matrix` asks whether it still does what
+IntelliJ does, and prints the two answers side by side. The second exists because the first cannot see the
+defect this repo paid for: ⌘B worked for a year and showed the usages popup on a reference, which IntelliJ
+never does. Change anything about go-to-declaration, usages, implementations, the type hierarchy or library
+targets and run the matrix — and when a row's expectation changes, re-read it out of the installed IDE (the
+header of `scripts/navigation-matrix.mjs` has the decompile command) rather than editing the expectation to
+match what the code now does. The same holds for the stack-trace oracle and the shipped colour schemes:
+`npm run stack:oracle` and `docs/intellij/README.md` re-extract from the installed IDE, and a fixture is
+never hand-edited.
 
-`fixed: "menu"` is the one marker that exempts a row from the collision check, so the same test asks the
-opposite question of it: every key such a row spells must be a chord some menu item actually holds. The
-menu keeps its own hardcoded accelerator — the row is what the Settings sheet renders — and without that
-assertion the two can drift until the sheet advertises a key that does nothing. The zoom rows are the
-reason: four accelerators lived on the View submenu with no row at all, so there was no way to zoom
-listed anywhere in the app.
+## Rules, and what enforces them
 
-Semantic highlighting is a pipeline with four places to lose a token, and losing one is silent: the
-capability declaration decides what a server may send, `legend.tokenTypes`/`tokenModifiers` decide what
-`src/lsp.ts` can name, the paint table in `semanticTokenClasses()` decides what gets a span, and the
-theme's `--token-*` slots decide whether two spans look different. `member` — typescript-language-server's
-name for a method — was dropped at the third for as long as the table existed, and the default dark theme
-gave `--token-number` and `--token-literal` the same hex, so a distinction the table did make could not be
-seen. `test/semantic-tokens.test.mjs` holds all four: every name in a captured legend has a row, a row left
-plain names its reason, every class has a colour rule, every slot in each of the twelve theme blocks has a
-colour no other slot there has, and no two classes resolve to the same colour, weight, slant and
-decoration. The legends are real, captured from the bundled servers by `npm run lsp:legends`
-(`test/fixtures/semantic-legends.json`); refresh them when a server is upgraded, because a legend that
-grew a name is how the first row went missing. `.tok-*` classes are shared with the source view's own
-hand-written lexer — `.tok-type` paints YAML keys and CSS properties — so a slant added for a semantic
-kind lands on those too; give the semantic kind its own class instead.
+Nothing below needs to be remembered. Each row fails by name when it is broken, so the rule is the check.
 
-Two painters reach every line — the spelling-only tokenizer (`highlightLine`, and highlight.js for the
-diff) and the server's semantic tokens — and a view that picks one of them throws the other's answer away.
-typescript-language-server's legend is twelve names and not one of them is `keyword`, `string`, `comment`
-or `number`, so a source view that treated semantic tokens as the whole answer painted `const`, `export`
-and every string literal plain on every line that had an identifier in it. Both views now layer instead:
-`semanticLineHtml` runs the tokenizer over the gaps between tokens, and `paintDiffSemanticTokens` splits
-the diff's existing text nodes so the semantic span sits inside whatever highlight.js and diff2html already
-put there. Keep it that way — the word-level `<ins>`/`<del>` marks and the trailing-whitespace marks are in
-that markup, and `test/semantic-diff.test.mjs` counts them before and after against a run with no tokens.
+| Rule | Enforced by |
+| --- | --- |
+| No `[skip ci]` commit reaches a branch — a squash merge collects every subject and mutes the release | `no-skip-ci-on-the-branch` in `.github/workflows/test.yml` |
+| A keyboard shortcut is a row in `src/shortcuts.ts` and nothing else, with a label in both locales | `test/shortcut-registry.test.mjs`, `test/i18n-parity.test.mjs` |
+| A chord the application menu holds never reaches the page, and a `fixed` row names a chord the menu really has | `test/menu-accelerators.test.mjs` (macOS only; Linux CI skips it) |
+| A chord in a README table is one `src/shortcuts.ts` declares | `test/readme-chords.test.mjs` |
+| The CLI's commands and options are one table, advertised and read in both directions | `test/cli-surface.test.mjs`, `test/cli-args.test.mjs` |
+| What only the first window may have is blanked for later windows and assigned to the first | `test/launch-options.test.mjs` |
+| The regex guess behind ⌘B is spelled once, not once per process | `test/declaration-heuristics.test.mjs` |
+| That guess tells a declaration from a call, and the renderer's copy of the question agrees | `test/heuristic-declarations.test.mjs`, `test/guessed-peek-refresh.test.mjs` |
+| A semantic token survives all four places it can be lost, and no two kinds paint the same | `test/semantic-tokens.test.mjs` |
+| The diff layers both painters instead of choosing one, keeping its own word-level marks | `test/semantic-diff.test.mjs` |
+| Every IntelliJ platform colour key is mapped to a class or refused in writing | `test/intellij-parity.test.mjs` |
+| A fact the whole viewer asks about has exactly one reader, and a column maps through one walker | `test/viewer-slices.test.mjs` |
+| No slice reads a `let`/`const` a later slice declares | `test/viewer-slices.test.mjs` |
+| `VIEWER_SLICES` names every file in `src/viewer`, and that array is the load order | `scripts/copy-viewer-assets.mjs` throws during the build |
+| A sandboxed preload imports only what a sandboxed preload is given | `test/app-boundaries.test.mjs` |
+| What may be previewed is one table the bundler injects, and a picture git found a text diff for keeps it | `test/media-preview.test.mjs` |
+| A caller graph marks a recursion and a cycle, and a chain of distinct callers carries no mark | `test/peek-call-graph.test.mjs` |
+| A language-server cache declares a scope per family with the measurement that chose it | `test/server-cache.test.mjs` |
+| The sweep can actually fire, survives Go's read-only modules, and spends its bound across families | `test/server-cache.test.mjs` |
+| An analysis survives a worktree switch because the symbol index is keyed by content | `test/symbol-cache-worktrees.test.mjs` |
+| A server's own index never lands inside the repository being read | `test/server-cache.test.mjs`, `.claude/skills/verify-kakapo/clangd-index-hidden.mjs` |
+| The installer's download cache keeps exactly the archives the pins name | `test/install-cache-prune.test.mjs` |
+| A stack frame is read by the pinned reader order, against the real IntelliJ parser and real crashes | `test/stack-trace.test.mjs` |
+| A path, line or symbol a document names is one the tree has | `test/doc-citations.test.mjs` |
+| The compare menu always ticks the row describing the diff the window is built from | `.claude/skills/formal-compare-mode` |
+| Chrome text never breaks inside a word and never overflows its box, at 1440 and at 900, in both locales | `npm run ui:text` |
+| A served index equals a scanned one, and an edited worktree is never served stale text | `npm run index:bench` |
+| A shared cache still answers from the text in front of it | `npm run cache:bench` |
+| A caret-anchored popup closes when the code under it scrolls, and not when its own list does | `test/peek-call-graph.test.mjs` |
+| A guess is withdrawn once a language server has a real answer | `test/guessed-peek-refresh.test.mjs` |
+| Two engines answering a usage list agree about the declaration | `test/find-usages.test.mjs` |
+| A stack trace resolves against the whole project, not against the review's changed files | `test/stack-trace.test.mjs`, `npm run ui:text` |
+| A pull request is fetched into this checkout, merge base and all, and a fork needs no branch here | `test/github-pr.test.mjs` |
+| No application state is ever written inside a reviewed project | `test/workspace-data.test.mjs` |
+| A runtime dependency is declared with the review reason it is there, and a bundled server is pinned | `test/runtime-dependencies.test.mjs` |
+| A stack row says whose sentence each text is, so the audit measures ours and not the reader's crash | `test/measured-chrome-text.test.mjs` |
+| A change works in the real app, not only in jsdom | `.claude/skills/verify-kakapo` |
 
-The diff's left side is the base revision and no server can be pointed at it, so it is painted only where
-its text equals its twin on the right; `analysis.ts` already declines `semanticTokens` outright when the
-whole comparison is a revision. Painting is driven from `annotateDiffHunkRows` (a wrapper that materialises
-after the tokens arrived) and from the token-arrival callback (tokens that arrive after the wrapper), and
-both are needed — a test that calls the repaint by hand proves neither.
+Three of those are not part of `npm test` and have to be run deliberately: `npm run ui:text`, because jsdom
+lays nothing out and every width is zero; the two benches, because they open real repositories; and the two
+skills, because they drive the real app and a model checker. A Korean string is routinely half again as long
+as its English twin, so a toolbar measured only in English was not measured.
 
-`test/intellij-parity.test.mjs` holds the other half of the measurement: IntelliJ's two shipped schemes,
-read out of the installed IDE into `test/fixtures/intellij-schemes.json`, with every platform colour key
-either mapped to a class the table hands out or refused in writing. It exists because the reasons written
-down for three of them were wrong — the two schemes disagree about commas, semicolons and doc comments,
-and prose about "what IntelliJ does" had been standing in for reading the file. `docs/intellij/README.md`
-has the re-extraction command.
+## What the tools do that we cannot change
 
-A probe that reports an absence has to show a presence first, in the same run. Six times now the app
-was blamed for a probe's own bug: `answer.targets` is always `[]` because the field is `locations`, so
-"this symbol has no declaration" was true of everything; `findSymbolDefinition` only scans files the
-renderer has materialised, so an unopened file has no symbols at all; `pgrep -f dist/app-main` matched
-the probe's own shell; a caret left on prose makes ⌘B, F1 and ⌘U all decline silently; and a reader
-written as `keys:\s*\[([^\]]*)\]` cannot hold the `]` inside `"⌥]"`, so two real chords were reported
-missing from both READMEs. Every one of them would have died instantly against a case whose answer was
-already known — and none of them was ever given one. So state the known-present case in the probe and
-check it before believing any absence, and when the fact has an owner in `src/`, import that owner
-rather than parsing it: `scripts/lib/chords.mjs` reads `SHORTCUTS` from the built module, and
-`test/readme-chords.test.mjs` asserts the reader finds six chords it is told are there before it is
-allowed to call anything a stray. Reverting either real mistake into that reader turns the first test
-red by name, which is the whole point: a blind reader says so instead of inventing findings.
+- clangd writes `.cache/clangd/index` into the root of the repository being read. `--background-index` is on
+  in the bundled build and nothing in `--help-list` moves the directory, so the path is declared in
+  `SERVER_CACHE_INSIDE_PROJECT` and refused on the way into the diff. A sibling worktree still indexes
+  C and C++ from nothing.
+- Go writes every extracted module read-only, so removing its cache needs the tree made writable first, the
+  way `go clean` does. A half-deleted tree has a fresh mtime and is never stale again.
+- macOS clears the temporary directory at boot, and `dirhelper`'s own policy does not descend into these
+  subdirectories, so an age window longer than an uptime is a sweep that cannot fire.
+- typescript-language-server's legend is twelve names and not one of them is `keyword`, `string`, `comment`
+  or `number`, which is why a view that treats semantic tokens as the whole answer paints `const` and every
+  string literal plain.
+- jdtls needs `classFileContentsSupport` declared or a class-file target comes back as an empty array.
+- The diff's left side is the base revision and no server can be pointed at it, so it is painted only where
+  its text equals its twin on the right.
 
-The same test is narrowed on purpose. It reads only lines that begin with `|`, because a chord in prose
-may belong to another program — `⌃⌥T`, `⌃⌥M`, `⌃⌥D`, `⌃⌥F` and `⌃⌥P` are IntelliJ's, quoted as
-IntelliJ's, and a wider reader called all five rot. Widening it means teaching it that difference first.
+## Where a measurement is recorded
 
-Navigation is measured against IntelliJ, not against itself. `npm run nav:smoke` asks whether a key
-still works; `npm run nav:matrix` asks whether it still does what IntelliJ does, and prints the two
-answers side by side. The second exists because the first cannot see the defect this repo paid for: ⌘B
-worked for a year and showed the usages popup on a reference, which IntelliJ never does. Change anything
-about go-to-declaration, usages, implementations, the type hierarchy or library targets and run the
-matrix — and when a row's expectation changes, re-read it out of the installed IDE (the header of
-`scripts/navigation-matrix.mjs` has the decompile command) rather than editing the expectation to match
-what the code now does.
-
-When no language server answers — one is still starting, or the file's language has none at all — ⌘B is
-answered by a regex guess, and that guess is made twice from two tables that are copies of each other
-across the process boundary: `DECLARATION_PATTERNS` in `src/analysis-index.ts`, for the index the main
-process builds, and `definitionMatchers` in `src/viewer/15-semantic-navigation.js`, which
-`findSymbolDefinition` runs over the viewer's own copy of each file when the index declines. Tighten one
-and the other still answers; the renderer's turn arrives as a silent jump rather than a list, which looks
-less like a bug and is worse. `test/heuristic-declarations.test.mjs` holds the index's table and
-`test/guessed-peek-refresh.test.mjs` the renderer's, and both must move together.
-
-What those tables cannot do is tell a declaration from a call: `name(args) {` is a method, and it is also
-a call whose last argument is a function or an object literal, which is why every
-`test("…", async () => {` in this suite was read as a declaration of `test`, and they outnumbered every
-real method the table held. The signal is the captured argument text — the pattern's own
-`[^)]*` cannot hold a `)`, so a call leaves an unbalanced paren behind — and a parameter may hold a
-parenthesis only straight after a `:`, where a function type lives. A brace is not a signal: `= {}` and a
-generic are parameter lists. Count the table's rows before and after any change to it, with the old
-pattern and the new one run over the same working tree: the index scans the tree, so a count taken on one
-checkout does not compare with a count taken on another.
-
-A method that writes its return type before its name — `void Run(int which) {`, and every C# and Java
-method — was never in either table, because the name group took `void` and the parenthesis never
-arrived. Reading it costs a second row whose prefix is one or more type expressions, and the prefix is
-what makes a leading token safe: `return foo(a);`, `new Foo(a) {` and `throw new Error(m);` are calls of
-exactly that shape, so the words that can only be an operator, a statement or a macro header
-(`typedef NS_ENUM(NSInteger, X) {`, `co_await flush(b);`, `emit valueChanged(n);`) are refused in the
-prefix, not in the name. That list is the whole guard, so grow it by feeding candidate lines through the
-real index rather than by reasoning about them — four of its words were found that way after the row was
-written, and none of the four appear in any tree this change was measured on. The terminator `;` is allowed only on that row, because a bare `Register(handlers);` has
-no prefix to match. The row is scoped to the extensions whose languages write a return type there — a
-TypeScript line `void bootWindow(state, theme);` is the `void` operator applied to a call, and the only
-record the widened pattern added to this repository's own tree was that one. The scoping is a row field
-in the index (`extensions`) and a path test in the renderer, and the two lists have to say the same thing.
-
-The row beside it — a plain `name(args) {` with no return type — reads a statement keyword the same way,
-because `synchronized (lock) {`, `lock (gate) {`, `fixed (…) {`, `using (…) {` and `foreach (…) {` are a
-name, a parenthesised expression and a brace. `NOT_A_DECLARED_NAME` is the obvious place to refuse them
-and the wrong one: it is read for the name every row produces in every language, so `lock` there would
-throw away `const lock = new Mutex()`. The refusal is `STATEMENT_HEADS`, scoped to the extensions whose
-languages those statements belong to, and that scoping is what makes it free — a method in Java or C#
-carries a return type and is read by the row above, so the only plain `name(args) {` left in a `.java` or
-`.cs` file is a constructor, while a TypeScript `lock(resource) {` keeps its record. Measured over
-174,655 records in two mixed-language trees it removed nothing at all, and over the C# and Java files of
-a Unity checkout it removed two `foreach` loops and nothing else.
-
-A guessed answer must be withdrawn once there is a real one. `queryProjectAnalysis` records the question
-behind any non-LSP answer that arrives while the analysis is still starting, `openSemanticPeek` keeps it
-only when the response that opened the peek is the one that produced it — `16-structure.js` opens peeks
-with no response of its own — and `refreshAnalysisPaints` re-asks it when the phase turns ready. A peek
-built from a guess that nothing revisits is a list of wrong answers sitting under a "ready" toast.
-
-The viewer is one concatenated script with no module boundaries, so nothing stops a second copy of an
-answer from growing beside the first — and when one does, a fix reaches one copy and the two surfaces
-drift. `test/viewer-slices.test.mjs` therefore holds a one-fact-one-reader rule: the file the source view
-is showing is read only by `sourceOpenPath()`, Quick Open's active-row clamp / empty state / loading state
-/ filter chip only by `clampQuickActive()` / `showQuickEmpty()` / `showQuickLoading()` /
-`setQuickFilterChip()`, a selected comment box's keys only by `handleSelectedCommentRowKey()`, a symbol's
-occurrences only by `scanUsageLine()`, and a typed query's match only by `matchesQueryVariants()`. Reach
-for the accessor rather than the DOM or the formula; if you genuinely need a second reader, change the
-rule in that test and say why there.
-
-The same test holds the one walker that turns a column into a place in the rendered line.
-`sourceTextWalker` rejects `.inlay-hint` and `.mc-code-fold-button`, because a hint and a fold label are
-text nobody typed; six places use it and `diffCaretDomPosition`, the one place that paints the caret,
-built a plain `createTreeWalker` instead, so ⌘→ set the column to the end of the line and drew the caret
-as many characters earlier as that line's hints were long — nine, landing it inside `greet(name:`. The
-model was right the whole time, which is why a probe that asks `caretSourceLoc()` reports nothing wrong:
-ask where the caret was painted, by walking the cell's own text up to the `.code-cursor` span. The rule
-is a line number in that test, so move it when the function moves.
-
-A binary file reaches the diff as a wrapper with no rows — git says `Binary files … differ`, diff2html
-renders the header and an empty body, and for a year that empty body was the whole answer for every
-picture in a review. `25-media-preview.js` fills it with the two sides, and the hook is the emptiness
-itself: a wrapper whose `.d2h-files-diff` holds no `tr` and whose path is in the preview table. A file
-git did find a text diff for keeps that diff, because a text diff is the better answer.
-
-What may be previewed is one table, `src/preview-media.ts`, and the viewer does not own a copy of it:
-`scripts/copy-viewer-assets.mjs` injects it into the bundle as `PREVIEW_MEDIA`, the way it already injects
-`SHORTCUT_DEFS` from `dist/shortcuts.js`. Add an extension there and the main process, the asset IPC and
-the viewer all learn it at once; add one anywhere else and you have built the drift this avoids. `svg` is
-deliberately absent: it is text with a diff worth reading, and the markdown path already renders it.
-
-The bytes never travel inside the review. A picture is still inlined as a `data:` URI by the source
-readers, because that path predates this and a picture is capped at 10 MB, but video and audio carry only
-`media: { mime, kind }` and the viewer asks `kakapo:get-asset` for the bytes when the pane is reached —
-a screen recording is tens of megabytes, and base64 of one would sit in the diff's HTML whether or not
-anyone scrolls to it. That handler is the only place a revision is read for a preview, and it reads one
-revision only: `side: "base"` resolves to the review's own base, and nothing else the renderer sends is a
-ref. The viewer turns each answer into a blob URL rather than setting a `data:` URI on the element,
-which is the same reason `mountPdfPreview` already did.
-
-The caller graph walks outward and nothing in the data stops it from walking in a circle: a recursive
-function is its own caller, and two functions calling each other hand the columns back and forth forever.
-`semanticPeekCycleDepth` reads the path the trail already holds and marks a caller that repeats it, by
-name, and by declaration path where the step has one — a root's anchor is a usage, not a declaration, so
-it has none. The mark is a word (`recursive` when the caller is the symbol its own column asked about,
-`cycle` when it stands further back on the path), never only a colour, and it does not refuse the step:
-the reader may want to see the loop, and a disabled row cannot say why.
-
-The popup is anchored to the caret `⌘B` was pressed at, so it closes when the code under it scrolls —
-`positionPanelAtCaret` can only re-point a panel that still has an anchor on screen, and a `position:
-fixed` panel left behind sits over a line it is no longer about. The scroll listener is on `document` in
-the capture phase, as the diagnostic tooltip's and the ⌘-link hint's already are, and it ignores scrolls
-whose target is inside the panel: the arrow keys scroll the result list, and that is not the reader
-scrolling away. `#quick-doc`, positioned by the same function, deliberately stays — it is a document you
-read and resize, not a hint — so this is a property of the peek, not of caret-anchored panels, and it is
-held by a test rather than by a sweep.
-
-A usage list is answered by two engines and they must agree about the declaration. `textDocument/references`
-is asked with `includeDeclaration: false`, while the index path is a text search over the project that
-returns every match, so the same ⌘B listed the declaration or did not depending on which engine got there
-first. `fallbackReferences` drops the matches the index knows to be declarations of that symbol. A
-declaration the heuristic table cannot recognise is still not filtered — that is the table's limit, not a
-second rule.
-
-An analysis that survives a worktree switch is two caches, keyed differently on purpose. The symbol
-index's store is keyed by `(extension, content)` and lives once per repository: `commonGitDir` resolves a
-worktree to the checkout it came from, and that is the only reason a sibling is served rather than
-re-scanned. `repositorySymbolCacheFile` is the one place that resolution happens and
-`test/symbol-cache-worktrees.test.mjs` holds it. A language server's cache is keyed by what that server
-stores, and `src/server-cache.ts` declares a scope per family rather than letting each branch of
-`bundledNativeCommand` spell a path. `shared` and `worktree` are not a preference: gopls's build and
-module caches are content-addressed, and a sibling worktree rebuilt the same tree an order of magnitude
-faster against a shared one, while two checkouts sharing `CARGO_TARGET_DIR` made a worktree with a live
-type error report zero errors. `test/server-cache.test.mjs` keeps the reason beside every row, and fails
-both for a family that builds a cache path of its own and for a scope with no reason written for it.
-
-A sweep that cannot fire is indistinguishable from no sweep, and this one could not fire for four
-separate reasons at once. It asked for thirty days unused, and macOS clears the temporary directory at
-boot, so a directory only reaches that age if the machine stays up a month — measured on an 11.8-day
-uptime, 836 keys and 5.59 GB, none of them reclaimable, and `dirhelper`'s own three-day policy does not
-descend into these subdirectories. Its removal could not remove Go's cache at all: Go writes every
-extracted module read-only, the measured store held 1470 such directories, `fs.rm` with `force` fails
-EACCES partway through one, and the entries it did remove refresh the directory's mtime, so the
-half-deleted tree is never stale again and the leak is permanent — `removeServerCache` makes the tree
-writable and retries, as `go clean` does. A shared key was skipped on the reasoning that it has no
-worktree to outlive, which is true and beside the point: `start()` touches that directory, so its mtime
-is a true last-used time and the same age rule reads it. And the per-launch bound was spent in
-declaration order, so php, declared last and holding the largest store at 4.9 GB, was never offered a
-single key; candidates are now gathered across every family and the oldest go first. Each of the four
-has a test that fails when only that one is reverted, which is the only way to tell them apart.
-
-`npm run cache:bench <corpus> <worktree-a> <worktree-b>` is where those reasons come from. It opens a real
-repository and a sibling worktree of it through `ProjectAnalysis`, and prints time to the first semantic
-answer against a cache of its own (cold), the cache it filled itself (warm) and a cache the sibling filled;
-the bytes the sibling adds to that cache; a declaration planted in one worktree only, looked up through the
-shared cache in both directions; and two servers live at once on one cache against one each. The planted
-declaration is the check that matters — a server whose cache is keyed by content answers from the text in
-front of it, and one that is keyed by path does not — so the bench exits non-zero when it goes missing.
-Speed alone cannot see that: sharing `CARGO_TARGET_DIR` was faster and wrong. The corpora a row was
-measured on are named in `CORPORA` at the top of the script, with the file and column each probe asks
-about, so a re-measurement asks the same question. The bench runs against a `TMPDIR` of its own so a
-measurement never touches the real Kakapo caches, and `scripts/lib/scratch-dir.mjs` removes that directory
-again — on a crash and on `SIGTERM` too, since a long corpus run is interrupted more often than it
-finishes. Six runs had already left 1.7 GB behind before it did. `CACHE_BENCH_TMPDIR` names a directory
-the bench must not remove, `CACHE_BENCH_KEEP=1` keeps its own, and `test/scratch-dir.test.mjs` holds both
-plus the child process that is killed mid-run.
-
-clangd is the one server kakapo cannot place: it writes `.cache/clangd/index/*.idx` into the root of the
-repository being read, `--background-index` is on by default in the bundled build and nothing in
-`--help-list` moves the directory. So the path it writes is declared in the same file, in
-`SERVER_CACHE_INSIDE_PROJECT`, and `readUntrackedDiff` refuses it — `.cache/` was already refused by
-`isSourceCandidate` and by the non-git tree walk, but untracked paths never went through either, and a
-path that reaches the diff is added to the project list unconditionally. A sibling worktree still indexes
-C/C++ from nothing, and nothing in clangd's options can change that.
-
-Those directories are reclaimed by their own mtime, which is why `start()` touches
-`server.cacheDirectory` before it spawns. The key is a one-way hash of the worktree path, so nothing can
-ask which checkout a directory belonged to; a sweep that could not see it opened would delete a live one.
-Before the table there were hundreds of them and gigabytes, with nothing able to tell which were dead.
-
-The installer's download cache is a different directory with a different rule. `scripts/install-language-servers.mjs`
-keeps every archive it fetches so a reinstall — a wiped `vendor/`, a fresh worktree — does not download a
-gigabyte again, and `pruneDownloadCache` keeps exactly the archives the current pins name. No clock: an
-age window is what kept the runtime sweep from ever firing, and what goes stale here is not an old file
-but a dead generation, which a pin bump creates the moment it lands. The keep set is derived from the
-same tables the installers read, never written out a second time, and `test/install-cache-prune.test.mjs`
-fails when a `*_ARCHIVES` table is declared that `ARCHIVE_TABLES` does not read — a table left out has its
-archive deleted and re-downloaded on every install. `RUSTUP_TARGETS` is named for what it holds, target
-triples rather than filenames, because a table that must be exempt from that rule is a table waiting to
-be mis-read.
-
-`npm run index:bench [path…]` is the measurement and the gate. It prints a launch split into walk, read,
-hash, scan and flush for cold, warm, sibling-worktree and edited-tree runs, and exits non-zero when a
-served index differs from a scanned one, when a run disagrees with its own repeats, or when text a
-worktree edited is served from what the cache held for it. That last check is the one that earned its
-keep: written against a sibling at `HEAD` it passed with the cache key deliberately broken, because the
-fixture and `HEAD` were the same text and a wrong answer had nowhere to show. Compare old against new on
-one tree — the index scans the working tree, so a number taken on one checkout does not compare with a
-number taken on another.
-
-What the bench measures and nobody has bought: a manifest of `(mtime, size)` so an unchanged file skips
-the read and the hash. The read and the hash are most of a warm launch, and `stat` is a fraction of them,
-but the index's own consumers need the content and every record's declaration text, so the saving is paid
-for by making both lazy and by trusting mtime — whose failure is not a slow launch but a jump to a line
-that is not there. Re-measure with the bench before deciding again.
-
-A label that wraps inside a word is a defect a reader sees before anything else and no assertion here
-can reach: jsdom lays nothing out, so every width, rect and line break is zero in `npm test`. `npm run
-ui:text` is the oracle. It opens each chrome surface in the real app and asks two measured questions —
-does any whitespace-delimited word render on more than one line (a Range around one token has one client
-rect when it fits and two when the line broke inside it), and does a leaf's own text overflow the box
-drawn for it. The word test is deliberately language-blind: CSS lets Korean break between any two
-syllables, so `word-break` calls the "주석·테스트 제 / 외" split legal and a reader still reads it as a
-typo. Every surface is audited at 1440 and at 900, because chrome that fits at the wider one is exactly
-the chrome that breaks at the narrower — this repository has lost the whole diff at that width. A
-surface the script cannot open is reported as such rather than counted clean, which is the only thing
-separating "nothing is broken" from "nothing was looked at". Run it after any change to chrome text, a
-label, an i18n string or a toolbar's layout; a Korean string is routinely half again as long as its
-English twin, so a toolbar that was measured only in English was not measured.
-
-Two checks live outside the suite because the suite cannot reach what they answer, and both are project
-skills under `.claude/skills/`.
-
-`verify-kakapo` drives the real app over CDP: launch, a doctor, a feature map of what a user can do, and
-screenshots kept under `.kakapo-verify/`. Use it to show a change working rather than asserting that it
-does — `npm test` is jsdom against a stubbed main process, so it cannot say whether a chord reaches the
-renderer on macOS, whether a mark is painted at all, or what a label looks like in Korean, and each of
-those has shipped broken with the suite green. Two things it will cost you otherwise: the smoke scripts
-want `KAKAPO_DEV=1` or they write into your real Kakapo state, and nothing may drive the app while
-`npm test` runs — `test/menu-accelerators.test.mjs` spawns the real Electron out of this same
-`node_modules`, and taking the app down takes that with it and invalidates the run silently. An
-`npm install` during a run does the same from the other side, so a suite that was already running when
-the tree's dependencies changed proves nothing and has to be started again.
-
-A pull request is opened from one function, `openPullRequestIn`, which the ⌥L prompt and the
-`kakapo <pr link>` argument both call. Three things about it are easy to get wrong. The diff is
-`git diff <base> <target>`, two dots, so the base has to be made the merge base by hand or the review
-shows what landed on the base branch after the pull request was cut — which GitHub's own Files changed
-tab does not. `refs/pull/<n>/head` is asked for rather than a branch because a pull request from a fork
-has no branch in the checkout at all, and that is the whole case the fetch exists for; both sides land
-under `refs/kakapo/pull/…` so they survive a rebuild and a gc without appearing as branches. And
-`baseLabel` is not written: it means "a branch name stands behind this base", a merge base has none, and
-a set label makes the compare menu tick "all changes" over the pull request's diff once the target is
-cleared — `formal-compare-mode` finds that in four steps, and `label' = TRUE` in its `OpenPullRequest`
-action is the negative control.
-
-What the launch asked for and only the first window may have — `openPath`, `pullRequest` — is assigned
-to that window beside `createWindow`, because `makeOptions` spreads the launch options into every new
-window and has to blank both. Blanking one without assigning it is silent: the argument parses, the
-option exists, and nothing happens.
-
-`formal-compare-mode` model-checks the compare controls against one promise: the compare menu always
-ticks the row describing the diff the window is actually built from. Six fields, five handlers and one
-derivation, and nothing presses two of those controls in a row anywhere in the suite — which is the only
-way the fields can disagree. Run it before and after changing anything that writes `options.base`,
-`options.baseLabel`, `options.target`, `options.staged`, `state.compareScope` or `state.compareTip`, or
-the `mode` derivation in `kakapo:compare-menu`. It holds today, and its SKILL.md records the two
-findings it was written for — including the wider fix the model refuted.
-
-A stack frame is read by a table of readers, `STACK_TRACE_READERS`, tried in a pinned order, and the
-order is the behaviour. The JVM reader is a line-for-line port of IntelliJ's own
-`ExceptionWorker.parseExceptionLine` — all four of its readers (normal, YourKit, forced, Lincheck) —
-and it is measured against the real thing rather than against a reading of it: `npm run stack:oracle`
-runs the installed IDE's parser over `test/fixtures/stack-trace-corpus.txt` and
-`test/stack-trace.test.mjs` asserts the port against every answer in
-`test/fixtures/stack-trace-oracle.json`, class FQN and method text included. Add a corpus line and
-re-run the script to pin a case; never hand-edit the JSON. Four things that fixture is the only
-witness for: `-1` means "this frame names no line" while `0` is an ordinary line number, so
-`Bar.java:0` keeps its link and `Native Method` does not get one; two frames on one line are read as
-*none*, because the parenthesis is found from index 0 and the method name then sits before the `at`,
-which `dot >= start` refuses; a forced thread-dump frame carries a line number and no file name at
-all, so it is resolved through its class name; and `at Object.foo (/p/a.js:1:2)` IS claimed by the
-JVM reader, which reads the file as `/p/a.js:1`. That last one is why `v8` is first in the table and
-why a test pins the order with that exact line.
-
-The other six readers have no oracle, so their fixture is the output of real failing programs:
-`npm run stack:samples` crashes a small program in node, python, go, rust and ruby and records what
-each printed into `test/fixtures/stack-trace-samples.json`. Reality disagreed with a description of
-those formats four times, and each disagreement is now a row in that capture: go's ` +0x4c` offset is
-optional and requiring it loses every inlined frame, node's first line is a bare `path:line` with no
-`at` and is the frame that says where the error was thrown, rust's panic header is a relative path
-with a trailing colon, and ruby's shape matches nothing else. The v8 bare form is deliberately
-restricted to an unindented line, because go's `\t<path>:<line>` is the same shape and v8 is tried
-first.
-
-Normalizing — IntelliJ's "Normalize" button, which unwraps a trace pasted out of mail or chat — is
-applied by counting rather than by a button: both readings are parsed and the one with more frames
-wins, ties to the text as pasted. It has to be a count, because the substitution that unwraps
-`… boom at Bar.baz(Bar.java:4) at Bar.run(Bar.java:7)` into two frames also splits rust's
-`panicked at main.rs:3:9:` in two and loses the panic site — measured at 34 frames as printed against
-33 unwrapped. A test asserts each direction.
-
-The panel's rows carry two kinds of text and the chrome-text audit has to tell them apart:
-`.stack-line` holds what the reader's crash wrote (a path, a symbol, a prose line) and is listed in
-`scripts/ui-text-audit.mjs` as text this repository did not write, while `.stack-note` holds our own
-sentences and is measured. A note added to a row without that class is a Korean string nobody ever
-measured at 900px.
-
-A review's own file list holds only what the review changed, and a stack trace mostly names files it did
-not. `sourceFiles` starts as the changed set; the whole project arrives only when something asks for it
-with `ensureProjectIndex()`, which Quick Open, Search Everywhere, the comment prune and the endpoints
-view all do. `renderStackTrace` is the eleventh caller and the one that shows why the rule is worth
-writing down: without the call the panel resolved exactly the frames whose files were in the diff, which
-for a crash is the minority, and both fixtures said it was fine because both made every file a changed
-file. The real-app check now commits `Untouched.java` in the initial commit and never touches it again,
-and the chrome-text audit's stack-trace surface will not open unless a frame resolves against a file its
-fixture committed once and never touched again, so each of them fails by name if the call goes away.
-
-A sandboxed preload is handed `contextBridge`, `ipcRenderer`, `webFrame`, `webUtils`, `crashReporter` and
-`nativeImage`, and nothing else from `electron`; `app-main.ts` runs this one with `sandbox: true`. So
-`clipboard` was `undefined` there for as long as the bridge existed: `read()` returned `""` from inside
-its own `try`, `write()` threw and `copyTextToClipboard` swallowed it before falling through to
-`navigator.clipboard`, and Compare with Clipboard read an empty clipboard the whole time while copying
-appeared to work. It goes through the main process now (`kakapo:clipboard-read` / `-write`).
-`test/app-boundaries.test.mjs` refuses any import outside that list, because the next one will be
-`shell`, `dialog` or `nativeTheme` and the failure is silent every time; the jsdom suite stubs main and
-can never see it, so `.claude/skills/verify-kakapo/clipboard-bridge.mjs` measures the round trip against
-the real system clipboard from outside the app.
-
-A viewer slice's number is its load order, so two slices may not share one. `26-stack-trace.js` shipped
-beside `26-endpoints.js` and the pair sorted arbitrarily between themselves; it is `27-stack-trace.js`.
+A number in this repository lives next to the assertion that would fail without it, not here.
+`test/server-cache.test.mjs` carries the timing that chose every cache scope, `test/install-cache-prune.test.mjs`
+the reason a table must be read, and the fixtures under `test/fixtures` carry what a real IntelliJ, a real
+crash and a real server legend answered. Refresh a fixture with the script that captured it
+(`npm run stack:oracle`, `npm run stack:samples`, `npm run lsp:legends`) rather than editing it, because a
+legend that grew a name is how the first missing row went missing.

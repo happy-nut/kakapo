@@ -98,3 +98,45 @@ test("a symbol a document names is a symbol this repository declares", () => {
     + "scripts/ declares any more. Rename it in the document, or add it to FOREIGN_NAMES in this test with "
     + "the program it belongs to.");
 });
+
+// The rule table in AGENTS.md is the one place prose is allowed to stand in for a rule, and only because
+// every row names the check that fails when the rule breaks. A row naming a check that no longer exists is
+// worse than no row: it reads as covered.
+const RULE_TABLE = /^\|(.+?)\|(.+?)\|\s*$/gm;
+
+function enforcers(cell) {
+  return Array.from(cell.matchAll(/`([^`]+)`/g), (match) => match[1]);
+}
+
+test("every rule in the table names an enforcer that exists", () => {
+  const agents = readFileSync(join(root, "AGENTS.md"), "utf8");
+  const rows = Array.from(agents.matchAll(RULE_TABLE))
+    .map(([, rule, cell]) => [rule.trim(), cell.trim()])
+    .filter(([rule]) => rule !== "Rule" && !rule.startsWith("---"));
+  assert.ok(rows.length >= 20, `the table reader found ${rows.length} rows, so it is not reading the table `
+    + "and the assertions below cannot fail for the right reason");
+
+  const workflows = readdirSync(join(root, ".github", "workflows"))
+    .map((file) => readFileSync(join(root, ".github", "workflows", file), "utf8")).join("\n");
+  const scripts = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).scripts;
+  const missing = [];
+  let named = 0;
+  for (const [rule, cell] of rows) {
+    const found = enforcers(cell);
+    assert.ok(found.length, `the row "${rule.slice(0, 50)}" names no enforcer at all`);
+    for (const enforcer of found) {
+      named += 1;
+      if (enforcer.startsWith("npm run ")) {
+        if (!scripts[enforcer.slice("npm run ".length)]) missing.push(`${rule.slice(0, 40)} → no ${enforcer}`);
+      } else if (enforcer.includes("/") || enforcer.endsWith(".mjs")) {
+        if (!existsSync(join(root, enforcer))) missing.push(`${rule.slice(0, 40)} → no ${enforcer}`);
+      } else if (!workflows.includes(enforcer)) {
+        missing.push(`${rule.slice(0, 40)} → no workflow job or script named ${enforcer}`);
+      }
+    }
+  }
+  assert.ok(named >= rows.length, "every row names at least one enforcer");
+  assert.deepEqual(missing, [], "a rule in AGENTS.md names a check that is not there. Either the check moved "
+    + "and the row has to follow it, or the rule is now unenforced prose and belongs in one of the sections "
+    + "that say so.");
+});
