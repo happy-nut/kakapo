@@ -34,6 +34,7 @@ import type { CommentsIpcState } from "./comments-file.js";
 import { installWindowSurfaceRecovery } from "./window-layout.js";
 import { UI_SCALES } from "./constants.js";
 import { electronAcceleratorFor, setShortcutOverrides } from "./shortcuts.js";
+import { applyLaunchOnly, withoutLaunchOnly } from "./launch-options.js";
 
 type AppOptions = {
   root: string;
@@ -644,8 +645,7 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
   }
 
   const first = createWindow(options.root, options.explicitRoot);
-  first.options.openPath = options.openPath;
-  first.options.pullRequest = options.pullRequest;
+  applyLaunchOnly(first.options, options);
   setInterval(watchLspWeight, LSP_WATCHDOG_MS);
   setTimeout(() => {
     reclaimServerCaches().then((reclaimed) => {
@@ -1314,7 +1314,7 @@ async function pickRepo(parent: BrowserWindow | undefined, defaultPath?: string)
 function makeOptions(root: string, explicitRoot = true): AppOptions {
   const resolved = resolveWorkspaceRoot(root);
   const compare = compareSelectionFor(resolveWorkspaceRoot(options.root), resolved, options);
-  return { ...options, ...compare, root: resolved, openPath: undefined, pullRequest: undefined, explicitRoot };
+  return withoutLaunchOnly({ ...options, ...compare, root: resolved, explicitRoot });
 }
 
 function parseArgs(args: string[]): AppOptions {
