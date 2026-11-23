@@ -42,12 +42,18 @@ const shortcutPrelude = `var SHORTCUT_DEFS = ${JSON.stringify(shortcutDefs)};\n`
 const { PREVIEW_MEDIA: previewMedia } = createRequire(import.meta.url)(join(distDir, "preview-media.js"));
 if (!previewMedia || !previewMedia.png) throw new Error("dist/preview-media.js exported no PREVIEW_MEDIA — did tsc run?");
 const previewPrelude = `var PREVIEW_MEDIA = ${JSON.stringify(previewMedia)};\n`;
+const { DECLARATION_HEURISTICS: declarationHeuristics } =
+  createRequire(import.meta.url)(join(distDir, "declaration-heuristics.js"));
+if (!declarationHeuristics?.statementHeads?.length) {
+  throw new Error("dist/declaration-heuristics.js exported no DECLARATION_HEURISTICS — did tsc run?");
+}
+const heuristicsPrelude = `var DECLARATION_HEURISTICS = ${JSON.stringify(declarationHeuristics)};\n`;
 const { markWhitespaceRuns, moduleEntryFor } = createRequire(import.meta.url)(join(distDir, "util.js"));
 if (typeof markWhitespaceRuns !== "function") throw new Error("dist/util.js exported no markWhitespaceRuns — did tsc run?");
 if (typeof moduleEntryFor !== "function") throw new Error("dist/util.js exported no moduleEntryFor — did tsc run?");
 const whitespacePrelude = `var markWhitespaceRuns = ${markWhitespaceRuns.toString()};\n`
   + `var moduleEntryFor = ${moduleEntryFor.toString()};\n`;
-const bundle = vendorBundle + shortcutPrelude + previewPrelude + whitespacePrelude + parts.map((f) => readFileSync(join(viewerDir, f), "utf8")).join("");
+const bundle = vendorBundle + shortcutPrelude + previewPrelude + heuristicsPrelude + whitespacePrelude + parts.map((f) => readFileSync(join(viewerDir, f), "utf8")).join("");
 writeFileSync(join(distDir, "viewer.client.js"), bundle);
 
 try {

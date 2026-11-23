@@ -65,8 +65,9 @@ that asks it about a file nobody opened gets `null` for every name, including on
 Open the file first (`openSourceFile`, then wait on `sourceOpenPath()`), and open the file you want
 scanned, because the index answers before the renderer ever gets a turn.
 
-`drive()` takes an options object as its fourth argument; `{ args: ["--include-untracked"] }` reaches the
-CLI, which is the only way to turn on a flag the window has no control for.
+`drive()` takes an options object as its fourth argument, and `args` reaches the CLI — the only way to set
+something the window has no control for. `--include-untracked` is not one of those: the CLI forwards it on
+every launch, so passing it changes nothing and untracked files always count as additions.
 
 `drive()` does, in order:
 

@@ -8,6 +8,7 @@ import { parseReviewArgs } from "./cli-args.js";
 import { isGitRepository, validateReviewBase } from "./git.js";
 import { parsePullRequestRef, remoteSlug } from "./github-pr.js";
 import { applicationsBundlePath, installApp, uninstallApp } from "./install-app.js";
+import { CLI_COMMANDS, CLI_OPTIONS, cliValueOptions, commandsHelp, optionsHelp } from "./cli-surface.js";
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -22,8 +23,8 @@ export function main(): void {
       console.log(packageVersion());
       return;
     }
-    if (rawArgs[0] === "install-app") { runInstallApp(); return; }
-    if (rawArgs[0] === "uninstall-app") { runUninstallApp(); return; }
+    const command = CLI_COMMANDS.find((entry) => entry.name === rawArgs[0]);
+    if (command) { COMMAND_RUNNERS[command.name](); return; }
     launchReviewApp(rawArgs);
   } catch (error) {
     const message = errorMessage(error);
@@ -38,6 +39,11 @@ function packageVersion(): string {
     return typeof pkg.version === "string" ? pkg.version : "0.0.0";
   } catch { return "0.0.0"; }
 }
+
+const COMMAND_RUNNERS: Record<string, () => void> = {
+  "install-app": () => runInstallApp(),
+  "uninstall-app": () => runUninstallApp(),
+};
 
 function runInstallApp(): void {
   const { path, replaced } = installApp({ version: packageVersion() });
@@ -55,7 +61,7 @@ function runUninstallApp(): void {
 
 export const DEFAULT_DIFF_CONTEXT = 12;
 
-const VALUE_OPTIONS = new Set(["--cwd", "--base", "--context", "--pull-request"]);
+const VALUE_OPTIONS = cliValueOptions();
 
 function positionalPath(args: string[]): string | undefined {
   for (let index = 0; index < args.length; index += 1) {
@@ -105,15 +111,13 @@ function launchReviewApp(args: string[]): void {
   appArgs.push("--opened");
   if (pullRequest) appArgs.push("--pull-request", pullRequest);
   if (openFile) appArgs.push("--open", openFile);
-  const base = readOption(args, "--base");
-  if (base !== undefined) appArgs.push("--base", base);
-  const context = readOption(args, "--context");
-  appArgs.push("--context", context ?? String(DEFAULT_DIFF_CONTEXT));
-  const whitespace = readOption(args, "--whitespace");
-  if (whitespace !== undefined) appArgs.push("--whitespace", whitespace);
-  for (const flag of ["--staged", "--ignore-whitespace", "--no-watch"]) {
-    if (args.includes(flag)) appArgs.push(flag);
+  for (const option of CLI_OPTIONS) {
+    if (option.forward === "boolean" && args.includes(option.flag)) appArgs.push(option.flag);
+    if (option.forward !== "value") continue;
+    const value = readOption(args, option.flag);
+    if (value !== undefined) appArgs.push(option.flag, value);
   }
+  if (readOption(args, "--context") === undefined) appArgs.push("--context", String(DEFAULT_DIFF_CONTEXT));
 
   ensureElectronRuntimeBranded();
   const electronBinary = resolveElectronBinary();
@@ -193,28 +197,9 @@ Usage:
                     fetched and the diff opens against its merge base. Also
                     owner/repo#12 and #12. Needs the GitHub CLI (gh).
 
-Commands:
-  install-app       add a Kakapo icon to Applications (Spotlight, Launchpad, Dock).
-                    npm installs a CLI only; this is the opt-in that gives it an icon.
-  uninstall-app     remove that icon again
+${commandsHelp()}
 
-Options:
-  --version, -v     print the version and exit
-  --cwd <path>      same as the bare <path> form, for a folder
-  --base <rev>      compare the working tree against a branch, tag or commit
-                    default: the upstream merge-base when the branch has unpushed
-                    commits, otherwise HEAD. Changeable in the app — see Alt+A/U/C.
-  --staged          compare the index against HEAD instead (not with --base)
-  --include-untracked  count files git does not track yet as additions
-  --ignore-whitespace  hide changes that are only whitespace (= --whitespace=all)
-  --whitespace <mode>  how much whitespace difference counts as a difference:
-                    none (default) | trim (ignore how much) | all (ignore it).
-                    Changeable in the app — Diff menu, or Cmd/Ctrl+Shift+W.
-  --context <n>     unchanged lines kept around each hunk; default: 12.
-                    Changeable in the app — Diff menu.
-  --pull-request <link>  same as the bare <pr link> form
-  --no-watch        stop refreshing the review when the working tree changes
-  -h, --help        this text
+${optionsHelp()}
 
 Diff review keys:
   F7 / Shift+F7     next / previous change — each edit, deleted lines included
