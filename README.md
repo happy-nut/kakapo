@@ -742,7 +742,7 @@ patch sets, in one review. `⌥A` / `⌥U` / `⌥C` do the branch-level version 
 | Go | `gopls` | Go SDK |
 | Rust | `rust-analyzer` | Cargo, Rust stable, `rust-src` |
 | C / C++ | `clangd` | Platform-native clangd |
-| Java | Eclipse JDT LS | Temurin JRE 21 |
+| Java | Eclipse JDT LS | Temurin JDK 21 |
 | Kotlin | JetBrains Kotlin LSP | Dedicated JetBrains Runtime |
 | Ruby | Sorbet | Platform-native Sorbet |
 | PHP | Phpactor | Static PHP 8.4 runtime |

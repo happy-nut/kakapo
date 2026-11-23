@@ -683,7 +683,7 @@ Authorization: Bearer {{token}}
 | Go | `gopls` | Go SDK |
 | Rust | `rust-analyzer` | Cargo, Rust stable, `rust-src` |
 | C / C++ | `clangd` | 플랫폼 네이티브 clangd |
-| Java | Eclipse JDT LS | Temurin JRE 21 |
+| Java | Eclipse JDT LS | Temurin JDK 21 |
 | Kotlin | JetBrains Kotlin LSP | 전용 JetBrains Runtime |
 | Ruby | Sorbet | 플랫폼 네이티브 Sorbet |
 | PHP | Phpactor | 정적 PHP 8.4 런타임 |

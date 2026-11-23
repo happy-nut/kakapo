@@ -240,7 +240,7 @@ test("bundled clangd resolves a header definition", {
   },
 }));
 
-test("bundled JDT LS and JRE resolve a Java definition", {
+test("bundled JDT LS and JDK resolve a Java definition", {
   timeout: BUNDLE_TEST_TIMEOUT_MS,
   skip: !bundled.java || !existsSync(bundled.java),
 }, async () => expectSemanticDefinition({

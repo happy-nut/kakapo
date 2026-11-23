@@ -68,12 +68,22 @@ test("Kotlin packaging preserves relative JBR links instead of retaining tempora
   );
 });
 
-test("Java packaging preserves relative Temurin JRE links instead of retaining temporary paths", () => {
+test("Java packaging preserves relative Temurin JDK links instead of retaining temporary paths", () => {
   const installer = readFileSync(join(repoRoot, "scripts", "install-language-servers.mjs"), "utf8");
   assert.match(
     installer,
-    /cpSync\(dirname\(dirname\(java\)\), join\(output, "jre"\), \{\s*recursive: true,\s*verbatimSymlinks: true,\s*\}\)/,
+    /cpSync\(dirname\(dirname\(java\)\), join\(output, "jdk"\), \{\s*recursive: true,\s*verbatimSymlinks: true,\s*\}\)/,
   );
+});
+
+test("the bundled Java home is a JDK, because a Gradle toolchain refuses one without a compiler", () => {
+  const installer = readFileSync(join(repoRoot, "scripts", "install-language-servers.mjs"), "utf8");
+  const archives = installer.slice(installer.indexOf("const JAVA_ARCHIVES"), installer.indexOf("const SORBET_ARCHIVES"));
+  const names = [...archives.matchAll(/"(OpenJDK\d+U-[^"]+\.tar\.gz)"/g)].map((match) => match[1]);
+  assert.ok(names.length >= 2, `expected a pinned Temurin archive per target, got ${names.length}`);
+  for (const name of names) assert.match(name, /-jdk_/, `${name} is not a JDK archive`);
+  assert.match(installer, /join\(dirname\(java\), "javac"\)/);
+  assert.match(installer, /java", "jdk", "bin", "java"/);
 });
 
 test("language-server downloads retry transient server failures without weakening checksums", async () => {
