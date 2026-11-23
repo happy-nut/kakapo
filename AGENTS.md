@@ -94,7 +94,7 @@ Nothing below needs to be remembered. Each row fails by name when it is broken, 
 | Rule | Enforced by |
 | --- | --- |
 | No `[skip ci]` commit reaches a branch — a squash merge collects every subject and mutes the release | `no-skip-ci-on-the-branch` in `.github/workflows/test.yml` |
-| A keyboard shortcut is a row in `src/shortcuts.ts` and nothing else, with a label in both locales | `test/shortcut-registry.test.mjs`, `test/i18n-parity.test.mjs` |
+| A keyboard shortcut is a row in `src/shortcuts.ts` and nothing else — it resolves to an action, the keypress runs it, the Settings sheet renders it, a control's key hint comes from it, and both locales label it | `test/shortcut-registry.test.mjs`, `test/i18n-parity.test.mjs` |
 | A chord the application menu holds never reaches the page, and a `fixed` row names a chord the menu really has | `test/menu-accelerators.test.mjs` (macOS only; Linux CI skips it) |
 | A chord in a README table is one `src/shortcuts.ts` declares | `test/readme-chords.test.mjs` |
 | The CLI's commands and options are one table, advertised and read in both directions | `test/cli-surface.test.mjs`, `test/cli-args.test.mjs` |
@@ -129,6 +129,7 @@ Nothing below needs to be remembered. Each row fails by name when it is broken, 
 | No application state is ever written inside a reviewed project | `test/workspace-data.test.mjs` |
 | A runtime dependency is declared with the review reason it is there, and a bundled server is pinned | `test/runtime-dependencies.test.mjs` |
 | A stack row says whose sentence each text is, so the audit measures ours and not the reader's crash | `test/measured-chrome-text.test.mjs` |
+| A bench removes the scratch directory it made — on a throw and on `SIGTERM` — and never the caller's | `test/scratch-dir.test.mjs` |
 | A change works in the real app, not only in jsdom | `.claude/skills/verify-kakapo` |
 
 Three of those are not part of `npm test` and have to be run deliberately: `npm run ui:text`, because jsdom
