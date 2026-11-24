@@ -23,7 +23,10 @@ npm test
 
 `intellij-plugin/` is a Gradle subproject: the same review, written from inside the IDE. It is not
 part of `npm test` — `npm run idea:anchor` checks the one rule that decides whether it works, and
-`npm run idea:build` produces the installable zip.
+`npm run idea:build` produces the installable zip, and `npm run idea:publish` uploads it. Run those
+through npm and not `gradle` directly: `scripts/gradle-with-bundled-jdk.mjs` hands Gradle the JDK 21
+this repository already bundles for reading Java, because there is no system Java here and Gradle's
+toolchain error names a missing installation rather than the missing JDK it was never given.
 
 Runtime code lives in `src/`. Prefer plain Markdown and JSON artifacts so users can inspect and edit
 everything. Do not introduce git worktree, terminal multiplexer, editor, or agent-specific requirements —
@@ -137,6 +140,13 @@ Nothing below needs to be remembered. Each row fails by name when it is broken, 
 | A stack row says whose sentence each text is, so the audit measures ours and not the reader's crash | `test/measured-chrome-text.test.mjs` |
 | A bench removes the scratch directory it made — on a throw and on `SIGTERM` — and never the caller's | `test/scratch-dir.test.mjs` |
 | A change works in the real app, not only in jsdom | `.claude/skills/verify-kakapo` |
+| A plugin release's notes are written for that release, and publishing finds its own token | `test/intellij-plugin-shares-the-review.test.mjs` |
+| A review written in kakapo is marked when the file is opened, not only inside the Diff window | `test/intellij-plugin-shares-the-review.test.mjs` |
+| The plugin works in the IDE a user installs, loaded from the zip the Marketplace serves | `.claude/skills/verify-kakapo-idea` |
+
+`.claude/skills/verify-kakapo-idea` answers for the plugin what `verify-kakapo` answers for the app, and it
+installs `intellij-plugin/build/distributions/*.zip` rather than Gradle's `idea-sandbox`: the sandbox carries
+jars the distribution does not, so a run against it can pass while the zip a user downloads cannot load.
 
 Three of those are not part of `npm test` and have to be run deliberately: `npm run ui:text`, because jsdom
 lays nothing out and every width is zero; the two benches, because they open real repositories; and the two

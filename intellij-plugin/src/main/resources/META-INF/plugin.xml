@@ -12,6 +12,7 @@
 
   <extensions defaultExtensionNs="com.intellij">
     <diff.DiffExtension implementation="dev.kakapo.comments.DiffCommentExtension"/>
+    <postStartupActivity implementation="dev.kakapo.comments.CommentMarksOnOpen"/>
   </extensions>
 
   <actions>
