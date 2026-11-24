@@ -33,7 +33,7 @@ await drive("statement-keywords", repo, async (page, h) => {
   })()`);
 
   const control = await ask("Hold");
-  h.check(control.locations.some((at) => at === `${GATE}:2`),
+  h.control(control.locations.some((at) => at === `${GATE}:2`),
     "the window answers a definition question from the index at all, so an empty answer below means something",
     JSON.stringify(control));
 

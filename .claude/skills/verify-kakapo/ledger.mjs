@@ -27,7 +27,7 @@ await drive("ledger", repo, async (page, h) => {
                  unread: r.classList.contains('is-unread'),
                  active: r.classList.contains('active') }))`);
 
-  h.check(await page.evaluate(`!document.getElementById('patchset-bar').classList.contains('hidden')`),
+  h.control(await page.evaluate(`!document.getElementById('patchset-bar').classList.contains('hidden')`),
     "the patch-set bar is showing");
   h.check(await page.evaluate(`document.getElementById('patchset-ledger').classList.contains('hidden')`),
     "and the ledger starts closed");

@@ -35,7 +35,7 @@ await drive(`return-type-methods-${LABEL}`, repo, async (page, h) => {
       .then(r => JSON.stringify({ engine: r && r.engine, at: ((r && r.locations) || []).map(l => l.lineIndex + 1) }))`));
 
   const run = await ask("Run", 8, 4);
-  h.check(run.engine === "index",
+  h.control(run.engine === "index",
     "a .cs file has no language server, so this is the index answering on its own", JSON.stringify(run));
   h.check(EXPECT_MISSING ? JSON.stringify(run.at) === "[]" : JSON.stringify(run.at) === "[2]",
     EXPECT_MISSING

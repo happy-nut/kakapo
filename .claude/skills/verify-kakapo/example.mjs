@@ -17,7 +17,7 @@ await drive("example", repo, async (page, h) => {
     `document.querySelector('.compare-refs') ? document.querySelector('.compare-refs').textContent.replace(/\\s+/g,' ').trim() : ''`);
 
   const opened = await shown();
-  h.check(JSON.stringify(opened) === JSON.stringify(["src/report.ts"]),
+  h.control(JSON.stringify(opened) === JSON.stringify(["src/report.ts"]),
     "a dirty worktree opens on the uncommitted work", JSON.stringify(opened));
   const listed = await page.evaluate(`document.querySelectorAll('#changes-panel .file-link').length`);
   h.check(listed === opened.length, "and the Changes list says the same thing as the diff", listed);

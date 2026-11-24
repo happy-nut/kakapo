@@ -46,15 +46,10 @@ function shortcutCaptureMessage(row, message, bad) {
   note.textContent = message;
   note.classList.toggle('keys-note-bad', !!bad);
 }
-var captureHoldsMenu = false;
-function captureOwnsMenuKeys(owns) {
-  if (!!owns === captureHoldsMenu) return;
-  captureHoldsMenu = !!owns;
-  holdMenuShortcuts(captureHoldsMenu);
-}
+claimsMenuChords('shortcut-capture', function () { return !!shortcutCapture; }, { takesFieldEditingKeys: true });
 function endShortcutCapture() {
   if (!shortcutCapture) return;
-  captureOwnsMenuKeys(false);
+  syncMenuChords();
   var row = shortcutCapture.row;
   shortcutCapture = null;
   row.classList.remove('keys-row-capturing');
@@ -67,7 +62,7 @@ function beginShortcutCapture(row, index) {
   var def = shortcutDef(row.dataset.shortcut);
   if (!def) return;
   shortcutCapture = { id: def.id, index: index, row: row };
-  captureOwnsMenuKeys(true);
+  syncMenuChords();
   row.classList.add('keys-row-capturing');
   var holder = row.querySelector('.keys-keys');
   holder.innerHTML = '<span class="keys-combo keys-combo-listening"><kbd>' + escapeHtml(t('settings.kbd.capture')) + '</kbd></span>';
@@ -88,8 +83,6 @@ document.addEventListener('keydown', function (event) {
   var chord = shortcutChords(event)[0];
   if (!chord) return;
   if (!shortcutBindable(chord)) { shortcutCaptureMessage(shortcutCapture.row, t('settings.kbd.needModifier'), true); return; }
-  // The application menu takes its chords before any renderer keydown runs, so binding one here saves a
-  // key that can never fire — and the sheet used to accept ⌘M, ⌘0 and ⌘⇧Z in silence and do exactly that.
   if (MENU_OWNED_CHORDS.indexOf(shortcutCanonical(chord)) >= 0) {
     shortcutCaptureMessage(shortcutCapture.row, t('settings.kbd.menuOwned').replace('{key}', chord), true);
     return;
@@ -111,7 +104,7 @@ document.addEventListener('keydown', function (event) {
   keys[shortcutCapture.index] = chord;
   shortcutOverridesAll()[shortcutCapture.id] = keys;
   var row = shortcutCapture.row;
-  captureOwnsMenuKeys(false);
+  syncMenuChords();
   shortcutCapture = null;
   row.classList.remove('keys-row-capturing');
   var note = row.querySelector('.keys-note');

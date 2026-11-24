@@ -1,3 +1,12 @@
+function hangWrappedIndent(row) {
+  var cell = row && row.querySelector ? row.querySelector('.d2h-code-line-ctn') : null;
+  if (!cell) return;
+  var lead = /^[ \t]*/.exec(cell.textContent || '')[0].replace(/\t/g, '    ').length;
+  var want = lead ? lead + 'ch' : '0px';
+  if (cell.dataset.wrapIndent === want) return;
+  cell.dataset.wrapIndent = want;
+  cell.style.setProperty('--wrap-indent', want);
+}
 var diffViewportResizing = false;
 var diffViewportResizeTimer = 0;
 
@@ -112,6 +121,7 @@ function refreshLayeredDiffSide(side) {
   });
   var fallbackTop = 0;
   var wrapped = !!(side.closest && side.closest('#diff2html-container.line-wrap'));
+  if (wrapped) model.forEach(function (entry) { hangWrappedIndent(entry.row); });
   var fragment = document.createDocumentFragment();
   var existing = new Map();
   layer.gutter.querySelectorAll('.mc-diff-gutter-number').forEach(function (item) {

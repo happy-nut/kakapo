@@ -855,7 +855,7 @@ function insertSourceCaret(row, column) {
     var off = pos.node.nodeType === 3 ? Math.min(pos.offset, (pos.node.textContent || '').length) : pos.offset;
     var range = document.createRange();
     range.setStart(pos.node, off); range.collapse(true);
-    range.insertNode(span);
+    placeCaretSpan(span, cell, range);
   } catch (e) {}
 }
 

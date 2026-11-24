@@ -21,6 +21,10 @@ npm run smoke
 npm test
 ```
 
+`intellij-plugin/` is a Gradle subproject: the same review, written from inside the IDE. It is not
+part of `npm test` — `npm run idea:anchor` checks the one rule that decides whether it works, and
+`npm run idea:build` produces the installable zip.
+
 Runtime code lives in `src/`. Prefer plain Markdown and JSON artifacts so users can inspect and edit
 everything. Do not introduce git worktree, terminal multiplexer, editor, or agent-specific requirements —
 kakapo does not run agents, embed a terminal, or manage workspaces, and those were deliberately removed.
@@ -96,7 +100,7 @@ Nothing below needs to be remembered. Each row fails by name when it is broken, 
 | No `[skip ci]` commit reaches a branch — a squash merge collects every subject and mutes the release | `no-skip-ci-on-the-branch` in `.github/workflows/test.yml` |
 | A keyboard shortcut is a row in `src/shortcuts.ts` and nothing else — it resolves to an action, the keypress runs it, the Settings sheet renders it, a control's key hint comes from it, and both locales label it | `test/shortcut-registry.test.mjs`, `test/i18n-parity.test.mjs` |
 | A chord the application menu holds never reaches the page, and a `fixed` row names a chord the menu really has | `test/menu-accelerators.test.mjs` (macOS only; Linux CI skips it) |
-| A panel that takes the menu's accelerators hands them back while a caret is in a field, because ⌘V belongs to the Edit menu and to nothing in the page | `test/dock.test.mjs`, `.claude/skills/verify-kakapo/dock-paste.mjs` |
+| A panel declares that it is up and never holds the menu's accelerators itself; the one holder hands them back while a caret is in a field, because ⌘V belongs to the Edit menu and to nothing in the page | `test/menu-chord-claims.test.mjs`, `.claude/skills/verify-kakapo/dock-paste.mjs` |
 | A chord in a README table is one `src/shortcuts.ts` declares | `test/readme-chords.test.mjs` |
 | The CLI's commands and options are one table, advertised and read in both directions | `test/cli-surface.test.mjs`, `test/cli-args.test.mjs` |
 | What only the first window may have is blanked for later windows and assigned to the first | `test/launch-options.test.mjs` |

@@ -1,20 +1,15 @@
+var HANGUL_COMPAT_JAMO_FIRST = 0x3131;
+var HANGUL_COMPAT_JAMO_LAST = 0x3163;
 var quickPreviewSeq = 0;
 var quickPreviewState = null;
 var quickPreviewScrollFrame = 0;
 var QUICK_PREVIEW_RADIUS = 60;
 var QUICK_PREVIEW_CHUNK = 120;
 
-var quickOpenHoldsMenu = false;
-function setQuickOpenOwnsEditKeys(owns) {
-  if (!!owns === quickOpenHoldsMenu) return;
-  quickOpenHoldsMenu = !!owns;
-  holdMenuShortcuts(quickOpenHoldsMenu);
-}
-function syncQuickOpenEditKeys() {
-  var focused = document.activeElement;
-  var typing = !!focused && (focused.tagName === 'INPUT' || focused.tagName === 'TEXTAREA' || focused.isContentEditable);
-  setQuickOpenOwnsEditKeys(!typing);
-}
+claimsMenuChords('quick-open', function () {
+  return !!quickOpen && !quickOpen.classList.contains('hidden');
+});
+function syncQuickOpenEditKeys() { syncMenuChords(); }
 var QUICK_LAUNCHER_MODES = ['everywhere', 'recent', 'all', 'content', 'symbol', 'actions'];
 function paintQuickOpenMode() {
   if (!quickInput || !quickModeLabel) return;
@@ -115,7 +110,7 @@ function updateRecentFilterDisplay() {
 }
 
 function closeQuickOpen(navigating) {
-  setQuickOpenOwnsEditKeys(false);
+  syncMenuChords();
   var wasOpen = !!(quickOpen && !quickOpen.classList.contains('hidden'));
   var focused = document.activeElement;
   if (focused && quickOpen && quickOpen.contains(focused) && focused.blur) focused.blur();
@@ -154,7 +149,6 @@ quickOpen?.addEventListener('keydown', function (event) {
 document.addEventListener('focusin', function () { if (quickOpen && !quickOpen.classList.contains('hidden')) syncQuickOpenEditKeys(); });
 document.addEventListener('focusout', function () {
   if (!quickOpen || quickOpen.classList.contains('hidden')) return;
-  setTimeout(syncQuickOpenEditKeys, 0); // after the browser has settled on the next focus target
 });
 
 function handleQuickOpenKey(event) {
@@ -262,7 +256,6 @@ function handleQuickOpenKey(event) {
 var DUBEOLSIK_CHO = ['r','R','s','e','E','f','a','q','Q','t','T','d','w','W','c','z','x','v','g'];
 var DUBEOLSIK_JUNG = ['k','o','i','O','j','p','u','P','h','hk','ho','hl','y','n','nj','np','nl','b','m','ml','l'];
 var DUBEOLSIK_JONG = ['','r','R','rt','s','sw','sg','e','f','fr','fa','fq','ft','fx','fv','fg','a','q','qt','t','T','d','w','c','z','x','v','g'];
-// U+3131..U+3163: the jamo on their own, which is what a half-typed syllable leaves behind.
 var DUBEOLSIK_JAMO = ['r','R','rt','s','sw','sg','e','E','f','fr','fa','fq','ft','fx','fv','fg','a','q','Q','qt','t','T','d','w','W','c','z','x','v','g',
   'k','o','i','O','j','p','u','P','h','hk','ho','hl','y','n','nj','np','nl','b','m','ml','l'];
 function qwertyFromHangul(text) {
@@ -272,8 +265,8 @@ function qwertyFromHangul(text) {
     if (code >= 0xac00 && code <= 0xd7a3) {
       var n = code - 0xac00;
       out += DUBEOLSIK_CHO[Math.floor(n / 588)] + DUBEOLSIK_JUNG[Math.floor((n % 588) / 28)] + DUBEOLSIK_JONG[n % 28];
-    } else if (code >= 0x3131 && code <= 0x3163) {
-      out += DUBEOLSIK_JAMO[code - 0x3131];
+    } else if (code >= HANGUL_COMPAT_JAMO_FIRST && code <= HANGUL_COMPAT_JAMO_LAST) {
+      out += DUBEOLSIK_JAMO[code - HANGUL_COMPAT_JAMO_FIRST];
     } else {
       out += text[i];
     }

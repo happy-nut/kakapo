@@ -1,27 +1,6 @@
 import { readFileSync, statSync } from "node:fs";
 import { inflateRawSync, inflateSync } from "node:zlib";
 
-/**
- * An entry read out of an archive a language server pointed a definition at.
- *
- * Only the Phar format is read, because it is the only archive a server here has named something inside.
- * A `.phar` is not a zip: it is a PHP stub ending in `__HALT_COMPILER();`, then a manifest of fixed-order
- * little-endian records, then every entry's bytes back to back in manifest order, then a signature.
- * Phpactor ships PhpStorm's stubs inside its own phar, so `textDocument/definition` on `date()` in any PHP
- * project answers `…/phpactor.phar/vendor/jetbrains/phpstorm-stubs/date/date_c.php` — a path to real source
- * that `existsSync` is right to say nothing about, and that used to end the navigation.
- *
- * The other two shapes a server has handed us stay unreadable, and deliberately:
- *   - `…/jbr/Contents/Home!/java.base/java/time/Instant.class` (Kotlin) is an entry in a JDK jimage.
- *     Reading it needs a jimage parser AND a bytecode decompiler; the vendored JBR ships neither — no
- *     `src.zip`, no `jimage`/`javap` in its `bin`, no FernFlower in any bundled jar. Java only works
- *     because jdtls answers `java/classFileContents` with decompiled text of its own.
- *   - `https://github.com/sorbet/…/json.rbi#L194` (Sorbet) is not a path at all. The viewer hands that one
- *     to the browser instead.
- *
- * ponytail: phar only. A `guava.jar!/com/…/Joiner.class` is a zip and would be ~30 lines more here, but no
- * server in this app has yet produced one — add that branch when one does.
- */
 export type ArchiveEntry = {
   archive: string;
   entry: string;
@@ -36,16 +15,22 @@ const ENTRY_BZIP2 = 0x2000;
 /** filename length, size, timestamp, compressed size, crc32, flags, metadata length. */
 const ENTRY_FIXED_BYTES = 24;
 
-/** `…/x.phar/a/b.php` -> the archive and the entry inside it; null when the path names no archive. */
 export function splitArchivePath(path: string): { archive: string; entry: string } | null {
   const slashed = String(path || "").replace(/\\/g, "/");
-  const at = slashed.toLowerCase().lastIndexOf(".phar/");
-  if (at < 0) return null;
-  const entry = slashed.slice(at + ".phar/".length);
-  return entry ? { archive: slashed.slice(0, at + ".phar".length), entry } : null;
+  const phar = slashed.toLowerCase().lastIndexOf(".phar/");
+  if (phar >= 0) {
+    const entry = slashed.slice(phar + ".phar/".length);
+    return entry ? { archive: slashed.slice(0, phar + ".phar".length), entry } : null;
+  }
+  // The Kotlin server answers a library definition with `jar:///…/spring-batch-core-5.1.2.jar!/org/…/
+  // RunIdIncrementer.class`, so the separator is the jar URI's `!/` rather than a directory boundary.
+  const bang = slashed.indexOf("!/");
+  if (bang < 0) return null;
+  const archive = slashed.slice(0, bang);
+  const entry = slashed.slice(bang + 2);
+  return entry && /\.(jar|zip)$/i.test(archive) ? { archive, entry } : null;
 }
 
-/** The bytes of one entry, or null for anything this cannot read. Never throws. */
 export function readArchiveEntry(path: string, maxEntryBytes: number): ArchiveEntry | null {
   const split = splitArchivePath(path);
   if (!split) return null;
@@ -53,11 +38,60 @@ export function readArchiveEntry(path: string, maxEntryBytes: number): ArchiveEn
   try { stats = statSync(split.archive); } catch { return null; }
   if (!stats.isFile() || stats.size > MAX_ARCHIVE_BYTES) return null;
   try {
-    const bytes = pharEntry(readFileSync(split.archive), split.entry, maxEntryBytes);
+    const buf = readFileSync(split.archive);
+    const bytes = /\.phar$/i.test(split.archive)
+      ? pharEntry(buf, split.entry, maxEntryBytes)
+      : zipEntry(buf, split.entry, maxEntryBytes);
     return bytes ? { ...split, bytes, mtimeMs: stats.mtimeMs } : null;
   } catch {
     return null;
   }
+}
+
+const END_OF_CENTRAL_DIRECTORY = 0x06054b50;
+const CENTRAL_FILE_HEADER = 0x02014b50;
+const ZIP_DEFLATED = 8;
+
+function zipEntry(buf: Buffer, want: string, maxEntryBytes: number): Buffer | null {
+  const floor = Math.max(0, buf.length - 66_000);
+  let end = -1;
+  for (let at = buf.length - 22; at >= floor; at -= 1) {
+    if (buf.readUInt32LE(at) === END_OF_CENTRAL_DIRECTORY) { end = at; break; }
+  }
+  if (end < 0) return null;
+  const count = buf.readUInt16LE(end + 10);
+  let p = buf.readUInt32LE(end + 16);
+  for (let i = 0; i < count; i += 1) {
+    if (p + 46 > buf.length || buf.readUInt32LE(p) !== CENTRAL_FILE_HEADER) return null;
+    const method = buf.readUInt16LE(p + 10);
+    const compressedSize = buf.readUInt32LE(p + 20);
+    const size = buf.readUInt32LE(p + 24);
+    const nameLength = buf.readUInt16LE(p + 28);
+    const extraLength = buf.readUInt16LE(p + 30);
+    const commentLength = buf.readUInt16LE(p + 32);
+    const localOffset = buf.readUInt32LE(p + 42);
+    const name = buf.subarray(p + 46, p + 46 + nameLength).toString("utf8");
+    if (name === want) {
+      if (size > maxEntryBytes || localOffset + 30 > buf.length) return null;
+      // The local header repeats the name and carries its own extra field, whose length is the only thing
+      // that says where the bytes start — the central directory's extra length is a different number.
+      const localNameLength = buf.readUInt16LE(localOffset + 26);
+      const localExtraLength = buf.readUInt16LE(localOffset + 28);
+      const start = localOffset + 30 + localNameLength + localExtraLength;
+      if (start + compressedSize > buf.length) return null;
+      const raw = buf.subarray(start, start + compressedSize);
+      if (method === 0) return raw.length === size ? Buffer.from(raw) : null;
+      if (method !== ZIP_DEFLATED) return null;
+      try {
+        const out = inflateRawSync(raw);
+        return out.length === size ? out : null;
+      } catch {
+        return null;
+      }
+    }
+    p += 46 + nameLength + extraLength + commentLength;
+  }
+  return null;
 }
 
 function pharEntry(buf: Buffer, want: string, maxEntryBytes: number): Buffer | null {

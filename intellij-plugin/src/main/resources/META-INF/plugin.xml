@@ -1,0 +1,33 @@
+<idea-plugin>
+  <id>dev.kakapo.comments</id>
+  <name>Kakapo Comments</name>
+  <vendor>kakapo</vendor>
+  <description><![CDATA[
+    Write a review comment at the caret and hand the whole review to an agent in one copy.
+    Comments are stored in the repository's own .git/kakapo/comments.jsonl, the file kakapo reads,
+    so a comment written here opens in kakapo and the other way round.
+  ]]></description>
+
+  <depends>com.intellij.modules.platform</depends>
+
+  <extensions defaultExtensionNs="com.intellij">
+    <diff.DiffExtension implementation="dev.kakapo.comments.DiffCommentExtension"/>
+  </extensions>
+
+  <actions>
+    <action id="kakapo.AddComment"
+            class="dev.kakapo.comments.AddCommentAction"
+            text="Comment at Caret"
+            description="Write a kakapo review comment on the caret's line">
+      <add-to-group group-id="EditorPopupMenu" anchor="first"/>
+      <keyboard-shortcut keymap="$default" first-keystroke="shift meta SLASH"/>
+    </action>
+    <action id="kakapo.HandOff"
+            class="dev.kakapo.comments.HandOffAction"
+            text="Copy Review for the Agent"
+            description="Copy every unaddressed kakapo comment">
+      <add-to-group group-id="ToolsMenu" anchor="last"/>
+      <keyboard-shortcut keymap="$default" first-keystroke="control meta shift SLASH"/>
+    </action>
+  </actions>
+</idea-plugin>

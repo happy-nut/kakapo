@@ -172,28 +172,6 @@ test("the menu-owned list the page uses matches this platform", async () => {
   v.close();
 });
 
-test("the menu-shortcut hold is counted, so one owner cannot release another's", async () => {
-  const v = await loadViewer(html);
-  const asked = [];
-  v.window.kakapoApp = Object.assign({}, v.window.kakapoApp, {
-    setIgnoreMenuShortcuts: (ignore) => asked.push(ignore),
-  });
-
-  v.window.holdMenuShortcuts(true);
-  assert.deepEqual(asked, [true], "the first hold reaches main");
-  v.window.holdMenuShortcuts(true);
-  assert.deepEqual(asked, [true], "a second hold is not a second message");
-  v.window.holdMenuShortcuts(false);
-  assert.deepEqual(asked, [true], "...and releasing it does NOT hand the menu back");
-  v.window.holdMenuShortcuts(false);
-  assert.deepEqual(asked, [true, false], "the last release hands it back, once");
-
-  v.window.holdMenuShortcuts(false);
-  v.window.holdMenuShortcuts(true);
-  assert.deepEqual(asked, [true, false, true], "an extra release does not bank a credit");
-  v.close();
-});
-
 test("hiding the sheet ends a live capture instead of leaving it swallowing keys", async () => {
   const v = await loadViewer(html);
   openSheet(v);

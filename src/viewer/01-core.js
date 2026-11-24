@@ -541,15 +541,54 @@ function t(key, values) {
 function resultsLabel(shown) {
   return t('quickopen.results', { n: shown });
 }
-var menuShortcutHolds = 0;
-function holdMenuShortcuts(hold) {
-  var before = menuShortcutHolds;
-  menuShortcutHolds = Math.max(0, menuShortcutHolds + (hold ? 1 : -1));
-  if ((before > 0) === (menuShortcutHolds > 0)) return;
+// A panel that wants a chord the application menu owns — ⌘A over cards rather than page text, every key
+// at once while a shortcut is being recorded — asks main to ignore menu accelerators. That switch is the
+// whole window: while it is on, ⌘V, ⌘X and ⌘Z reach nothing, because the page implements none of them. It
+// was held per panel, each with its own flag and its own idea of when to let go, and the dock's idea was
+// "until I close" — so an open dock killed pasting into the find box, into a composer, into any field.
+//
+// So no panel holds it. A panel declares that it is up, and this decides: the chords are taken only while
+// no caret is in a field, where every one of them belongs to the field instead. Recording a shortcut is
+// the one case that needs them while typing, and says so by name.
+var menuChordClaims = [];
+var menuChordsHeld = false;
+function claimsMenuChords(name, isUp, options) {
+  menuChordClaims.push({ name: name, isUp: isUp, takesFieldEditingKeys: !!(options && options.takesFieldEditingKeys) });
+  syncMenuChords();
+}
+function menuChordsWanted() {
+  var active = document.activeElement;
+  var typing = !!active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable);
+  for (var i = 0; i < menuChordClaims.length; i += 1) {
+    var claim = menuChordClaims[i];
+    if (claim.isUp() && (claim.takesFieldEditingKeys || !typing)) return true;
+  }
+  return false;
+}
+function syncMenuChords() {
+  var wanted = menuChordsWanted();
+  if (wanted === menuChordsHeld) return;
+  menuChordsHeld = wanted;
   if (window.kakapoApp && typeof window.kakapoApp.setIgnoreMenuShortcuts === 'function') {
-    window.kakapoApp.setIgnoreMenuShortcuts(menuShortcutHolds > 0);
+    window.kakapoApp.setIgnoreMenuShortcuts(wanted);
   }
 }
+function afterFocusSettles(run) { setTimeout(run, 0); }
+function layoutRectOf(range) {
+  return typeof range.getBoundingClientRect === 'function' ? range.getBoundingClientRect() : null;
+}
+function placeCaretSpan(span, cell, range) {
+  span.classList.add('code-cursor-placed');
+  cell.appendChild(span);
+  var at = layoutRectOf(range);
+  if (!at) return span;
+  var box = cell.getBoundingClientRect();
+  span.style.left = (at.left - box.left + cell.scrollLeft) + 'px';
+  span.style.top = (at.top - box.top + cell.scrollTop) + 'px';
+  return span;
+}
+document.addEventListener('focusin', function () { syncMenuChords(); });
+document.addEventListener('focusout', function () { afterFocusSettles(syncMenuChords); });
 var langSelectRef = null, themeSelectRef = null, syntaxThemeSelectRef = null;
 var localizedPaints = [];
 function registerLocalizedPaint(ref) {

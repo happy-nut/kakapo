@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import type { SymbolCache } from "./analysis-cache.js";
+import { decompiledClassText } from "./class-decompile.js";
 import {
   AnalysisLocation,
   type AnalysisCodeLens,
@@ -524,17 +525,25 @@ export class ProjectAnalysis {
       : { lineIndex, column: col };
   }
 
+  private async serverThatNamedIt(uri: string): Promise<string | undefined> {
+    const sample = externalUriSampleFile(uri);
+    const client = sample ? this.clientFor(sample) : undefined;
+    if (!client) return undefined;
+    try {
+      return (await client.externalSourceText(uri)) || undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
   async externalSourceText(uri: string): Promise<string> {
     if (!isKnownExternalUri(uri)) return "";
-    const sample = externalUriSampleFile(uri);
-    if (!sample) return "";
-    const client = this.clientFor(sample);
-    if (!client) return "";
-    try {
-      return await client.externalSourceText(uri);
-    } catch {
-      return "";
+    const readers = [decompiledClassText, (target: string) => this.serverThatNamedIt(target)];
+    for (const read of readers) {
+      const text = await read(uri);
+      if (text) return text;
     }
+    return "";
   }
 
   private clientFor(path: string): LspClient | undefined {
