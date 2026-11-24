@@ -208,6 +208,8 @@ export type LanguageServerCommand = {
   source?: "override" | "project" | "bundled";
   env?: NodeJS.ProcessEnv;
   cacheDirectory?: string;
+  /** How long `initialize` may stay silent before the server counts as hung. Defaults to 20 seconds. */
+  initializeIdleMs?: number;
 };
 
 type JsonRpcMessage = {
@@ -221,6 +223,11 @@ type PendingRequest = {
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
   timer: NodeJS.Timeout;
+  method: string;
+  // Set only where the deadline is idleness rather than elapsed time: the timer is re-armed every time the
+  // server says anything, and `ceiling` is when we stop believing it however talkative it is.
+  idleMs?: number;
+  ceiling?: number;
 };
 
 type LspRange = {
@@ -241,7 +248,14 @@ type LspLocationLike = {
 };
 
 const REQUEST_TIMEOUT_MS = 8_000;
-const INITIALIZE_TIMEOUT_MS = 20_000;
+// A large workspace answers `initialize` long after 20 seconds: spring-boot leaves jdtls a 395 MB Eclipse
+// workspace, and reopening it was measured at 50-54 seconds while the server logged progress throughout. A
+// flat deadline rejects that start, and since every restart begins the same restore the retry meets the same
+// wall — one run spent 19 minutes failing the same way, 15 times, and never recovered. So the deadline is
+// idleness, not elapsed time: the timer is re-armed whenever the server sends anything, and a server that
+// goes quiet still fails inside the window. test/lsp-initialize-deadline.test.mjs holds both halves.
+const INITIALIZE_IDLE_TIMEOUT_MS = 20_000;
+const INITIALIZE_CEILING_MS = 10 * 60_000;
 const STOP_GRACE_MS = 2_000;
 const CHECK_BUDGET_MS = 60_000;
 const APP_ROOT = fileURLToPath(new URL("..", import.meta.url));
@@ -436,7 +450,7 @@ function bundledNativeCommand(family: string, context: BundledServerContext): La
     return resolvedCommand(family, "clangd", command, [], "bundled");
   }
   if (family === "java") {
-    const javaHome = join(base, "jre");
+    const javaHome = join(base, "jdk");
     const java = join(javaHome, "bin", "java");
     const launcher = join(base, "jdtls", "plugins", "org.eclipse.equinox.launcher.jar");
     const configuration = join(base, "jdtls", "config_mac");
@@ -1236,21 +1250,46 @@ export class LspClient {
     }
     const id = ++this.nextId;
     return new Promise((resolveRequest, rejectRequest) => {
-      const timeoutMs = method === "initialize" ? INITIALIZE_TIMEOUT_MS : REQUEST_TIMEOUT_MS;
-      const timer = setTimeout(() => {
-        this.pending.delete(id);
-        rejectRequest(new Error(`${this.server.name} timed out during ${method}`));
-      }, timeoutMs);
-      timer.unref?.();
-      this.pending.set(id, { resolve: resolveRequest, reject: rejectRequest, timer });
+      const idleMs = method === "initialize" ? (this.server.initializeIdleMs ?? INITIALIZE_IDLE_TIMEOUT_MS) : undefined;
+      const entry: PendingRequest = {
+        resolve: resolveRequest,
+        reject: rejectRequest,
+        method,
+        idleMs,
+        ceiling: idleMs ? Date.now() + INITIALIZE_CEILING_MS : undefined,
+        timer: this.armTimeout(id, idleMs ?? REQUEST_TIMEOUT_MS, method, rejectRequest),
+      };
+      this.pending.set(id, entry);
       try {
         this.send({ jsonrpc: "2.0", id, method, params });
       } catch (error) {
-        clearTimeout(timer);
+        clearTimeout(entry.timer);
         this.pending.delete(id);
         rejectRequest(error instanceof Error ? error : new Error(String(error)));
       }
     });
+  }
+
+  private armTimeout(id: number, waitMs: number, method: string, reject: (error: Error) => void): NodeJS.Timeout {
+    const timer = setTimeout(() => {
+      this.pending.delete(id);
+      reject(new Error(`${this.server.name} timed out during ${method}`));
+    }, waitMs);
+    timer.unref?.();
+    return timer;
+  }
+
+  /** Every message from the server is proof it is alive, so it buys the idle-deadline requests more time. */
+  private refreshIdleDeadlines(): void {
+    if (!this.pending.size) return;
+    const now = Date.now();
+    for (const [id, entry] of this.pending) {
+      if (!entry.idleMs) continue;
+      const left = (entry.ceiling ?? now) - now;
+      if (left <= 0) continue;
+      clearTimeout(entry.timer);
+      entry.timer = this.armTimeout(id, Math.min(entry.idleMs, left), entry.method, entry.reject);
+    }
   }
 
   private async requestAfterWorkspaceReady(method: string, params: unknown): Promise<unknown> {
@@ -1296,6 +1335,7 @@ export class LspClient {
       this.buffer = this.buffer.subarray(bodyStart + length);
       let message: JsonRpcMessage;
       try { message = JSON.parse(body) as JsonRpcMessage; } catch { continue; }
+      this.refreshIdleDeadlines();
       if (message.method && message.id !== undefined) {
         this.replyToServerRequest(message);
         continue;

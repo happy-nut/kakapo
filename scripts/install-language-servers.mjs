@@ -99,9 +99,15 @@ const KOTLIN_ARCHIVES = Object.freeze({
   "darwin-arm64": ["kotlin-server-271.2085.0-aarch64.sit", "2d22388f58be6f4dfa7a8f18c1e231871164dcacc16e407559029d7232816b4a"],
 });
 
+// A JDK, not a JRE. jdtls itself runs happily on a JRE, and a plain source tree resolves either way, which
+// is how a JRE survived here: nothing we tested asked for a compiler. A real Spring project does. Gradle
+// resolves a `toolchain { languageVersion }` against the JVMs it can find, the JVM it is already running on
+// among them, and refuses one without javac — "Toolchain installation '.../java/jre' does not provide the
+// required capabilities: [JAVA_COMPILER]". The import then fails, jdtls has no classpath, and every
+// cross-file answer in Java degrades to the regex index with no error a reader can see.
 const JAVA_ARCHIVES = Object.freeze({
-  "darwin-x64": ["OpenJDK21U-jre_x64_mac_hotspot_21.0.11_10.tar.gz", "b341fb8ed5b70d49066b98176bc98e30f55082192403deb60e0cd5948b6e7923", "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.11%2B10/OpenJDK21U-jre_x64_mac_hotspot_21.0.11_10.tar.gz"],
-  "darwin-arm64": ["OpenJDK21U-jre_aarch64_mac_hotspot_21.0.11_10.tar.gz", "4b7a8cd23102c251c8b8be42a9a5f1263fb337cf1037f6f64b25f3070efe4b76", "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.11%2B10/OpenJDK21U-jre_aarch64_mac_hotspot_21.0.11_10.tar.gz"],
+  "darwin-x64": ["OpenJDK21U-jdk_x64_mac_hotspot_21.0.11_10.tar.gz", "34180eb03e6d207c388cce3da668f6cc7cd7508c185c24782fadac2c9c0e66f9", "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.11%2B10/OpenJDK21U-jdk_x64_mac_hotspot_21.0.11_10.tar.gz"],
+  "darwin-arm64": ["OpenJDK21U-jdk_aarch64_mac_hotspot_21.0.11_10.tar.gz", "6ebcf221c9b41507b14c098e93c6ead6440b8d9bd154f8ec666c4c73abbdb201", "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.11%2B10/OpenJDK21U-jdk_aarch64_mac_hotspot_21.0.11_10.tar.gz"],
 });
 
 const SORBET_ARCHIVES = Object.freeze({
@@ -271,8 +277,11 @@ async function installJava(target, output, cache, work) {
   const javaExtracted = join(work, "java");
   extract(javaArchive, javaExtracted);
   const java = walk(javaExtracted, (path) => /\/bin\/java$/.test(path));
-  if (!java) throw new Error("Temurin JRE archive did not contain bin/java");
-  cpSync(dirname(dirname(java)), join(output, "jre"), {
+  if (!java) throw new Error("Temurin JDK archive did not contain bin/java");
+  if (!existsSync(join(dirname(java), "javac"))) {
+    throw new Error("Temurin archive did not contain bin/javac: a JRE cannot satisfy a Gradle toolchain");
+  }
+  cpSync(dirname(dirname(java)), join(output, "jdk"), {
     recursive: true,
     verbatimSymlinks: true,
   });
@@ -346,7 +355,7 @@ export function expectedServerPaths(root, target) {
     go: join(base, "go", "go", "bin", "gopls"),
     rust: join(base, "rust", "cargo", "bin", "cargo"),
     clang: join(base, "clang", "bin", "clangd"),
-    java: join(base, "java", "jre", "bin", "java"),
+    java: join(base, "java", "jdk", "bin", "java"),
     kotlin: join(base, "kotlin", "bin", "intellij-server"),
     ruby: join(base, "ruby", "sorbet"),
     php: join(base, "php", "phpactor.phar"),
@@ -360,12 +369,17 @@ export function assertLanguageServerBundle(root, target) {
     .map(([family, path]) => `${family}: ${path}`);
   const phpRuntime = join(root, target, "php", "php");
   if (!existsSync(phpRuntime)) missing.push(`php runtime: ${phpRuntime}`);
+  // A Gradle toolchain refuses a Java home without a compiler, so a bundle whose Java home is a JRE ships
+  // Java navigation that is dead on every build that declares one.
+  const javac = join(root, target, "java", "jdk", "bin", "javac");
+  if (!existsSync(javac)) missing.push(`java compiler: ${javac}`);
   const executableAssets = [
     paths.go,
     join(root, target, "rust", "rust-analyzer"),
     paths.rust,
     paths.clang,
     paths.java,
+    javac,
     paths.kotlin,
     paths.ruby,
     phpRuntime,
