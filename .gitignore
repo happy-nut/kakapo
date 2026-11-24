@@ -9,3 +9,8 @@ vendor/language-servers/
 
 # Verification evidence: screenshots and transcripts from .claude/skills/verify-kakapo.
 .kakapo-verify/
+
+# The IntelliJ plugin's Gradle output.
+intellij-plugin/build/
+intellij-plugin/.gradle/
+intellij-plugin/.intellijPlatform/
