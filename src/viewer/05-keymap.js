@@ -756,3 +756,22 @@ if (window.kakapoMenu && typeof window.kakapoMenu.onReadingAction === 'function'
   });
   ensureDiffCursor();
 })();
+
+// ⌘C never arrives here as a keydown: the application menu's Edit role owns it and runs the copy command
+// itself, so a page that wants a say has to fill the ClipboardEvent that command fires. IntelliJ copies the
+// caret's whole line when nothing is selected, and kakapo copied nothing at all — a reader who clicked a
+// symbol and pressed ⌘C got whatever was on the clipboard before. With a real selection the browser is
+// already right, and `currentCommentTarget()` is the one reader that knows which line the caret is on in
+// either view, so this asks it rather than keeping a second idea of the caret.
+document.addEventListener('copy', function (event) {
+  var selection = window.getSelection();
+  if (selection && !selection.isCollapsed && String(selection).length) return;
+  var active = document.activeElement;
+  if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) return;
+  if (active && active.closest && active.closest('.dock-panel')) return;
+  var target = currentCommentTarget();
+  if (!target || typeof target.code !== 'string' || !target.code.length) return;
+  if (!event.clipboardData) return;
+  event.preventDefault();
+  event.clipboardData.setData('text/plain', target.code + '\n');
+});
