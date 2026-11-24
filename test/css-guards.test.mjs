@@ -248,10 +248,20 @@ test("diff line wrap constrains both panes while preserving the fixed gutter", (
     "wrapped panes no longer expose a redundant horizontal scrollbar",
   );
   assert.match(sourceCss, /\.mc-diff-gutter-layer[^}]*width:\s*52px/, "the layered gutter width remains independent of wrapped code");
+  // This row read `max-content minmax(0, 1fr)` while the base pane's author column lived in the spine,
+  // where its 164px faced the working pane's 164px across the gap and the code of both sides was pushed to
+  // the outer edges — reported as "everything is centre-aligned" although no alignment had changed. The
+  // author column now opens at each pane's own left edge. What has to hold either way is that the line
+  // number is the part touching the code, which on this pane is the last column.
   assert.match(
     sourceCss,
-    /\.mc-diff-blame-visible \.d2h-file-side-diff:first-child \.mc-diff-gutter-number[^}]*grid-template-columns:\s*max-content\s+minmax\(0,\s*1fr\)/,
-    "base blame keeps its line number first, directly beside base code",
+    /\.mc-diff-blame-visible \.d2h-file-side-diff:first-child \.mc-diff-gutter-number[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s+max-content/,
+    "base blame keeps its line number last, directly beside base code",
+  );
+  assert.match(
+    sourceCss,
+    /\.mc-diff-blame-visible \.d2h-file-side-diff:first-child \.mc-diff-gutter-layer[^}]*left:\s*0/,
+    "and its gutter opens at the pane's own edge instead of the spine",
   );
   assert.match(
     sourceCss,

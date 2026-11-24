@@ -445,7 +445,10 @@ function decorateDiffBlameGutterItem(item, entry, side) {
   var paintKey = sideName + ':' + entry.lineNumber + ':' + recordKey;
   if (item.dataset.blamePaint === paintKey) return;
   var blameHtml = diffBlameEntryHtml(record, path);
-  item.innerHTML = sideName === 'old' ? lineHtml + blameHtml : blameHtml + lineHtml;
+  // Both sides read author, then line, then code. The line numbers alone are mirrored into the spine
+  // between the panes, which is fine for three digits and unreadable for a 164px author column: it put a
+  // wall of dates down the middle of the window and pushed both sides' code to the outer edges.
+  item.innerHTML = blameHtml + lineHtml;
   item.dataset.blamePaint = paintKey;
 }
 

@@ -1322,13 +1322,30 @@ body {
   min-width: 164px;
   pointer-events: auto;
 }
+/* The author column widens the gutter in place; it does not move it into the spine the way the bare line
+   numbers are mirrored, which would face two 164px columns of dates at each other in the middle. */
 .mc-diff-blame-visible .d2h-file-side-diff:first-child .mc-diff-gutter-layer,
-.mc-diff-blame-loading .d2h-file-side-diff:first-child .mc-diff-gutter-layer { left: calc(100cqw - 164px); }
+.mc-diff-blame-loading .d2h-file-side-diff:first-child .mc-diff-gutter-layer { left: 0; }
 .mc-diff-blame-visible .d2h-code-side-linenumber,
 .mc-diff-blame-loading .d2h-code-side-linenumber {
   width: 164px;
   min-width: 164px;
   max-width: 164px;
+}
+/* The left pane's row is [code, number] — mirrored, so the bare line numbers meet in the spine. The author
+   column cannot live there without facing another 164px of dates across the gap, so for that pane the
+   number cell folds to nothing and the code carries the gutter's width as padding instead. The overlay
+   then paints at the pane's own left edge, and both sides read author, line, code. */
+.mc-diff-blame-visible .d2h-file-side-diff:first-child .d2h-code-side-linenumber,
+.mc-diff-blame-loading .d2h-file-side-diff:first-child .d2h-code-side-linenumber {
+  width: 0;
+  min-width: 0;
+  max-width: 0;
+  padding: 0;
+}
+.mc-diff-blame-visible .d2h-file-side-diff:first-child td:not(.d2h-code-side-linenumber),
+.mc-diff-blame-loading .d2h-file-side-diff:first-child td:not(.d2h-code-side-linenumber) {
+  padding-left: 164px;
 }
 .mc-diff-blame-visible .mc-diff-gutter-number,
 .mc-diff-blame-loading .mc-diff-gutter-number {
@@ -1340,7 +1357,7 @@ body {
 }
 .mc-diff-blame-visible .d2h-file-side-diff:first-child .mc-diff-gutter-number,
 .mc-diff-blame-loading .d2h-file-side-diff:first-child .mc-diff-gutter-number {
-  grid-template-columns: max-content minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) max-content;
 }
 .mc-diff-blame-visible .d2h-file-side-diff:last-of-type .mc-diff-gutter-number,
 .mc-diff-blame-loading .d2h-file-side-diff:last-of-type .mc-diff-gutter-number {
@@ -1354,8 +1371,8 @@ body {
 }
 .mc-diff-blame-visible .d2h-file-side-diff:first-child .mc-diff-line-number,
 .mc-diff-blame-loading .d2h-file-side-diff:first-child .mc-diff-line-number {
-  padding-left: 8px;
-  text-align: left;
+  padding-right: 8px;
+  text-align: right;
 }
 .mc-diff-blame-visible .d2h-file-side-diff:last-of-type .mc-diff-line-number,
 .mc-diff-blame-loading .d2h-file-side-diff:last-of-type .mc-diff-line-number {
