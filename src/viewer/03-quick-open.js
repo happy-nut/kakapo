@@ -4,17 +4,10 @@ var quickPreviewScrollFrame = 0;
 var QUICK_PREVIEW_RADIUS = 60;
 var QUICK_PREVIEW_CHUNK = 120;
 
-var quickOpenHoldsMenu = false;
-function setQuickOpenOwnsEditKeys(owns) {
-  if (!!owns === quickOpenHoldsMenu) return;
-  quickOpenHoldsMenu = !!owns;
-  holdMenuShortcuts(quickOpenHoldsMenu);
-}
-function syncQuickOpenEditKeys() {
-  var focused = document.activeElement;
-  var typing = !!focused && (focused.tagName === 'INPUT' || focused.tagName === 'TEXTAREA' || focused.isContentEditable);
-  setQuickOpenOwnsEditKeys(!typing);
-}
+claimsMenuChords('quick-open', function () {
+  return !!quickOpen && !quickOpen.classList.contains('hidden');
+});
+function syncQuickOpenEditKeys() { syncMenuChords(); }
 var QUICK_LAUNCHER_MODES = ['everywhere', 'recent', 'all', 'content', 'symbol', 'actions'];
 function paintQuickOpenMode() {
   if (!quickInput || !quickModeLabel) return;
@@ -115,7 +108,7 @@ function updateRecentFilterDisplay() {
 }
 
 function closeQuickOpen(navigating) {
-  setQuickOpenOwnsEditKeys(false);
+  syncMenuChords();
   var wasOpen = !!(quickOpen && !quickOpen.classList.contains('hidden'));
   var focused = document.activeElement;
   if (focused && quickOpen && quickOpen.contains(focused) && focused.blur) focused.blur();

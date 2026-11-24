@@ -15,7 +15,7 @@ const SENTINEL = "beta";
 execFileSync("/bin/sh", ["-c", `printf %s ${JSON.stringify(SENTINEL)} | pbcopy`]);
 
 await drive("dockpaste", repo, async (page, h) => {
-  h.check(await page.evaluate(`menuShortcutHolds`) === 0, "nothing holds the menu keys at rest");
+  h.check(await page.evaluate(`menuChordsHeld`) === false, "nothing holds the menu keys at rest");
 
   await h.until(`Array.from(document.querySelectorAll('.d2h-code-line-ctn'))
     .filter(e => e.getBoundingClientRect().height > 0).length > 0`);
@@ -33,7 +33,7 @@ await drive("dockpaste", repo, async (page, h) => {
   const cards = await h.until(`document.querySelectorAll('#mc-merged-panel .mc-merged-card').length || false`);
   h.check(cards === 1, "the hand-off dock is up with a card in it", String(cards));
 
-  const held = await h.until(`(() => (menuShortcutHolds > 0 ? menuShortcutHolds : null))()`, 3000).catch(() => null);
+  const held = await h.until(`(() => (menuChordsHeld ? 'held' : null))()`, 3000).catch(() => null);
   h.check(held !== null, "with nobody typing, the dock owns ⌘A", String(held));
 
   // A click anywhere outside the dock lands on its backdrop and closes it, so the focus has to move
@@ -46,11 +46,11 @@ await drive("dockpaste", repo, async (page, h) => {
   })()`, 5000);
   h.check(findOpen === "open", "⌘F still opens the find box with the dock up", String(findOpen));
 
-  const released = await h.until(`(() => (menuShortcutHolds === 0 ? 'released' : null))()`, 3000).catch(() => null);
+  const released = await h.until(`(() => (!menuChordsHeld ? 'released' : null))()`, 3000).catch(() => null);
   const whileReleased = await page.evaluate(`JSON.stringify({
     dock: !!document.getElementById('mc-merged-panel'),
     active: document.activeElement && (document.activeElement.id || document.activeElement.tagName),
-    holds: menuShortcutHolds,
+    holds: menuChordsHeld,
   })`);
   h.check(released === "released" && JSON.parse(whileReleased).dock === true,
     "and with the dock still up, the menu keys are handed back, so ⌘V reaches Paste",
@@ -80,7 +80,7 @@ await drive("dockpaste", repo, async (page, h) => {
   // Moving the caret back into the code is not typing, so the dock takes its chord back. Escape would have
   // closed the dock as well, which is why the round trip is driven by a click.
   await page.evaluate(`(() => { const i = document.getElementById('file-find-input'); if (i) i.blur(); return true; })()`);
-  const backToDock = await h.until(`(() => (menuShortcutHolds > 0 ? 'held' : null))()`, 3000).catch(() => null);
+  const backToDock = await h.until(`(() => (menuChordsHeld ? 'held' : null))()`, 3000).catch(() => null);
   h.check(backToDock === "held", "leaving the field gives ⌘A back to the dock",
-    await page.evaluate(`JSON.stringify({ dock: !!document.getElementById('mc-merged-panel'), holds: menuShortcutHolds })`));
+    await page.evaluate(`JSON.stringify({ dock: !!document.getElementById('mc-merged-panel'), holds: menuChordsHeld })`));
 });

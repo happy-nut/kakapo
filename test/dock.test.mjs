@@ -206,7 +206,7 @@ test("the dock holds the menu's Edit keys only while nobody is typing, so ⌘V k
   v.window.document.dispatchEvent(new v.window.Event("focusin", { bubbles: true }));
   await v.settle(20);
   assert.deepEqual(asked, [true, false], "a caret in a field hands the menu keys back");
-  assert.equal(v.window.menuShortcutHolds, 0, "and nothing is left holding them");
+  assert.equal(v.window.menuChordsHeld, false, "and nothing is left holding them");
 
   field.blur();
   v.window.document.dispatchEvent(new v.window.Event("focusin", { bubbles: true }));

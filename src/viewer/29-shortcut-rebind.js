@@ -46,15 +46,12 @@ function shortcutCaptureMessage(row, message, bad) {
   note.textContent = message;
   note.classList.toggle('keys-note-bad', !!bad);
 }
-var captureHoldsMenu = false;
-function captureOwnsMenuKeys(owns) {
-  if (!!owns === captureHoldsMenu) return;
-  captureHoldsMenu = !!owns;
-  holdMenuShortcuts(captureHoldsMenu);
-}
+// Recording a chord needs the keys while a field has the caret too: the row being typed into is the
+// recorder, and a ⌘V that pasted instead of being recorded would be the bug.
+claimsMenuChords('shortcut-capture', function () { return !!shortcutCapture; }, { whileTyping: true });
 function endShortcutCapture() {
   if (!shortcutCapture) return;
-  captureOwnsMenuKeys(false);
+  syncMenuChords();
   var row = shortcutCapture.row;
   shortcutCapture = null;
   row.classList.remove('keys-row-capturing');
@@ -67,7 +64,7 @@ function beginShortcutCapture(row, index) {
   var def = shortcutDef(row.dataset.shortcut);
   if (!def) return;
   shortcutCapture = { id: def.id, index: index, row: row };
-  captureOwnsMenuKeys(true);
+  syncMenuChords();
   row.classList.add('keys-row-capturing');
   var holder = row.querySelector('.keys-keys');
   holder.innerHTML = '<span class="keys-combo keys-combo-listening"><kbd>' + escapeHtml(t('settings.kbd.capture')) + '</kbd></span>';
@@ -111,7 +108,7 @@ document.addEventListener('keydown', function (event) {
   keys[shortcutCapture.index] = chord;
   shortcutOverridesAll()[shortcutCapture.id] = keys;
   var row = shortcutCapture.row;
-  captureOwnsMenuKeys(false);
+  syncMenuChords();
   shortcutCapture = null;
   row.classList.remove('keys-row-capturing');
   var note = row.querySelector('.keys-note');
