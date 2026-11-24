@@ -1,6 +1,6 @@
 plugins {
     kotlin("jvm") version "2.2.0"
-    id("org.jetbrains.intellij.platform") version "2.1.0"
+    id("org.jetbrains.intellij.platform") version "2.20.1"
 }
 
 repositories {
@@ -12,7 +12,6 @@ dependencies {
     testImplementation(kotlin("test"))
     intellijPlatform {
         intellijIdeaCommunity("2025.2")
-        instrumentationTools()
         pluginVerifier()
     }
 }
@@ -21,6 +20,22 @@ kotlin { jvmToolchain(21) }
 
 group = "dev.kakapo"
 version = "0.0.1"
+
+val releaseNotes: (String) -> String = { released ->
+    val changelog = file("CHANGELOG.md").readText()
+    val heading = Regex("(?m)^## \\Q$released\\E\\s*$").find(changelog)
+        ?: error("CHANGELOG.md has no '## $released' section, so $released would ship the previous version's notes")
+    val rest = changelog.substring(heading.range.last + 1)
+    val next = Regex("(?m)^## ").find(rest)
+    (if (next == null) rest else rest.substring(0, next.range.first)).trim()
+}
+
+val marketplaceToken: Provider<String> = providers
+    .environmentVariable("JETBRAINS_MARKETPLACE_TOKEN")
+    .orElse(providers.provider {
+        val stored = File(System.getProperty("user.home"), ".config/kakapo/jetbrains-marketplace-token")
+        if (stored.isFile) stored.readText().trim() else null
+    })
 
 intellijPlatform {
     pluginConfiguration {
@@ -35,10 +50,7 @@ intellijPlatform {
             line after an agent has edited the file from outside the IDE.</p>
         """.trimIndent()
         version = project.version.toString()
-        changeNotes = """
-            First release: a review comment at the caret, in the editor and in the Diff window, kept in
-            the repository's own .git/kakapo/comments.jsonl so kakapo and the IDE read one review.
-        """.trimIndent()
+        changeNotes = releaseNotes(project.version.toString())
         ideaVersion {
             sinceBuild = "252"
             untilBuild = provider { null }
@@ -46,7 +58,7 @@ intellijPlatform {
     }
 
     publishing {
-        token = providers.environmentVariable("JETBRAINS_MARKETPLACE_TOKEN")
+        token = marketplaceToken
         channels = listOf("default")
     }
 }
@@ -57,7 +69,11 @@ tasks.named("buildSearchableOptions") { enabled = false }
 intellijPlatform {
     pluginVerification {
         ides {
-            ide(org.jetbrains.intellij.platform.gradle.IntelliJPlatformType.IntellijIdeaCommunity, "2025.2")
+            select {
+                types = listOf(org.jetbrains.intellij.platform.gradle.IntelliJPlatformType.IntellijIdeaCommunity)
+                sinceBuild = "252"
+                untilBuild = "252.*"
+            }
         }
     }
 }
