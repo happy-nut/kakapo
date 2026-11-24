@@ -25,7 +25,7 @@ await drive("clangd-index-hidden", repo, async (page, h) => {
     return rows.length ? [...new Set(rows)] : null;
   })()`, 30000);
 
-  h.check(listed.includes("main.c"), "the edited file is in the review", JSON.stringify(listed));
+  h.control(listed.includes("main.c"), "the edited file is in the review", JSON.stringify(listed));
   h.check(listed.includes("helper.c"), "an untracked source file is in the review, so the review has something to lose");
   h.check(!listed.some((path) => path.includes(".cache/clangd")),
     "the index clangd writes into the project is not offered as part of the user's change", JSON.stringify(listed));

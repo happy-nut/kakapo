@@ -1,11 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { drive, makeRepo } from "./drive.mjs";
 
-// Reported: ⌘F opens the find box and ⌘V pastes nothing into it. The find box is innocent — the hand-off
-// dock asks for the application menu's accelerators to be held so its ⌘A selects cards instead of page
-// text, and that hold is the whole window's. ⌘V is an Edit-menu accelerator the page implements nowhere,
-// so while the dock was open, pasting was dead in every field in the window. The hold now lets go for
-// exactly as long as someone is typing in a field, so this drives both halves on one dock with a card in it.
 const repo = makeRepo("dockpaste");
 repo.put("src/a.ts", "export const alpha = 1;\nexport const beta = 2;\n");
 repo.commit("initial");
@@ -15,7 +10,7 @@ const SENTINEL = "beta";
 execFileSync("/bin/sh", ["-c", `printf %s ${JSON.stringify(SENTINEL)} | pbcopy`]);
 
 await drive("dockpaste", repo, async (page, h) => {
-  h.check(await page.evaluate(`menuChordsHeld`) === false, "nothing holds the menu keys at rest");
+  h.control(await page.evaluate(`menuChordsHeld`) === false, "nothing holds the menu keys at rest");
 
   await h.until(`Array.from(document.querySelectorAll('.d2h-code-line-ctn'))
     .filter(e => e.getBoundingClientRect().height > 0).length > 0`);
@@ -36,8 +31,6 @@ await drive("dockpaste", repo, async (page, h) => {
   const held = await h.until(`(() => (menuChordsHeld ? 'held' : null))()`, 3000).catch(() => null);
   h.check(held !== null, "with nobody typing, the dock owns ⌘A", String(held));
 
-  // A click anywhere outside the dock lands on its backdrop and closes it, so the focus has to move
-  // without one — which is exactly what a reader does by pressing ⌘F while the dock is up.
   await page.evaluate(`(() => { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); return true; })()`);
   await page.key("f", "KeyF", 70, 4);
   const findOpen = await h.until(`(() => {
@@ -56,7 +49,6 @@ await drive("dockpaste", repo, async (page, h) => {
     "and with the dock still up, the menu keys are handed back, so ⌘V reaches Paste",
     whileReleased);
 
-  // The Edit menu owns ⌘V, so what a reader's ⌘V runs is the paste command against the focused element.
   await page.send("Input.dispatchKeyEvent", {
     type: "keyDown", modifiers: 4, key: "v", code: "KeyV", windowsVirtualKeyCode: 86,
     nativeVirtualKeyCode: 86, commands: ["paste"],
@@ -77,8 +69,6 @@ await drive("dockpaste", repo, async (page, h) => {
   h.check(Boolean(counted) && !/^0\//.test(String(counted)), "and is searched for", String(counted));
   await h.shot("dock-open-paste-into-find");
 
-  // Moving the caret back into the code is not typing, so the dock takes its chord back. Escape would have
-  // closed the dock as well, which is why the round trip is driven by a click.
   await page.evaluate(`(() => { const i = document.getElementById('file-find-input'); if (i) i.blur(); return true; })()`);
   const backToDock = await h.until(`(() => (menuChordsHeld ? 'held' : null))()`, 3000).catch(() => null);
   h.check(backToDock === "held", "leaving the field gives ⌘A back to the dock",

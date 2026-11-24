@@ -6,12 +6,6 @@ import { fileURLToPath } from "node:url";
 import { makeReviewHtml, cleanupFixtures } from "./helpers/fixture.mjs";
 import { loadViewer } from "./helpers/dom.mjs";
 
-// Asking main to ignore the application menu's accelerators turns off ⌘V, ⌘X and ⌘Z for the whole window,
-// because the page implements none of them. Three panels wanted a chord the menu owns and each held that
-// switch with its own flag; the dock's flag said "until I close", so an open dock killed pasting into every
-// field in the window. There is one holder now, and a panel can only declare that it is up — these tests
-// are the rule that declaration obeys, asserted for every claim the bundle registers rather than for the
-// one panel a bug was reported against.
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const viewerDir = join(repoRoot, "src", "viewer");
 const slices = readdirSync(viewerDir).filter((name) => name.endsWith(".js"));
@@ -86,13 +80,11 @@ test("a caret in a field hands them back while the claim is still up", async () 
 
 test("recording a shortcut is the one claim that keeps them while typing, and says so", async () => {
   const core = readFileSync(join(viewerDir, "01-core.js"), "utf8");
-  assert.match(core, /whileTyping/, "the exception exists in the holder");
-  // Read the call's own line: a claim's predicate carries parentheses of its own, so a `[^)]*` between the
-  // call and its options stops at the first one and finds nothing.
-  const whileTyping = slices.filter((name) => readFileSync(join(viewerDir, name), "utf8")
+  assert.match(core, /takesFieldEditingKeys/, "the exception exists in the holder");
+  const takesFieldEditingKeys = slices.filter((name) => readFileSync(join(viewerDir, name), "utf8")
     .split("\n")
-    .some((line) => line.includes("claimsMenuChords(") && line.includes("whileTyping")));
-  assert.deepEqual(whileTyping, ["29-shortcut-rebind.js"],
+    .some((line) => line.includes("claimsMenuChords(") && line.includes("takesFieldEditingKeys")));
+  assert.deepEqual(takesFieldEditingKeys, ["29-shortcut-rebind.js"],
     "only the recorder may swallow a field's own editing keys, because the field is the recorder");
 });
 

@@ -31,7 +31,7 @@ await drive(`heuristic-definitions-${LABEL}`, repo, async (page, h) => {
       .then(r => JSON.stringify({ engine: r && r.engine, at: ((r && r.locations) || []).map(l => l.lineIndex + 1) }))`));
 
   const register = await ask("Register", 0, 2);
-  h.check(register.engine === "index",
+  h.control(register.engine === "index",
     "a .cs file has no language server, so this is the index answering on its own", JSON.stringify(register));
   const registerAt = JSON.stringify(register.at);
   h.check(EXPECT_CALLS ? registerAt === "[4,5]" : registerAt === "[]",

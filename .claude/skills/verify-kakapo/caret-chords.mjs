@@ -32,7 +32,7 @@ await drive("caret", repo, async (page, h) => {
   const scrollTop = () => page.evaluate(
     `(() => { const e = document.getElementById('diff2html-container'); return e ? Math.round(e.scrollTop) : -1; })()`);
 
-  h.check((await filesShown()) === "src/a.ts,src/z.ts", "two files in the diff, a.ts first", await filesShown());
+  h.control((await filesShown()) === "src/a.ts,src/z.ts", "two files in the diff, a.ts first", await filesShown());
   await h.until(`Array.from(document.querySelectorAll('.d2h-code-line-ctn'))
     .filter(e => e.getBoundingClientRect().height > 0 && /recoverableTransfers/.test(e.textContent)).length > 0`);
 

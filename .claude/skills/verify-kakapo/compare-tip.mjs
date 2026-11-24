@@ -22,7 +22,7 @@ await drive("comparetip", repo, async (page, h) => {
 
   await page.key("Dead", "KeyA", 65, 1);
   await h.until(`document.querySelectorAll('.d2h-file-wrapper').length === 2`);
-  h.check((await ticked()) === "all", "⌥A: the menu says all", await pill());
+  h.control((await ticked()) === "all", "⌥A: the menu says all", await pill());
 
   await page.key("Dead", "KeyT", 84, 1);
   await h.sleep(900);

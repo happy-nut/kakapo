@@ -36,7 +36,7 @@ if (process.env.KAKAPO_WT_ROOT) {
       const answer = await window.kakapoAnalysis.query({ kind: 'endpoints' });
       return Boolean(answer && answer.ok);
     })()`);
-    h.check(asked, "a question only the project index can answer was asked");
+    h.control(asked, "a question only the project index can answer was asked");
     const reuse = await h.until(`(analysisStatusLast && typeof analysisStatusLast.indexedFiles === 'number')
       ? { indexedFiles: analysisStatusLast.indexedFiles, reusedFiles: analysisStatusLast.reusedFiles } : null`, 60000);
     h.check(reuse.indexedFiles > 0, "the window says how many files its index holds", JSON.stringify(reuse));

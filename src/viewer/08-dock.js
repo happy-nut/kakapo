@@ -345,7 +345,7 @@ function openMergedView() {
   dock.panel.__kakapoBeforeClose = function () {
     document.removeEventListener('kakapo:comments-pruned', handlePrunedComments);
     document.removeEventListener('copy', handleNativeCopy);
-    setTimeout(syncMenuChords, 0);
+    afterFocusSettles(syncMenuChords);
   };
   function renderAllAddressedNote() {
     if (host.querySelector('.mc-merged-card')) return;

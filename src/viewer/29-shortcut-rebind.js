@@ -46,9 +46,7 @@ function shortcutCaptureMessage(row, message, bad) {
   note.textContent = message;
   note.classList.toggle('keys-note-bad', !!bad);
 }
-// Recording a chord needs the keys while a field has the caret too: the row being typed into is the
-// recorder, and a ⌘V that pasted instead of being recorded would be the bug.
-claimsMenuChords('shortcut-capture', function () { return !!shortcutCapture; }, { whileTyping: true });
+claimsMenuChords('shortcut-capture', function () { return !!shortcutCapture; }, { takesFieldEditingKeys: true });
 function endShortcutCapture() {
   if (!shortcutCapture) return;
   syncMenuChords();
@@ -85,8 +83,6 @@ document.addEventListener('keydown', function (event) {
   var chord = shortcutChords(event)[0];
   if (!chord) return;
   if (!shortcutBindable(chord)) { shortcutCaptureMessage(shortcutCapture.row, t('settings.kbd.needModifier'), true); return; }
-  // The application menu takes its chords before any renderer keydown runs, so binding one here saves a
-  // key that can never fire — and the sheet used to accept ⌘M, ⌘0 and ⌘⇧Z in silence and do exactly that.
   if (MENU_OWNED_CHORDS.indexOf(shortcutCanonical(chord)) >= 0) {
     shortcutCaptureMessage(shortcutCapture.row, t('settings.kbd.menuOwned').replace('{key}', chord), true);
     return;

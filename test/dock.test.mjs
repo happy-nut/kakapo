@@ -198,8 +198,6 @@ test("the dock holds the menu's Edit keys only while nobody is typing, so ⌘V k
   await v.settle(60);
   assert.deepEqual(asked, [true], "the open dock takes ⌘A from the menu");
 
-  // ⌘V, ⌘X and ⌘Z are menu accelerators the page implements nowhere: while the hold is on they reach
-  // nothing at all. A caret in any field has to hand them back, or the find box cannot be pasted into.
   const field = v.window.document.getElementById("file-find-input");
   assert.ok(field, "the find box exists to focus");
   field.focus();

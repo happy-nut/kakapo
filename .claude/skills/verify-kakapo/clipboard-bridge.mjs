@@ -8,7 +8,7 @@ const SENTINEL = "kakapo-clipboard-sentinel-" + Date.now();
 execFileSync("/bin/sh", ["-c", `printf %s ${JSON.stringify(SENTINEL)} | pbcopy`]);
 await drive("clipproof", repo, async (page, h) => {
   const outside = execFileSync("pbpaste", { encoding: "utf8" });
-  h.check(outside === SENTINEL, "the system clipboard holds a value this probe put there", JSON.stringify(outside));
+  h.control(outside === SENTINEL, "the system clipboard holds a value this probe put there", JSON.stringify(outside));
 
   const read = await page.evaluate(`window.kakapoClipboard.read()`);
   h.check(read === SENTINEL,

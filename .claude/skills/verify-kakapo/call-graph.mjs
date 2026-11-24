@@ -71,7 +71,7 @@ await drive("call-graph", repo, async (page, h) => {
   await page.evaluate(`setSourceCursor('src/util.ts', 0, 16, true, -1)`);
   await page.key("b", "KeyB", 66, 4);
   const opened = await h.until(`!document.getElementById('semantic-peek').classList.contains('hidden')`, 20000);
-  h.check(Boolean(opened), "⌘B opens the usages popup on formatBytesForDisplay");
+  h.control(Boolean(opened), "⌘B opens the usages popup on formatBytesForDisplay");
   h.check(await page.evaluate(`document.querySelectorAll('#semantic-peek-results .semantic-peek-item').length`) > 0,
     "and it is a flat list of usages to begin with");
   await h.shot("1-usages-flat-list");

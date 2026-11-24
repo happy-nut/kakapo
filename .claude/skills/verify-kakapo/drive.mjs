@@ -56,6 +56,7 @@ export async function drive(name, repo, body, options = {}) {
 
   let failures = 0;
   let shots = 0;
+  let controls = 0;
   const h = {
     evidence,
     sleep,
@@ -63,6 +64,19 @@ export async function drive(name, repo, body, options = {}) {
       log(`${ok ? "ok  " : "FAIL"} ${what}${detail === undefined ? "" : ` — ${detail}`}`);
       if (!ok) failures += 1;
       return Boolean(ok);
+    },
+    control(ok, what, detail) {
+      const passed = h.check(ok, `control: ${what}`, detail);
+      if (passed) controls += 1;
+      return passed;
+    },
+    absent(ok, what, detail) {
+      if (!controls) {
+        log(`FAIL ${what} — asserted an absence with no control passed in this run`);
+        failures += 1;
+        return false;
+      }
+      return h.check(ok, what, detail);
     },
     shot: null,
     until: null,
@@ -141,6 +155,10 @@ export async function drive(name, repo, body, options = {}) {
     }
   }
 
+  if (!controls) {
+    log("FAIL this run passed no h.control(...) — a run that never showed a presence cannot report an absence");
+    failures += 1;
+  }
   log(failures ? `\n${failures} check(s) failed — evidence in ${evidence}` : `\nall checks passed — evidence in ${evidence}`);
   process.exit(failures ? 1 : 0);
 }

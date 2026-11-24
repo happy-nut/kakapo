@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { readArchiveEntry, splitArchivePath } from "../dist/archive-source.js";
 import { readLibrarySourceFile } from "../dist/library-source.js";
 import { buildPhar, PHAR_STUB } from "./helpers/phar.mjs";
+import { buildZip } from "./helpers/zip.mjs";
 
 const STUB = PHAR_STUB;
 
@@ -25,7 +26,10 @@ test("the archive and the entry are split off a phar path", () => {
   assert.deepEqual(splitArchivePath("C:\\x\\p.PHAR\\a.php"), { archive: "C:/x/p.PHAR", entry: "a.php" });
   assert.equal(splitArchivePath("/x/phpactor.phar"), null, "the archive itself is not an entry");
   assert.equal(splitArchivePath("/x/lib/a.php"), null, "an ordinary path names no archive");
-  assert.equal(splitArchivePath("/x/guava.jar!/com/A.class"), null, "a jar is a zip — not read here, by design");
+  assert.deepEqual(splitArchivePath("/x/guava.jar!/com/A.class"), { archive: "/x/guava.jar", entry: "com/A.class" },
+    "a jar is read too, since the Kotlin server answers library definitions with one");
+  assert.equal(splitArchivePath("/x/guava.jar!/"), null, "an archive with no entry names nothing");
+  assert.equal(splitArchivePath("/x/notes.txt!/a"), null, "only an archive extension opens this door");
   assert.equal(splitArchivePath(""), null);
 });
 
@@ -87,3 +91,30 @@ test("everything it cannot read comes back null instead of throwing", () => {
   assert.equal(readArchiveEntry(`${over}/ok.php`, BIG), null, "a manifest longer than the archive");
 });
 
+
+function jarWith(entries) {
+  dir ??= mkdtempSync(join(tmpdir(), "kakapo-phar-"));
+  const path = join(dir, `a${Math.random().toString(36).slice(2)}.jar`);
+  writeFileSync(path, buildZip(entries));
+  return path;
+}
+
+test("one entry is read out of a jar, deflated or stored", () => {
+  const jar = jarWith([
+    { name: "com/one/First.class", bytes: Buffer.from("\xca\xfe\xba\xbefirst", "binary") },
+    { name: "com/two/Second.class", bytes: Buffer.from("second payload that deflates well ".repeat(8)) },
+    { name: "plain.txt", bytes: Buffer.from("stored"), deflate: false },
+  ]);
+  assert.equal(readArchiveEntry(`${jar}!/com/two/Second.class`, BIG).bytes.toString(),
+    "second payload that deflates well ".repeat(8), "a deflated entry inflates to its declared size");
+  assert.equal(readArchiveEntry(`${jar}!/plain.txt`, BIG).bytes.toString(), "stored", "a stored entry is copied");
+  assert.equal(readArchiveEntry(`${jar}!/com/one/First.class`, BIG).bytes.subarray(0, 4).toString("hex"), "cafebabe",
+    "and the entry asked for is the entry returned");
+});
+
+test("a jar answers nothing for what it does not hold", () => {
+  const jar = jarWith([{ name: "com/one/First.class", bytes: Buffer.from("x") }]);
+  assert.equal(readArchiveEntry(`${jar}!/com/one/Absent.class`, BIG), null, "an entry nobody put there");
+  assert.equal(readArchiveEntry(`${jar}/com/one/First.class`, BIG), null, "a path with no !/ names no entry");
+  assert.equal(readArchiveEntry(`${jar}!/com/one/First.class`, 0), null, "an entry over the caller's ceiling");
+});

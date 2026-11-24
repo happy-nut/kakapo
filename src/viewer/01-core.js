@@ -553,7 +553,7 @@ function resultsLabel(shown) {
 var menuChordClaims = [];
 var menuChordsHeld = false;
 function claimsMenuChords(name, isUp, options) {
-  menuChordClaims.push({ name: name, isUp: isUp, whileTyping: !!(options && options.whileTyping) });
+  menuChordClaims.push({ name: name, isUp: isUp, takesFieldEditingKeys: !!(options && options.takesFieldEditingKeys) });
   syncMenuChords();
 }
 function menuChordsWanted() {
@@ -561,7 +561,7 @@ function menuChordsWanted() {
   var typing = !!active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable);
   for (var i = 0; i < menuChordClaims.length; i += 1) {
     var claim = menuChordClaims[i];
-    if (claim.isUp() && (claim.whileTyping || !typing)) return true;
+    if (claim.isUp() && (claim.takesFieldEditingKeys || !typing)) return true;
   }
   return false;
 }
@@ -573,8 +573,9 @@ function syncMenuChords() {
     window.kakapoApp.setIgnoreMenuShortcuts(wanted);
   }
 }
+function afterFocusSettles(run) { setTimeout(run, 0); }
 document.addEventListener('focusin', function () { syncMenuChords(); });
-document.addEventListener('focusout', function () { setTimeout(syncMenuChords, 0); });
+document.addEventListener('focusout', function () { afterFocusSettles(syncMenuChords); });
 var langSelectRef = null, themeSelectRef = null, syntaxThemeSelectRef = null;
 var localizedPaints = [];
 function registerLocalizedPaint(ref) {

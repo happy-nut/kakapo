@@ -88,8 +88,7 @@ const PANEL = `(() => {
   };
 })()`;
 
-// Where the caret was PAINTED, read off the DOM — not what the model holds.
-const CARET = `(() => {
+const PAINTED_CARET = `(() => {
   const row = document.querySelector('#source-body .source-row.cursor-line');
   const cursor = document.querySelector('#source-body .code-cursor');
   return {
@@ -113,7 +112,7 @@ await drive("stack-trace", repo, async (page, h) => {
     await h.until(`document.querySelectorAll('#stack-trace-results .stack-item').length >= 4`, 15000);
     const panel = await page.evaluate(PANEL);
 
-    h.check(panel.open, "⌘⇧S opens the stack-trace panel in the real app", JSON.stringify(panel.summary));
+    h.control(panel.open, "⌘⇧S opens the stack-trace panel in the real app", JSON.stringify(panel.summary));
     h.check(panel.pasted === TRACE, "and it prefills itself from the clipboard, with no parse button to press",
       JSON.stringify(panel.pasted.slice(0, 40)));
     h.check(panel.linked.join(" | ") === "src/main/java/com/foo/Bar.java:5 | src/main/java/com/qux/Bar.java:4"
@@ -133,7 +132,7 @@ await drive("stack-trace", repo, async (page, h) => {
     await h.click("#stack-trace-results .stack-item", 0);
     await h.until(`sourceOpenPath() === 'src/main/java/com/foo/Bar.java'`, 10000);
     await h.until(`!!document.querySelector('#source-body .source-row.cursor-line')`, 10000);
-    const caret = await page.evaluate(CARET);
+    const caret = await page.evaluate(PAINTED_CARET);
     h.check(caret.path === "src/main/java/com/foo/Bar.java" && caret.line === 5 && caret.painted,
       "opening a frame paints the caret on the line the frame named", JSON.stringify(caret));
     h.check(String(caret.text || "").includes("throw new RuntimeException"),
@@ -174,7 +173,7 @@ await drive("stack-trace", repo, async (page, h) => {
     await page.evaluate(`(() => { document.getElementById('stack-trace-input').focus(); return true; })()`);
     await page.key("Enter", "Enter", 13, 4);
     await h.until(`sourceOpenPath() === 'src/main/java/com/foo/Bar.java'`, 10000);
-    const first = await page.evaluate(CARET);
+    const first = await page.evaluate(PAINTED_CARET);
     h.check(first.line === 5, "⌘Enter goes to the first frame that resolves — where it blew up", JSON.stringify(first));
   } finally {
     await page.evaluate(`(() => { window.kakapoClipboard.write(${JSON.stringify(String(held ?? ""))}); return true; })()`);

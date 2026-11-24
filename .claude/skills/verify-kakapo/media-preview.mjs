@@ -42,7 +42,7 @@ const forPath = (path) => sides.replace("PATH", JSON.stringify(path));
 await drive("media-preview", repo, async (page, h) => {
   const picture = await h.until(`(${forPath("assets/banner.png")}).images.filter((w) => w > 0).length === 2`, 20000);
   const shown = await page.evaluate(forPath("assets/banner.png"));
-  h.check(Boolean(picture), "a changed picture is two pictures, both drawn", JSON.stringify(shown));
+  h.control(Boolean(picture), "a changed picture is two pictures, both drawn", JSON.stringify(shown));
   h.check(shown.panes === 2 && shown.absent === 0,
     "the base revision's and the working tree's, with neither pane reporting an absence", JSON.stringify(shown));
   await h.shot("1-picture-diff");
