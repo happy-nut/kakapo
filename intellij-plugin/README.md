@@ -30,3 +30,20 @@ gradle buildPlugin
 ```
 
 The zip lands in `build/distributions/`. Install it with Settings → Plugins → Install Plugin from Disk.
+
+## Releasing
+
+```bash
+gradle verifyPlugin   # JetBrains' own verifier; 0.0.1 reports Compatible against IC-252
+gradle buildPlugin    # build/distributions/kakapo-comments-<version>.zip
+```
+
+The **first** version of a plugin has to be uploaded through <https://plugins.jetbrains.com/plugin/add>
+with a JetBrains account, and it is public only after Marketplace moderation. Every version after that
+is a command, with a permanent token from <https://plugins.jetbrains.com/author/me/tokens>:
+
+```bash
+JETBRAINS_MARKETPLACE_TOKEN=... gradle publishPlugin
+```
+
+The token is read from the environment, never from this repository.
