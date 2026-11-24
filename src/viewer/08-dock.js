@@ -24,6 +24,33 @@ function isDockFocused() {
   var ae = document.activeElement;
   return !!(ae && ae.closest && ae.closest('.dock-panel'));
 }
+// The dock's ⌘A selects every card rather than the page's text, which the Edit menu's own selectAll would
+// take first, so the dock asks for the menu accelerators to be held. That hold is the whole window's: while
+// it is on, ⌘V, ⌘X and ⌘Z reach nothing, because the page implements none of them. Holding it for as long
+// as the dock is open therefore killed pasting everywhere — ⌘F's find box above all, which is where a
+// reader pastes what they are looking for. The dock does not take focus when it opens, so the hold cannot
+// follow the dock's own focus either; it follows the same line Quick Open draws, and lets go for exactly as
+// long as someone is typing in a field, where every one of those chords belongs to the field.
+function dockOwnsEditKeys() {
+  if (!activeDockPanel()) return false;
+  var ae = document.activeElement;
+  if (!ae) return true;
+  return !(ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable);
+}
+function syncDockEditKeys() {
+  var owns = dockOwnsEditKeys();
+  if (owns === dockHoldsMenu) return;
+  dockHoldsMenu = owns;
+  holdMenuShortcuts(owns);
+}
+function deferDockEditKeys() {
+  setTimeout(syncDockEditKeys, 0); // after the browser has settled on the next focus target
+}
+function releaseDockEditKeys() {
+  if (!dockHoldsMenu) return;
+  dockHoldsMenu = false;
+  holdMenuShortcuts(false);
+}
 var mergedDockRefresh = null;
 function refreshMergedDock() {
   if (mergedDockRefresh) mergedDockRefresh();
@@ -115,7 +142,7 @@ function mountDock(id, titleText) {
 function openMergedView() {
   if (pruneCommentsForMissingFiles()) refreshComments();
   var dock = mountDock('mc-merged-panel', t('merged.title'));
-  if (!dockHoldsMenu) { dockHoldsMenu = true; holdMenuShortcuts(true); }
+  syncDockEditKeys();
   var mergedBody = document.createElement('div');
   mergedBody.className = 'mc-merged-body';
   var host = document.createElement('div');
@@ -336,6 +363,8 @@ function openMergedView() {
     if (event.defaultPrevented) event.stopPropagation();
   }, true);
   document.addEventListener('copy', handleNativeCopy);
+  document.addEventListener('focusin', syncDockEditKeys);
+  document.addEventListener('focusout', deferDockEditKeys);
   function handlePrunedComments(event) {
     if (validatingCommentFiles) return;
     var removed = event && event.detail && Array.isArray(event.detail.comments) ? event.detail.comments : [];
@@ -345,7 +374,9 @@ function openMergedView() {
   dock.panel.__kakapoBeforeClose = function () {
     document.removeEventListener('kakapo:comments-pruned', handlePrunedComments);
     document.removeEventListener('copy', handleNativeCopy);
-    if (dockHoldsMenu) { dockHoldsMenu = false; holdMenuShortcuts(false); }
+    document.removeEventListener('focusin', syncDockEditKeys);
+    document.removeEventListener('focusout', deferDockEditKeys);
+    releaseDockEditKeys();
   };
   function renderAllAddressedNote() {
     if (host.querySelector('.mc-merged-card')) return;
