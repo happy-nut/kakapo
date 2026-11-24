@@ -289,10 +289,13 @@ test("right-clicking a diff line number loads both revisions and keeps numbers a
   assert.equal(paintedNew.querySelector('.mc-diff-line-number').textContent, String(newLine));
   assert.ok(paintedOld.querySelector('.mc-diff-blame-entry').classList.contains('mc-blame-age-4'), 'older base attribution receives the oldest age bucket');
   assert.ok(paintedNew.querySelector('.mc-diff-blame-entry').classList.contains('mc-blame-age-0'), 'newer working attribution receives the newest age bucket');
+  // The base pane used to read "code, line number, date, author", which put its author column in the spine
+  // facing the working pane's — two 164px walls of dates in the middle of the window. Both panes now open
+  // the author column at their own left edge, and the line number stays the part beside the code.
   assert.ok(
-    paintedOld.querySelector('.mc-diff-line-number').compareDocumentPosition(paintedOld.querySelector('.mc-diff-blame-entry'))
+    paintedOld.querySelector('.mc-diff-blame-entry').compareDocumentPosition(paintedOld.querySelector('.mc-diff-line-number'))
       & v.window.Node.DOCUMENT_POSITION_FOLLOWING,
-    'base order is code, line number, date, author',
+    'base order is date, author, line number, code',
   );
   assert.ok(
     paintedNew.querySelector('.mc-diff-blame-entry').compareDocumentPosition(paintedNew.querySelector('.mc-diff-line-number'))

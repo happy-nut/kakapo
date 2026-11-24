@@ -58,6 +58,7 @@ node .claude/skills/verify-kakapo/compare-tip.mjs                       # the co
 node .claude/skills/verify-kakapo/worktree-cache.mjs                    # a sibling worktree reuses the index
 node .claude/skills/verify-kakapo/clangd-index-hidden.mjs               # a server's own index stays out of the review
 node .claude/skills/verify-kakapo/dock-paste.mjs                        # an open dock still lets ⌘V reach a field
+node .claude/skills/verify-kakapo/blame-layout.mjs                      # the author column widens the gutter, nothing else
 node .claude/skills/verify-kakapo/statement-keywords.mjs                # synchronized/lock/foreach are not declarations
 ```
 

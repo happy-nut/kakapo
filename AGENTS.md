@@ -120,6 +120,7 @@ Nothing below needs to be remembered. Each row fails by name when it is broken, 
 | A path, line or symbol a document names is one the tree has | `test/doc-citations.test.mjs` |
 | The compare menu always ticks the row describing the diff the window is built from | `.claude/skills/formal-compare-mode` |
 | Chrome text never breaks inside a word and never overflows its box, at 1440 and at 900, in both locales | `npm run ui:text` |
+| A column that grows widens its own pane's gutter and moves nothing else — measured as geometry, because jsdom lays nothing out | `.claude/skills/verify-kakapo/blame-layout.mjs` |
 | A served index equals a scanned one, and an edited worktree is never served stale text | `npm run index:bench` |
 | A shared cache still answers from the text in front of it | `npm run cache:bench` |
 | A caret-anchored popup closes when the code under it scrolls, and not when its own list does | `test/peek-call-graph.test.mjs` |
