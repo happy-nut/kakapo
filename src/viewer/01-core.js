@@ -574,6 +574,19 @@ function syncMenuChords() {
   }
 }
 function afterFocusSettles(run) { setTimeout(run, 0); }
+function layoutRectOf(range) {
+  return typeof range.getBoundingClientRect === 'function' ? range.getBoundingClientRect() : null;
+}
+function placeCaretSpan(span, cell, range) {
+  span.classList.add('code-cursor-placed');
+  cell.appendChild(span);
+  var at = layoutRectOf(range);
+  if (!at) return span;
+  var box = cell.getBoundingClientRect();
+  span.style.left = (at.left - box.left + cell.scrollLeft) + 'px';
+  span.style.top = (at.top - box.top + cell.scrollTop) + 'px';
+  return span;
+}
 document.addEventListener('focusin', function () { syncMenuChords(); });
 document.addEventListener('focusout', function () { afterFocusSettles(syncMenuChords); });
 var langSelectRef = null, themeSelectRef = null, syntaxThemeSelectRef = null;

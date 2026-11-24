@@ -21,6 +21,10 @@ npm run smoke
 npm test
 ```
 
+`intellij-plugin/` is a Gradle subproject: the same review, written from inside the IDE. It is not
+part of `npm test` — `npm run idea:anchor` checks the one rule that decides whether it works, and
+`npm run idea:build` produces the installable zip.
+
 Runtime code lives in `src/`. Prefer plain Markdown and JSON artifacts so users can inspect and edit
 everything. Do not introduce git worktree, terminal multiplexer, editor, or agent-specific requirements —
 kakapo does not run agents, embed a terminal, or manage workspaces, and those were deliberately removed.

@@ -187,8 +187,7 @@ function renderDiffCaret() {
     var range = document.createRange();
     range.setStart(pos.node, off);
     range.collapse(true);
-    range.insertNode(span);
-    diffCaretSpan = span;
+    diffCaretSpan = placeCaretSpan(span, ctn, range);
   } catch (e) { diffCaretSpan = null; }
 }
 function setDiffCursor(path, side, rowIndex, column, reveal) {
