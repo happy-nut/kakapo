@@ -56,3 +56,42 @@ test("the break is invisible to everything that reads the line's text", async ()
     v.close();
   }
 });
+
+test("⌘C with a caret and no selection copies the caret's line, the way IntelliJ does", async () => {
+  const v = await open();
+  try {
+    v.window.setSourceCursor(FILE, 2, 0, false);
+    await v.settle(20);
+    const copied = [];
+    const event = new v.window.Event("copy", { bubbles: true, cancelable: true });
+    event.clipboardData = { setData: (type, value) => copied.push([type, value]) };
+    v.window.document.dispatchEvent(event);
+    assert.deepEqual(copied, [["text/plain", "const b = 2;\n"]],
+      "the caret's line is put on the clipboard with its newline");
+    assert.equal(event.defaultPrevented, true, "and the empty native copy is stopped");
+  } finally {
+    v.close();
+  }
+});
+
+test("a real selection is left to the browser, which already copies it", async () => {
+  const v = await open();
+  try {
+    v.window.setSourceCursor(FILE, 2, 0, false);
+    await v.settle(20);
+    const range = v.window.document.createRange();
+    range.selectNodeContents(cellAt(v, 2));
+    const selection = v.window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+
+    const copied = [];
+    const event = new v.window.Event("copy", { bubbles: true, cancelable: true });
+    event.clipboardData = { setData: (type, value) => copied.push([type, value]) };
+    v.window.document.dispatchEvent(event);
+    assert.deepEqual(copied, [], "nothing is forced onto a copy that has a selection to carry");
+    assert.equal(event.defaultPrevented, false, "the browser's own copy is left alone");
+  } finally {
+    v.close();
+  }
+});
