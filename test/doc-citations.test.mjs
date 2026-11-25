@@ -28,6 +28,8 @@ const FOREIGN_NAMES = new Set([
   "ExceptionWorker", "parseExceptionLine", "ExceptionWorker.parseExceptionLine", "FernFlower", "DefaultColorSchemesManager", "MinusculeMatcher",
   "UsageViewBundle.properties", "UsageGroupingRulesDefaultRanks", "MixedListFactory",
   "MULTIPLE_CONTRIBUTORS_ELEMENTS_LIMIT", "CARGO_TARGET_DIR", "RUSTUP_TARGETS", "TMPDIR",
+  // IntelliJ platform, named by the IDE harness because it is the way a tool window is opened.
+  "ToolWindow.show",
 ]);
 
 const SYMBOL = /`([A-Z][A-Za-z0-9]+(?:\.[a-z][A-Za-z0-9]*)?|[a-z][A-Za-z0-9]*\(\)|[A-Z][A-Z0-9_]{3,})`/g;

@@ -11,6 +11,8 @@ import { bundledJdk } from "../scripts/gradle-with-bundled-jdk.mjs";
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const pluginDir = join(repoRoot, "intellij-plugin");
 const store = readFileSync(join(pluginDir, "src/main/kotlin/dev/kakapo/comments/CommentStore.kt"), "utf8");
+const gitDir = readFileSync(join(pluginDir, "src/main/kotlin/dev/kakapo/comments/GitDir.kt"), "utf8");
+const format = readFileSync(join(pluginDir, "src/main/kotlin/dev/kakapo/comments/ReviewFormat.kt"), "utf8");
 
 test("the plugin writes the review kakapo reads, not one of its own", () => {
   const scratch = mkdtempSync(join(tmpdir(), "kakapo-plugin-path-"));
@@ -22,10 +24,10 @@ test("the plugin writes the review kakapo reads, not one of its own", () => {
       `and this is where it keeps it: ${path}`);
     // Asserted as the two names the path is built from, not as one spelling of the call chain: the
     // chain grew a `?.` when the git directory stopped being guessed, and this read it as a move.
-    assert.match(store, /resolve\("kakapo"\)\??\.resolve\("comments\.jsonl"\)/,
+    assert.match(gitDir, /resolve\("kakapo"\)\??\.resolve\("comments\.jsonl"\)/,
       "the plugin resolves the same file, so a comment written in either tool is one review");
-    assert.match(store, /fun gitDir\(\)/, "under the repository's own git directory, which it resolves");
-    assert.match(store, /Path\.of\(base, "\.git"\)/, "starting from the project's .git");
+    assert.match(gitDir, /fun of\(base: Path\)/, "under the repository's own git directory, which it resolves");
+    assert.match(gitDir, /base\.resolve\("\.git"\)/, "starting from the project's .git");
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }
@@ -36,7 +38,7 @@ test("the record the plugin writes is the record kakapo defines", () => {
   const fields = [...record.matchAll(/^\s{2}(\w+)\??:/gm)].map((match) => match[1]);
   for (const field of ["id", "path", "line", "anchor", "kind", "by", "text"]) {
     assert.ok(fields.includes(field), `ThreadRecord still has ${field}`);
-    assert.match(store, new RegExp(`"${field}"`), `and the plugin writes ${field}`);
+    assert.match(format, new RegExp(`"${field}"`), `and the plugin writes ${field}`);
   }
 });
 
@@ -47,6 +49,9 @@ test("the anchoring rule is checkable without an IDE, and npm says how", () => {
   const scripts = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8")).scripts;
   assert.equal(scripts["idea:anchor"], "node scripts/gradle-with-bundled-jdk.mjs anchorCheck");
   assert.equal(scripts["idea:build"], "node scripts/gradle-with-bundled-jdk.mjs buildPlugin");
+  // The format's own checks and the round trip through kakapo's reader are one deliberate command,
+  // because the suite this test belongs to runs on a machine with no JDK and no Gradle.
+  assert.equal(scripts["idea:review"], "node scripts/idea-review.mjs");
 });
 
 test("the Diff window is wired by its own API, not by reflection", () => {

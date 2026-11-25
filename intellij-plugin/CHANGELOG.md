@@ -1,5 +1,25 @@
 # kakapo comments
 
+## 0.0.5
+
+⌃⇧⌘/ now archives what it copies, so a hand-off carries only what is new, and the archive is readable
+in the Kakapo Review tool window rather than gone. A record is archived in place, so the fields kakapo
+keeps and this plugin does not model survive it.
+
+A comment written in the Diff window is recorded as a diff comment and says which side it was written
+on. Until now every comment claimed to be a source comment, so kakapo reopened it in the wrong view,
+and one written on the left carried a line number the working file does not have.
+
+Ids are taken from the review file's own header, which states the next free one and says that ids are
+shared with the file kakapo keeps beside it. Counting from the highest id in one file was how two
+records could end up with the same id and a reply land on the wrong comment.
+
+The comment box shows the line it is about under its location, and its Comment button is the primary
+one and is off until there is something to keep — pressing it on an empty box used to close the box and
+write nothing, which reads as a comment that vanished. The format and the git directory
+are plain Kotlin now, run for real by `npm run idea:review` — every check on them used to be a regular
+expression over the source, which passes whether or not the code is ever called.
+
 ## 0.0.4
 
 A comment written in a linked worktree or a submodule used to vanish. The review lives in the

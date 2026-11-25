@@ -144,15 +144,23 @@ Nothing below needs to be remembered. Each row fails by name when it is broken, 
 | A review written in kakapo is marked when the file is opened, not only inside the Diff window | `test/intellij-plugin-shares-the-review.test.mjs` |
 | The plugin works in the IDE a user installs, loaded from the zip the Marketplace serves | `.claude/skills/verify-kakapo-idea` |
 | A chord the plugin declares is not one IntelliJ already spends, compared by the chord and not its spelling | `test/idea-plugin-chords.test.mjs` |
+| A chord spelled into the plugin's own UI text is one the plugin declares | `test/idea-plugin-chords.test.mjs` |
+| No file in `test/` needs a JDK or Gradle, because CI has neither and a skip would be a green gate | `test/idea-plugin-store.test.mjs` |
+| The review format and the git directory are plain Kotlin, and are run rather than read | `npm run idea:review` |
+| A record the plugin writes is one kakapo's own reader understands, round-tripped and not described | `npm run idea:review` |
+| Archiving a record keeps the fields this plugin never modelled | `npm run idea:review` |
 
 `.claude/skills/verify-kakapo-idea` answers for the plugin what `verify-kakapo` answers for the app, and it
 installs `intellij-plugin/build/distributions/*.zip` rather than Gradle's `idea-sandbox`: the sandbox carries
 jars the distribution does not, so a run against it can pass while the zip a user downloads cannot load.
 
-Three of those are not part of `npm test` and have to be run deliberately: `npm run ui:text`, because jsdom
-lays nothing out and every width is zero; the two benches, because they open real repositories; and the two
-skills, because they drive the real app and a model checker. A Korean string is routinely half again as long
-as its English twin, so a toolbar measured only in English was not measured.
+Four of those are not part of `npm test` and have to be run deliberately: `npm run ui:text`, because jsdom
+lays nothing out and every width is zero; the two benches, because they open real repositories; the two
+skills, because they drive the real app and a model checker; and `npm run idea:review`, because the plugin's
+Kotlin needs a JDK and Gradle that CI does not have. That last one is why the round trip is a command and not
+a test file: put in `test/`, it fails on CI, and the only way to make it pass there is a skip, which is a gate
+that is green for the wrong reason. A Korean string is routinely half again as long as its English twin, so
+a toolbar measured only in English was not measured.
 
 ## What the tools do that we cannot change
 

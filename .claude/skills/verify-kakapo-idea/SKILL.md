@@ -26,6 +26,7 @@ pass while the zip a user downloads fails to load, so the zip is the only thing 
 ```bash
 npm run idea:build                                    # the zip, through the bundled JDK
 node .claude/skills/verify-kakapo-idea/marks-from-kakapo.mjs
+node .claude/skills/verify-kakapo-idea/comment-box-and-history.mjs   # needs System Events permission
 ```
 
 Evidence lands in `.kakapo-verify/<stamp>-idea-<name>/`: numbered screenshots, `run.log`, and the IDE's
@@ -45,11 +46,31 @@ h.control(/Loaded custom plugins: kakapo comments/.test(h.ideLog()),
   "the IDE loaded the plugin from the distribution zip");
 ```
 
+## Reaching a window a chord opens
+
+`h.key("alt+shift+cmd+/")` sends a chord to the IDE, and `h.front()` raises it first. Both go through
+System Events, which the Mac grants per application: without that grant it answers -1743 and the run
+fails rather than going on. `burrow click` and `burrow key` report success and reach nothing, so they
+are not what this harness types with.
+
+A window opened by a chord needs a control that is not the picture, because a keystroke that went
+nowhere leaves a screenshot of the editor and nothing says so. Use what the action changed on disk:
+
+```js
+await h.key("ctrl+shift+cmd+/", 4000);
+await h.until(() => readFileSync(comments, "utf8").includes('\"addressed\":true'), 30000,
+  "the hand-off chord to reach the IDE and archive the comment");
+await h.shot("history");
+```
+
+A tool window cannot be opened by seeding `.idea/workspace.xml` instead. That was tried, and the IDE
+opened with the window shut; the action's own `ToolWindow.show` is the way in.
+
 ## What a fresh IDE does that has to be arranged, not clicked
 
-Four things stop a never-used config before any project opens, and none of them can be answered by this
-harness driving the screen — macOS synthetic input does not reliably reach a Java window from here.
-`drive.mjs` arranges all four:
+Four things stop a never-used config before any project opens, and none of them is worth answering with
+a keystroke even now that keystrokes work: a dialog that appears before the window is up has nothing to
+aim at. `drive.mjs` arranges all four:
 
 | Stop | Arranged by |
 | --- | --- |
