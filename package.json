@@ -41,6 +41,7 @@
     "lsp:smoke": "node --test test/language-server-bundles.test.mjs",
     "lsp:legends": "npm run build && node scripts/semantic-legends.mjs",
     "idea:anchor": "node scripts/gradle-with-bundled-jdk.mjs anchorCheck",
+    "idea:keymap": "node scripts/intellij-keymap.mjs",
     "idea:build": "node scripts/gradle-with-bundled-jdk.mjs buildPlugin",
     "idea:publish": "node scripts/gradle-with-bundled-jdk.mjs publishPlugin",
     "mermaid:smoke": "npm run build && node scripts/mermaid-smoke.mjs run",

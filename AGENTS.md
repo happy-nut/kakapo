@@ -143,6 +143,7 @@ Nothing below needs to be remembered. Each row fails by name when it is broken, 
 | A plugin release's notes are written for that release, and publishing finds its own token | `test/intellij-plugin-shares-the-review.test.mjs` |
 | A review written in kakapo is marked when the file is opened, not only inside the Diff window | `test/intellij-plugin-shares-the-review.test.mjs` |
 | The plugin works in the IDE a user installs, loaded from the zip the Marketplace serves | `.claude/skills/verify-kakapo-idea` |
+| A chord the plugin declares is not one IntelliJ already spends, compared by the chord and not its spelling | `test/idea-plugin-chords.test.mjs` |
 
 `.claude/skills/verify-kakapo-idea` answers for the plugin what `verify-kakapo` answers for the app, and it
 installs `intellij-plugin/build/distributions/*.zip` rather than Gradle's `idea-sandbox`: the sandbox carries

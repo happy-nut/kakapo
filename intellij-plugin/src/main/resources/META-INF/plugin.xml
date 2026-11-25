@@ -21,7 +21,7 @@
             text="Comment at Caret"
             description="Write a kakapo review comment on the caret's line">
       <add-to-group group-id="EditorPopupMenu" anchor="first"/>
-      <keyboard-shortcut keymap="$default" first-keystroke="shift meta SLASH"/>
+      <keyboard-shortcut keymap="$default" first-keystroke="alt shift meta SLASH"/>
     </action>
     <action id="kakapo.HandOff"
             class="dev.kakapo.comments.HandOffAction"
