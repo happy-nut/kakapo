@@ -25,7 +25,7 @@ export function shippedZip() {
   return join(PLUGIN, "build", "distributions", `kakapo-comments-${declaredVersion()}.zip`);
 }
 
-export function makeProject(prefix) {
+export function makeProject(prefix, options = {}) {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), `kakapo-idea-${prefix}-`)));
   const git = (...args) => execFileSync("git", args, { cwd: dir, stdio: "pipe", encoding: "utf8" }).trim();
   git("init", "-qb", "main");
@@ -57,7 +57,14 @@ export function makeProject(prefix) {
 </module>
 `);
   const commit = (message) => { git("add", "-A"); git("commit", "-qm", message); return git("rev-parse", "HEAD"); };
-  return { dir, git, put, commit };
+  // A linked worktree keeps .git as a file, which is the shape that sent comments nowhere until 0.0.4.
+  const linkTo = (name) => {
+    const linked = realpathSync(mkdtempSync(join(tmpdir(), `kakapo-idea-${prefix}-linked-`)));
+    rmSync(linked, { recursive: true, force: true });
+    git("worktree", "add", "-q", linked, "-b", name);
+    return linked;
+  };
+  return { dir, git, put, commit, linkTo, options };
 }
 
 export async function drive(name, project, body, options = {}) {

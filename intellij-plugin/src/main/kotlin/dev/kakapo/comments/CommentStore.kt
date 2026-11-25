@@ -16,16 +16,34 @@ data class Comment(
     val kind: String = "c",
     val by: String = "me",
     val addressed: Boolean = false,
-)
+) {
+    companion object {
+        /** The one spelling of "which line this is about". The box shows it and the hand-off writes it. */
+        fun where(path: String, line: Int): String = "@$path#L$line"
+    }
+
+    fun where(): String = where(path, line)
+}
 
 class CommentStore(private val project: Project) {
 
-    fun file(): Path? {
+    /**
+     * In a linked worktree and in a submodule, `.git` is a file holding `gitdir: <path>`, not a
+     * directory. Treating it as a directory is how a comment written there went nowhere: `file()`
+     * returned null and `append` dropped it without a word. kakapo itself asks git
+     * (`rev-parse --absolute-git-dir`); this reads the same answer without spawning a process.
+     */
+    fun gitDir(): Path? {
         val base = project.basePath ?: return null
-        val git = Path.of(base, ".git")
-        if (!Files.isDirectory(git)) return null
-        return git.resolve("kakapo").resolve("comments.jsonl")
+        val dot = Path.of(base, ".git")
+        if (Files.isDirectory(dot)) return dot
+        if (!Files.isRegularFile(dot)) return null
+        val pointer = Files.readAllLines(dot).firstOrNull { it.startsWith("gitdir:") } ?: return null
+        val target = Path.of(pointer.removePrefix("gitdir:").trim())
+        return (if (target.isAbsolute) target else Path.of(base).resolve(target)).normalize()
     }
+
+    fun file(): Path? = gitDir()?.resolve("kakapo")?.resolve("comments.jsonl")
 
     fun read(): List<Comment> {
         val path = file() ?: return emptyList()
@@ -33,10 +51,16 @@ class CommentStore(private val project: Project) {
         return Files.readAllLines(path).mapNotNull(::parse)
     }
 
-    fun append(comment: Comment) {
-        val path = file() ?: return
-        Files.createDirectories(path.parent)
-        Files.writeString(path, encode(comment) + "\n", StandardOpenOption.CREATE, StandardOpenOption.APPEND)
+    /** Answers whether the comment reached the file, because losing one in silence is how they vanish. */
+    fun append(comment: Comment): Boolean {
+        val path = file() ?: return false
+        return try {
+            Files.createDirectories(path.parent)
+            Files.writeString(path, encode(comment) + "\n", StandardOpenOption.CREATE, StandardOpenOption.APPEND)
+            true
+        } catch (failed: java.io.IOException) {
+            false
+        }
     }
 
     fun relativePath(file: VirtualFile): String? {

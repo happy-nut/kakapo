@@ -1,0 +1,1715 @@
+{
+  "ide": "IC-252.28238.7",
+  "captured": [
+    "keymaps/$default.xml",
+    "keymaps/Mac OS X 10.5+.xml",
+    "keymaps/macOS System Shortcuts.xml"
+  ],
+  "spent": {
+    "ADD": [
+      "ExpandTreeNode"
+    ],
+    "alt 0": [
+      "ActivateCommitToolWindow"
+    ],
+    "alt 1": [
+      "ActivateProjectToolWindow"
+    ],
+    "alt 2": [
+      "ActivateBookmarksToolWindow"
+    ],
+    "alt 3": [
+      "ActivateFindToolWindow"
+    ],
+    "alt 4": [
+      "ActivateRunToolWindow"
+    ],
+    "alt 5": [
+      "ActivateDebugToolWindow"
+    ],
+    "alt 6": [
+      "ActivateProblemsViewToolWindow"
+    ],
+    "alt 7": [
+      "ActivateStructureToolWindow"
+    ],
+    "alt 8": [
+      "ActivateServicesToolWindow"
+    ],
+    "alt 9": [
+      "ActivateVersionControlToolWindow"
+    ],
+    "alt BACK_QUOTE": [
+      "Vcs.QuickListPopupAction"
+    ],
+    "alt BACK_SLASH": [
+      "MainMenuButton.ShowMenu"
+    ],
+    "alt BACK_SPACE": [
+      "$Undo",
+      "EditorDeleteToWordStart"
+    ],
+    "alt DELETE": [
+      "EditorDeleteToWordEnd",
+      "SafeDelete"
+    ],
+    "alt down": [
+      "List-selectLastRow",
+      "ShowSearchHistory"
+    ],
+    "alt DOWN": [
+      "EditorUnSelectWord",
+      "List-selectLastRow",
+      "MethodDown",
+      "MethodOverloadSwitchDown",
+      "ShowContent",
+      "Tree-selectLast"
+    ],
+    "alt ENTER": [
+      "ShowIntentionActions"
+    ],
+    "alt F1": [
+      "SelectIn"
+    ],
+    "alt F10": [
+      "ShowExecutionPoint"
+    ],
+    "alt F12": [
+      "ActivateTerminalToolWindow"
+    ],
+    "alt F3": [
+      "Find",
+      "ToggleBookmarkWithMnemonic"
+    ],
+    "alt F7": [
+      "FindUsages"
+    ],
+    "alt F8": [
+      "EvaluateExpression"
+    ],
+    "alt f9": [
+      "RunToCursor"
+    ],
+    "alt F9": [
+      "RunToCursor"
+    ],
+    "alt HOME": [
+      "ShowNavBar"
+    ],
+    "alt INSERT": [
+      "FileChooser.NewFolder",
+      "Generate",
+      "NewElement"
+    ],
+    "alt J": [
+      "SelectNextOccurrence"
+    ],
+    "alt LEFT": [
+      "EditorPreviousWord",
+      "PreviousTab"
+    ],
+    "alt M": [
+      "Vcs.ToggleAmendCommitMode"
+    ],
+    "alt O": [
+      "ExportToTextFile"
+    ],
+    "alt Q": [
+      "EditorContextInfo"
+    ],
+    "alt RIGHT": [
+      "EditorNextWord",
+      "NextTab"
+    ],
+    "alt shift 6": [
+      "EditorFocusGutter",
+      "EditorShowGutterIconTooltip"
+    ],
+    "alt shift 7": [
+      "ActivateNuGetToolWindow"
+    ],
+    "alt shift 8": [
+      "ActivateUnitTestsToolWindow"
+    ],
+    "alt shift A": [
+      "VcsHistory.ShowAllAffected"
+    ],
+    "alt shift BACK_SPACE": [
+      "$Redo"
+    ],
+    "alt shift COMMA": [
+      "EditorDecreaseFontSizeGlobal"
+    ],
+    "alt shift down": [
+      "List-selectLastRowExtendSelection"
+    ],
+    "alt shift DOWN": [
+      "List-selectLastRowExtendSelection",
+      "MoveLineDown",
+      "Tree-selectLastExtendSelection"
+    ],
+    "alt shift ENTER": [
+      "SplitChooser"
+    ],
+    "alt shift F10": [
+      "ChooseRunConfiguration"
+    ],
+    "alt shift F5": [
+      "XDebugger.AttachToProcess"
+    ],
+    "alt shift F7": [
+      "ForceStepInto"
+    ],
+    "alt shift F8": [
+      "ForceStepOver"
+    ],
+    "alt shift F9": [
+      "ChooseDebugConfiguration"
+    ],
+    "alt shift I": [
+      "CodeInspection.OnEditor"
+    ],
+    "alt shift INSERT": [
+      "EditorToggleColumnMode"
+    ],
+    "alt shift J": [
+      "UnselectPreviousOccurrence"
+    ],
+    "alt shift LEFT": [
+      "Diff.PrevChange",
+      "EditorPreviousWordWithSelection",
+      "PreviousEditorTab"
+    ],
+    "alt shift M": [
+      "ChangesView.Move",
+      "Vcs.MoveChangedLinesToChangelist"
+    ],
+    "Alt Shift O": [
+      "SelectVirtualTemplateElement"
+    ],
+    "alt shift PERIOD": [
+      "EditorIncreaseFontSizeGlobal"
+    ],
+    "alt shift R": [
+      "RerunTests"
+    ],
+    "alt shift RIGHT": [
+      "Diff.NextChange",
+      "EditorNextWordWithSelection",
+      "NextEditorTab"
+    ],
+    "alt shift SLASH": [
+      "HippieBackwardCompletion"
+    ],
+    "alt shift TAB": [
+      "PrevSplitter"
+    ],
+    "alt shift up": [
+      "List-selectFirstRowExtendSelection"
+    ],
+    "alt shift UP": [
+      "List-selectFirstRowExtendSelection",
+      "MoveLineUp",
+      "Tree-selectFirstExtendSelection"
+    ],
+    "alt SLASH": [
+      "HippieCompletion"
+    ],
+    "alt SPACE": [
+      "QuickImplementations"
+    ],
+    "alt TAB": [
+      "NextSplitter"
+    ],
+    "alt up": [
+      "List-selectFirstRow"
+    ],
+    "alt UP": [
+      "EditorSelectWord",
+      "List-selectFirstRow",
+      "MethodOverloadSwitchUp",
+      "MethodUp",
+      "Tree-selectFirst"
+    ],
+    "BACK_SPACE": [
+      "$Delete",
+      "EditorBackSpace",
+      "FileChooser.GoToParent"
+    ],
+    "CONTEXT_MENU": [
+      "ShowPopupMenu"
+    ],
+    "control 0": [
+      "GotoBookmark0"
+    ],
+    "control 1": [
+      "DuplicatesForm.SendToLeft",
+      "FileChooser.GotoHome",
+      "GotoBookmark1"
+    ],
+    "control 2": [
+      "DuplicatesForm.SendToRight",
+      "FileChooser.GotoProject",
+      "GotoBookmark2"
+    ],
+    "control 3": [
+      "FileChooser.GotoModule",
+      "GotoBookmark3"
+    ],
+    "control 4": [
+      "GotoBookmark4"
+    ],
+    "control 5": [
+      "GotoBookmark5"
+    ],
+    "control 6": [
+      "GotoBookmark6"
+    ],
+    "control 7": [
+      "GotoBookmark7"
+    ],
+    "control 8": [
+      "GotoBookmark8"
+    ],
+    "control 9": [
+      "GotoBookmark9"
+    ],
+    "control A": [
+      "$SelectAll",
+      "EditorLineStart"
+    ],
+    "control ADD": [
+      "ExpandAll",
+      "ExpandExpandableComponent",
+      "ExpandRegion"
+    ],
+    "alt control 0": [
+      "ResetIdeScaleAction"
+    ],
+    "alt control A": [
+      "Diff.ApplyRightSide"
+    ],
+    "alt control ADD": [
+      "ExpandRegionRecursively"
+    ],
+    "alt control B": [
+      "EditorPreviousWord",
+      "GotoImplementation"
+    ],
+    "alt control C": [
+      "IntroduceConstant",
+      "TodoViewGroupByFlattenPackage"
+    ],
+    "alt control CLOSE_BRACKET": [
+      "NextProjectWindow"
+    ],
+    "alt control D": [
+      "ChooseDebugConfiguration",
+      "UsageGrouping.DirectoryStructure"
+    ],
+    "alt control DOWN": [
+      "NextOccurence",
+      "ResizeToolWindowDown"
+    ],
+    "alt control E": [
+      "Console.History.Browse",
+      "ToggleFindInSelection"
+    ],
+    "alt control ENTER": [
+      "EditorStartNewLineBefore",
+      "QuickActionPopup"
+    ],
+    "alt control EQUALS": [
+      "ExpandRegionRecursively",
+      "ZoomInIdeAction"
+    ],
+    "alt control F": [
+      "EditorNextWord",
+      "IntroduceField",
+      "ShowFilterPopup",
+      "UsageGrouping.FileStructure"
+    ],
+    "alt control F12": [
+      "ShowFilePath"
+    ],
+    "alt control F5": [
+      "XDebugger.AttachToProcess"
+    ],
+    "alt control F6": [
+      "SwitchCoverage"
+    ],
+    "alt control F7": [
+      "ShowUsages"
+    ],
+    "alt control F8": [
+      "QuickEvaluateExpression"
+    ],
+    "alt control F9": [
+      "ForceRunToCursor"
+    ],
+    "alt control H": [
+      "CallHierarchy"
+    ],
+    "alt control HOME": [
+      "GotoRelated"
+    ],
+    "alt control I": [
+      "AutoIndentLines"
+    ],
+    "alt control INSERT": [
+      "NewElementSamePlace"
+    ],
+    "alt control J": [
+      "SurroundWithLiveTemplate"
+    ],
+    "alt control L": [
+      "ReformatCode"
+    ],
+    "alt control LEFT": [
+      "Back",
+      "ResizeToolWindowLeft"
+    ],
+    "alt control M": [
+      "ChangesView.GroupBy.Module",
+      "ExtractMethod",
+      "TodoViewGroupByShowModules",
+      "UsageGrouping.Module",
+      "Vcs.ToggleAmendCommitMode"
+    ],
+    "alt control MINUS": [
+      "CollapseRegionRecursively",
+      "ZoomOutIdeAction"
+    ],
+    "alt control N": [
+      "Git.CreateNewBranch",
+      "Git.New.Branch.In.Log",
+      "Inline",
+      "NewElementSamePlace"
+    ],
+    "alt control O": [
+      "OptimizeImports",
+      "UsageGrouping.FlattenModules"
+    ],
+    "alt control OPEN_BRACKET": [
+      "PreviousProjectWindow"
+    ],
+    "alt control P": [
+      "ChangesView.GroupBy.Directory",
+      "IntroduceParameter",
+      "TodoViewGroupByShowPackages"
+    ],
+    "alt control PERIOD": [
+      "GotoCustomRegion"
+    ],
+    "alt control Q": [
+      "ToggleRenderedDocPresentation"
+    ],
+    "alt control R": [
+      "ChooseRunConfiguration",
+      "Diff.ApplyLeftSide"
+    ],
+    "alt control RIGHT": [
+      "Forward",
+      "ResizeToolWindowRight"
+    ],
+    "alt control S": [
+      "ShowSettings"
+    ],
+    "alt control shift B": [
+      "EditorPreviousWordWithSelection"
+    ],
+    "alt control shift C": [
+      "CopyReference"
+    ],
+    "alt control shift DOWN": [
+      "VcsShowNextChangeMarker"
+    ],
+    "alt control shift F": [
+      "EditorNextWordWithSelection"
+    ],
+    "alt control shift INSERT": [
+      "NewScratchFile"
+    ],
+    "alt control shift J": [
+      "SelectAllOccurrences"
+    ],
+    "alt control shift LEFT": [
+      "MoveElementLeft",
+      "ResizeToolWindowLeft"
+    ],
+    "alt control shift RIGHT": [
+      "MoveElementRight",
+      "ResizeToolWindowRight"
+    ],
+    "alt control shift S": [
+      "ShowProjectStructureSettings"
+    ],
+    "alt control shift UP": [
+      "VcsShowPrevChangeMarker"
+    ],
+    "alt control shift V": [
+      "EditorPasteSimple"
+    ],
+    "alt control shift W": [
+      "DumpLookupElementWeights"
+    ],
+    "alt control SPACE": [
+      "ClassNameCompletion"
+    ],
+    "alt control SUBTRACT": [
+      "CollapseRegionRecursively"
+    ],
+    "alt control T": [
+      "ServiceView.GroupByContributor",
+      "SurroundWith",
+      "UsageGrouping.UsageType"
+    ],
+    "alt control UP": [
+      "PreviousOccurence",
+      "ResizeToolWindowUp"
+    ],
+    "alt control V": [
+      "IntroduceVariable"
+    ],
+    "alt control Y": [
+      "Synchronize"
+    ],
+    "alt control Z": [
+      "ChangesView.Revert",
+      "Vcs.RollbackChangedLines"
+    ],
+    "control B": [
+      "EditorLeft",
+      "GotoDeclaration"
+    ],
+    "control BACK_QUOTE": [
+      "QuickChangeScheme"
+    ],
+    "control BACK_SLASH": [
+      "FileChooser.GoToRoot"
+    ],
+    "control BACK_SPACE": [
+      "EditorDeleteToWordStart"
+    ],
+    "control C": [
+      "$Copy"
+    ],
+    "control CLOSE_BRACKET": [
+      "EditorCodeBlockEnd"
+    ],
+    "control D": [
+      "Compare.SameVersion",
+      "CompareTwoFiles",
+      "Debug",
+      "Diff.ShowDiff",
+      "EditorDuplicate",
+      "FileChooser.GotoDesktop",
+      "SendEOF",
+      "UsageGrouping.DirectoryStructure"
+    ],
+    "control DELETE": [
+      "EditorDeleteToWordEnd"
+    ],
+    "control DIVIDE": [
+      "CommentByLineComment"
+    ],
+    "control DOWN": [
+      "EditorLookupDown",
+      "EditorScrollDown",
+      "MethodOverloadSwitchDown",
+      "SearchEverywhere.NavigateToNextGroup"
+    ],
+    "control E": [
+      "EditorLineEnd",
+      "RecentFiles",
+      "SwitcherIterateItems",
+      "SwitcherRecentEditedChangedToggleCheckBox"
+    ],
+    "control END": [
+      "EditorTextEnd"
+    ],
+    "control ENTER": [
+      "Console.Execute.Multiline",
+      "DirDiffMenu.SynchronizeDiff.All",
+      "EditorSplitLine",
+      "Generate",
+      "NewElement",
+      "ViewSource"
+    ],
+    "control EQUALS": [
+      "ExpandAll",
+      "ExpandExpandableComponent",
+      "ExpandRegion"
+    ],
+    "control F": [
+      "EditorRight",
+      "Find",
+      "TodoViewGroupByFlattenPackage"
+    ],
+    "control F1": [
+      "ShowErrorDescription"
+    ],
+    "control F11": [
+      "ToggleBookmarkWithMnemonic"
+    ],
+    "control F12": [
+      "FileStructurePopup"
+    ],
+    "control F2": [
+      "Stop"
+    ],
+    "control F3": [
+      "FindWordAtCaret"
+    ],
+    "control F4": [
+      "CloseContent"
+    ],
+    "control F5": [
+      "Refresh",
+      "Rerun"
+    ],
+    "control F6": [
+      "ChangeSignature"
+    ],
+    "control F7": [
+      "FindUsagesInFile"
+    ],
+    "control F8": [
+      "ToggleLineBreakpoint"
+    ],
+    "control F9": [
+      "CompileDirty"
+    ],
+    "control G": [
+      "GotoLine",
+      "SelectNextOccurrence"
+    ],
+    "control H": [
+      "TypeHierarchy"
+    ],
+    "control HOME": [
+      "EditorTextStart"
+    ],
+    "control I": [
+      "ImplementMethods",
+      "UsageFiltering.Imports"
+    ],
+    "control INSERT": [
+      "$Copy"
+    ],
+    "control J": [
+      "InsertLiveTemplate",
+      "QuickJavaDoc"
+    ],
+    "control K": [
+      "EditorCutLineEnd"
+    ],
+    "control L": [
+      "EditorScrollToCenter",
+      "FindNext"
+    ],
+    "control LEFT": [
+      "EditorPreviousWord",
+      "PreviousTab"
+    ],
+    "control M": [
+      "ChangesView.GroupBy.Module",
+      "EditorMatchBrace",
+      "EditorScrollToCenter",
+      "TodoViewGroupByShowModules",
+      "UsageGrouping.Module",
+      "Vcs.ShowMessageHistory"
+    ],
+    "control meta LEFT": [
+      "Diff.ApplyRightSide"
+    ],
+    "control meta R": [
+      "RerunTests"
+    ],
+    "control meta RIGHT": [
+      "Diff.ApplyLeftSide"
+    ],
+    "control meta SPACE": [
+      "EmojiAndSymbols"
+    ],
+    "control meta UP": [
+      "GotoRelated"
+    ],
+    "control MINUS": [
+      "CollapseAll",
+      "CollapseExpandableComponent",
+      "CollapseRegion"
+    ],
+    "control MULTIPLY": [
+      "ExpandToLevel1",
+      "ExpandToLevel2",
+      "ExpandToLevel3",
+      "ExpandToLevel4",
+      "ExpandToLevel5"
+    ],
+    "control N": [
+      "EditorDown",
+      "FileChooser.NewFolder",
+      "GotoClass"
+    ],
+    "control O": [
+      "ChangesView.ShowCommitOptions",
+      "ExportToTextFile",
+      "OverrideMethods",
+      "UsageGrouping.FlattenModules"
+    ],
+    "control OPEN_BRACKET": [
+      "EditorCodeBlockStart"
+    ],
+    "control P": [
+      "ChangesView.GroupBy.Directory",
+      "EditorUp",
+      "FileChooser.TogglePathBar",
+      "ParameterInfo",
+      "TodoViewGroupByShowPackages"
+    ],
+    "control PAGE_DOWN": [
+      "EditorMoveToPageBottom"
+    ],
+    "control PAGE_UP": [
+      "EditorMoveToPageTop"
+    ],
+    "control PERIOD": [
+      "CollapseSelection",
+      "EditorChooseLookupItemDot"
+    ],
+    "control Q": [
+      "QuickJavaDoc"
+    ],
+    "control R": [
+      "Replace",
+      "Run",
+      "UsageFiltering.ReadAccess"
+    ],
+    "control RIGHT": [
+      "EditorNextWord",
+      "NextTab"
+    ],
+    "control S": [
+      "SaveAll",
+      "UsageGrouping.FileStructure"
+    ],
+    "control shift 0": [
+      "ToggleBookmark0"
+    ],
+    "control shift 1": [
+      "ToggleBookmark1"
+    ],
+    "control shift 2": [
+      "ToggleBookmark2"
+    ],
+    "control shift 3": [
+      "ToggleBookmark3"
+    ],
+    "control shift 4": [
+      "ToggleBookmark4"
+    ],
+    "control shift 5": [
+      "ToggleBookmark5"
+    ],
+    "control shift 6": [
+      "ToggleBookmark6"
+    ],
+    "control shift 7": [
+      "ToggleBookmark7"
+    ],
+    "control shift 8": [
+      "ToggleBookmark8"
+    ],
+    "control shift 9": [
+      "ToggleBookmark9"
+    ],
+    "control shift A": [
+      "GotoAction"
+    ],
+    "control shift ADD": [
+      "ExpandAllRegions"
+    ],
+    "alt control shift E": [
+      "TextSearchAction"
+    ],
+    "alt control shift F7": [
+      "ShowSettingsAndFindUsages"
+    ],
+    "alt control shift F8": [
+      "ToggleTemporaryLineBreakpoint"
+    ],
+    "alt control shift I": [
+      "RunInspection"
+    ],
+    "alt control shift L": [
+      "ShowReformatFileDialog"
+    ],
+    "alt control shift N": [
+      "GotoSymbol"
+    ],
+    "alt control shift U": [
+      "ShowSettingsAndFindUsages"
+    ],
+    "control shift B": [
+      "GotoTypeDeclaration"
+    ],
+    "control shift BACK_SPACE": [
+      "JumpToLastChange"
+    ],
+    "control shift C": [
+      "CopyPaths"
+    ],
+    "control shift CLOSE_BRACKET": [
+      "EditorCodeBlockEndWithSelection"
+    ],
+    "control shift COMMA": [
+      "EditorDecreaseFontSizeGlobal"
+    ],
+    "control shift D": [
+      "DebugClass",
+      "Diff.ShowSettingsPopup"
+    ],
+    "control shift DELETE": [
+      "Unwrap"
+    ],
+    "control shift DIVIDE": [
+      "CommentByBlockComment"
+    ],
+    "control shift DOWN": [
+      "MoveStatementDown",
+      "ShowContent"
+    ],
+    "control shift E": [
+      "RecentLocations"
+    ],
+    "control shift END": [
+      "EditorTextEndWithSelection"
+    ],
+    "control shift ENTER": [
+      "EditorCompleteStatement"
+    ],
+    "control shift EQUALS": [
+      "ExpandAllRegions"
+    ],
+    "control shift F": [
+      "FindInPath"
+    ],
+    "control shift F10": [
+      "Console.Open",
+      "RunClass"
+    ],
+    "control shift F11": [
+      "ShowTypeBookmarks"
+    ],
+    "control shift F12": [
+      "HideAllWindows"
+    ],
+    "control shift F2": [
+      "StopBackgroundProcesses"
+    ],
+    "control shift F3": [
+      "FindPrevWordAtCaret"
+    ],
+    "control shift F4": [
+      "CloseActiveTab"
+    ],
+    "control shift F5": [
+      "ForceRefresh"
+    ],
+    "control shift F6": [
+      "ChangeTypeSignature"
+    ],
+    "control shift F7": [
+      "HighlightUsagesInFile"
+    ],
+    "control shift F8": [
+      "EditBreakpoint",
+      "ViewBreakpoints"
+    ],
+    "control shift F9": [
+      "Compile",
+      "DebugClass"
+    ],
+    "control shift G": [
+      "UnselectPreviousOccurrence"
+    ],
+    "control shift H": [
+      "MethodHierarchy"
+    ],
+    "control shift HOME": [
+      "EditorTextStartWithSelection"
+    ],
+    "control shift I": [
+      "QuickImplementations"
+    ],
+    "control shift INSERT": [
+      "PasteMultiple"
+    ],
+    "control shift J": [
+      "EditorJoinLines"
+    ],
+    "control shift L": [
+      "FindPrevious"
+    ],
+    "control shift LEFT": [
+      "Diff.PrevChange",
+      "EditorPreviousWordWithSelection",
+      "PreviousEditorTab"
+    ],
+    "control shift M": [
+      "EditorMatchBrace"
+    ],
+    "control shift MINUS": [
+      "CollapseAllRegions"
+    ],
+    "control shift MULTIPLY": [
+      "ExpandAllToLevel1",
+      "ExpandAllToLevel2",
+      "ExpandAllToLevel3",
+      "ExpandAllToLevel4",
+      "ExpandAllToLevel5"
+    ],
+    "control shift N": [
+      "GotoFile"
+    ],
+    "control shift OPEN_BRACKET": [
+      "EditorCodeBlockStartWithSelection"
+    ],
+    "control shift P": [
+      "ExpressionTypeInfo"
+    ],
+    "control shift PAGE_DOWN": [
+      "EditorMoveToPageBottomWithSelection"
+    ],
+    "control shift PAGE_UP": [
+      "EditorMoveToPageTopWithSelection"
+    ],
+    "control shift PERIOD": [
+      "Stop"
+    ],
+    "control shift Q": [
+      "EditorContextInfo"
+    ],
+    "control shift QUOTE": [
+      "MaximizeToolWindow"
+    ],
+    "control shift R": [
+      "ReplaceInPath",
+      "RunClass"
+    ],
+    "control shift RIGHT": [
+      "Diff.NextChange",
+      "EditorNextWordWithSelection",
+      "NextEditorTab"
+    ],
+    "control shift SLASH": [
+      "CommentByBlockComment"
+    ],
+    "control shift SPACE": [
+      "SmartTypeCompletion"
+    ],
+    "control shift SUBTRACT": [
+      "CollapseAllRegions"
+    ],
+    "control shift T": [
+      "GotoTest",
+      "ServiceView.ShowServices"
+    ],
+    "control shift TAB": [
+      "Diff.FocusOppositePane"
+    ],
+    "control shift U": [
+      "EditorToggleCase",
+      "ShelveChanges.UnshelveWithDialog"
+    ],
+    "control shift UP": [
+      "MoveStatementUp"
+    ],
+    "control shift V": [
+      "PasteMultiple"
+    ],
+    "control shift W": [
+      "EditorUnSelectWord"
+    ],
+    "control shift Z": [
+      "$Redo"
+    ],
+    "control SLASH": [
+      "CommentByLineComment"
+    ],
+    "control SPACE": [
+      "ChangesView.SetDefault",
+      "CodeCompletion"
+    ],
+    "control SUBTRACT": [
+      "CollapseAll",
+      "CollapseExpandableComponent",
+      "CollapseRegion"
+    ],
+    "control T": [
+      "Refactorings.QuickListPopupAction",
+      "ServiceView.GroupByContributor",
+      "UsageGrouping.UsageType"
+    ],
+    "control U": [
+      "GotoSuperMethod"
+    ],
+    "control UP": [
+      "EditorLookupUp",
+      "EditorScrollUp",
+      "MethodOverloadSwitchUp",
+      "SearchEverywhere.NavigateToPrevGroup"
+    ],
+    "control V": [
+      "$Paste"
+    ],
+    "control W": [
+      "EditorSelectWord",
+      "UsageFiltering.WriteAccess"
+    ],
+    "control X": [
+      "$Cut"
+    ],
+    "control Y": [
+      "EditorDeleteLine"
+    ],
+    "control Z": [
+      "$Undo"
+    ],
+    "alt ctrl DOWN": [
+      "GotoNextElementUnderCaretUsage",
+      "MethodDown"
+    ],
+    "alt ctrl H": [
+      "TypeHierarchy"
+    ],
+    "alt ctrl shift H": [
+      "PopupHector"
+    ],
+    "alt ctrl U": [
+      "ShowUsages"
+    ],
+    "alt ctrl UP": [
+      "GotoPrevElementUnderCaretUsage",
+      "MethodUp"
+    ],
+    "ctrl BACK_SLASH": [
+      "Resume"
+    ],
+    "ctrl C": [
+      "Vcs.QuickListPopupAction"
+    ],
+    "ctrl COMMA": [
+      "GotoNextError"
+    ],
+    "ctrl D": [
+      "EditorDelete"
+    ],
+    "ctrl ENTER": [
+      "SplitChooser.Duplicate"
+    ],
+    "ctrl H": [
+      "EditorBackSpace"
+    ],
+    "ctrl meta B": [
+      "CompileDirty"
+    ],
+    "ctrl meta DOWN": [
+      "GotoRelated"
+    ],
+    "ctrl meta E": [
+      "RecentFiles"
+    ],
+    "ctrl meta K": [
+      "ShowBookmarks"
+    ],
+    "ctrl meta M": [
+      "ChangesView.Move",
+      "Vcs.MoveChangedLinesToChangelist"
+    ],
+    "ctrl meta O": [
+      "GotoClass"
+    ],
+    "ctrl meta R": [
+      "RerunTests"
+    ],
+    "ctrl meta T": [
+      "ActivateTerminalToolWindow"
+    ],
+    "ctrl meta U": [
+      "HighlightUsagesInFile"
+    ],
+    "ctrl meta UP": [
+      "ShowNavBar"
+    ],
+    "ctrl O": [
+      "EditorSplitLine"
+    ],
+    "ctrl Q": [
+      "SelectIn"
+    ],
+    "ctrl QUOTE": [
+      "ToggleLineBreakpoint"
+    ],
+    "ctrl S": [
+      "Refactorings.QuickListPopupAction"
+    ],
+    "ctrl shift DOWN": [
+      "MoveStatementDown"
+    ],
+    "ctrl shift H": [
+      "CallHierarchy"
+    ],
+    "ctrl shift N": [
+      "NewScratchFile"
+    ],
+    "ctrl shift O": [
+      "OverrideMethods"
+    ],
+    "ctrl shift QUOTE": [
+      "MaximizeToolWindow"
+    ],
+    "ctrl shift T": [
+      "GotoTest"
+    ],
+    "ctrl shift TAB": [
+      "Switcher"
+    ],
+    "ctrl shift U": [
+      "FindUsagesInFile"
+    ],
+    "ctrl shift UP": [
+      "MoveStatementUp"
+    ],
+    "ctrl shift V": [
+      "EditorPageDownWithSelection"
+    ],
+    "ctrl T": [
+      "EditorTranspose"
+    ],
+    "ctrl TAB": [
+      "Switcher"
+    ],
+    "ctrl U": [
+      "FindUsages"
+    ],
+    "ctrl V": [
+      "EditorPageDown",
+      "Vcs.QuickListPopupAction"
+    ],
+    "DELETE": [
+      "$Delete",
+      "EditorDelete"
+    ],
+    "DOWN": [
+      "EditorDown"
+    ],
+    "END": [
+      "EditorLineEnd"
+    ],
+    "Enter": [
+      "SearchEverywhere.SelectItem"
+    ],
+    "ENTER": [
+      "Console.Execute",
+      "DirDiffMenu.SynchronizeDiff",
+      "EditorChooseLookupItem",
+      "EditorEnter",
+      "NextTemplateVariable",
+      "SplitChooser.Split"
+    ],
+    "ESCAPE": [
+      "CloseGotItTooltip",
+      "EditorEscape",
+      "FocusEditor"
+    ],
+    "F1": [
+      "ContextHelp",
+      "QuickJavaDoc"
+    ],
+    "F10": [
+      "SwitchHeaderSource"
+    ],
+    "F11": [
+      "ToggleBookmark"
+    ],
+    "F12": [
+      "JumpToLastWindow"
+    ],
+    "F2": [
+      "ChangesView.Rename",
+      "Git.Rename.Local.Branch",
+      "Git.Reword.Commit",
+      "GotoNextError",
+      "ShelvedChanges.Rename",
+      "XDebugger.SetValue"
+    ],
+    "F3": [
+      "FindNext",
+      "ToggleBookmark"
+    ],
+    "F4": [
+      "EditSource"
+    ],
+    "F5": [
+      "CopyElement"
+    ],
+    "F6": [
+      "Move"
+    ],
+    "F7": [
+      "NextDiff",
+      "StepInto"
+    ],
+    "F8": [
+      "StepOver"
+    ],
+    "F9": [
+      "Resume"
+    ],
+    "HOME": [
+      "EditorLineStart"
+    ],
+    "INSERT": [
+      "EditorToggleInsertState",
+      "UsageView.Include",
+      "XDebugger.NewWatch"
+    ],
+    "LEFT": [
+      "EditorLeft"
+    ],
+    "meta 0": [
+      "ActivateCommitToolWindow"
+    ],
+    "meta 1": [
+      "ActivateProjectToolWindow"
+    ],
+    "meta 2": [
+      "ActivateBookmarksToolWindow"
+    ],
+    "meta 3": [
+      "ActivateFindToolWindow"
+    ],
+    "meta 4": [
+      "ActivateRunToolWindow"
+    ],
+    "meta 5": [
+      "ActivateDebugToolWindow"
+    ],
+    "meta 6": [
+      "ActivateProblemsViewToolWindow"
+    ],
+    "meta 7": [
+      "ActivateStructureToolWindow"
+    ],
+    "meta 8": [
+      "ActivateServicesToolWindow"
+    ],
+    "meta 9": [
+      "ActivateVersionControlToolWindow"
+    ],
+    "alt meta 7": [
+      "ActivateNuGetToolWindow"
+    ],
+    "alt meta 8": [
+      "ActivateUnitTestsToolWindow"
+    ],
+    "alt meta BACK_QUOTE": [
+      "NextProjectWindow"
+    ],
+    "alt meta CLOSE_BRACKET": [
+      "EditorCodeBlockEnd"
+    ],
+    "alt meta DIVIDE": [
+      "CommentByBlockComment"
+    ],
+    "alt meta E": [
+      "GotoNextElementUnderCaretUsage"
+    ],
+    "alt meta F3": [
+      "ShowTypeBookmarks"
+    ],
+    "alt meta F7": [
+      "ShowUsages"
+    ],
+    "alt meta F9": [
+      "ForceRunToCursor"
+    ],
+    "alt meta I": [
+      "Move"
+    ],
+    "alt meta LEFT": [
+      "Back",
+      "PreviousTab"
+    ],
+    "alt meta MULTIPLY": [
+      "ExpandAllToLevel1",
+      "ExpandAllToLevel2",
+      "ExpandAllToLevel3",
+      "ExpandAllToLevel4",
+      "ExpandAllToLevel5"
+    ],
+    "alt meta O": [
+      "GotoSymbol"
+    ],
+    "alt meta OPEN_BRACKET": [
+      "EditorCodeBlockStart"
+    ],
+    "alt meta R": [
+      "RenameElement",
+      "Resume"
+    ],
+    "alt meta RIGHT": [
+      "Forward",
+      "NextTab"
+    ],
+    "alt meta S": [
+      "ChangeSignature"
+    ],
+    "alt meta SEMICOLON": [
+      "SmartStepInto"
+    ],
+    "alt meta shift CLOSE_BRACKET": [
+      "EditorCodeBlockEndWithSelection"
+    ],
+    "alt meta shift E": [
+      "GotoPrevElementUnderCaretUsage"
+    ],
+    "alt meta shift OPEN_BRACKET": [
+      "EditorCodeBlockStartWithSelection"
+    ],
+    "alt meta shift R": [
+      "ForceRefresh"
+    ],
+    "alt meta SLASH": [
+      "CommentByBlockComment"
+    ],
+    "alt meta Y": [
+      "CopyElement"
+    ],
+    "meta B": [
+      "GotoDeclaration"
+    ],
+    "meta BACK_QUOTE": [
+      "NextWindow"
+    ],
+    "meta BACK_SLASH": [
+      "StepOut"
+    ],
+    "meta BACK_SPACE": [
+      "$Delete",
+      "EditorDeleteLine"
+    ],
+    "meta CLOSE_BRACKET": [
+      "Forward",
+      "NextDiff"
+    ],
+    "meta COMMA": [
+      "ShowSettings"
+    ],
+    "control meta EQUALS": [
+      "ZoomCurrentWindow"
+    ],
+    "control meta F": [
+      "ToggleFullScreen"
+    ],
+    "control meta G": [
+      "SelectAllOccurrences"
+    ],
+    "ctrl meta A": [
+      "VcsHistory.ShowAllAffected"
+    ],
+    "ctrl meta L": [
+      "EvaluateExpression"
+    ],
+    "ctrl meta Y": [
+      "Synchronize"
+    ],
+    "meta DELETE": [
+      "SafeDelete"
+    ],
+    "meta DOWN": [
+      "EditSource",
+      "EditSourceNotInEditor",
+      "EditorTextEnd",
+      "SearchEverywhere.NavigateToNextGroup"
+    ],
+    "meta END": [
+      "EditorTextEnd"
+    ],
+    "meta F": [
+      "Find"
+    ],
+    "meta F11": [
+      "ToggleBookmarkWithMnemonic"
+    ],
+    "meta F12": [
+      "FileStructurePopup"
+    ],
+    "meta F2": [
+      "Stop"
+    ],
+    "meta F3": [
+      "ShowBookmarks"
+    ],
+    "meta F6": [
+      "ChangeSignature"
+    ],
+    "meta F7": [
+      "FindUsagesInFile"
+    ],
+    "meta F8": [
+      "ToggleLineBreakpoint"
+    ],
+    "meta F9": [
+      "CompileDirty"
+    ],
+    "meta G": [
+      "FindNext"
+    ],
+    "meta HOME": [
+      "EditorTextStart"
+    ],
+    "meta I": [
+      "QuickJavaDoc"
+    ],
+    "meta L": [
+      "GotoLine"
+    ],
+    "meta LEFT": [
+      "EditorLineStart"
+    ],
+    "meta M": [
+      "MinimizeCurrentWindow"
+    ],
+    "meta N": [
+      "Generate",
+      "NewElement"
+    ],
+    "meta O": [
+      "GotoClass",
+      "OpenFile"
+    ],
+    "meta OPEN_BRACKET": [
+      "Back",
+      "PreviousDiff"
+    ],
+    "meta P": [
+      "FileChooser.TogglePathBar"
+    ],
+    "meta Q": [
+      "Exit"
+    ],
+    "meta QUOTE": [
+      "StepOver"
+    ],
+    "meta R": [
+      "Refresh",
+      "Rerun"
+    ],
+    "meta RIGHT": [
+      "EditorLineEnd"
+    ],
+    "meta SEMICOLON": [
+      "ShowProjectStructureSettings",
+      "StepInto"
+    ],
+    "meta shift 7": [
+      "FileStructurePopup"
+    ],
+    "meta shift A": [
+      "GotoAction"
+    ],
+    "alt meta shift BACK_QUOTE": [
+      "PreviousProjectWindow"
+    ],
+    "alt meta shift F7": [
+      "ShowSettingsAndFindUsages"
+    ],
+    "alt meta shift F8": [
+      "ToggleTemporaryLineBreakpoint"
+    ],
+    "meta shift B": [
+      "GotoTypeDeclaration"
+    ],
+    "meta shift BACK_QUOTE": [
+      "PreviousWindow"
+    ],
+    "meta shift CLOSE_BRACKET": [
+      "NextTab"
+    ],
+    "meta shift COMMA": [
+      "ShowProjectStructureSettings"
+    ],
+    "meta shift DIVIDE": [
+      "CommentByBlockComment"
+    ],
+    "meta shift DOWN": [
+      "EditorTextEndWithSelection"
+    ],
+    "meta shift END": [
+      "EditorTextEndWithSelection"
+    ],
+    "meta shift F": [
+      "FindInPath"
+    ],
+    "meta shift F1": [
+      "ContextHelp"
+    ],
+    "meta shift F7": [
+      "HighlightUsagesInFile"
+    ],
+    "meta shift G": [
+      "FindPrevious"
+    ],
+    "meta shift HOME": [
+      "EditorTextStartWithSelection"
+    ],
+    "meta shift LEFT": [
+      "EditorLineStartWithSelection"
+    ],
+    "meta shift M": [
+      "ChangesView.Move",
+      "Vcs.MoveChangedLinesToChangelist"
+    ],
+    "meta shift MINUS": [
+      "EditorDecreaseFontSizeGlobal"
+    ],
+    "meta shift N": [
+      "NewDir",
+      "NewScratchFile"
+    ],
+    "meta shift O": [
+      "GotoFile"
+    ],
+    "meta shift OPEN_BRACKET": [
+      "PreviousTab"
+    ],
+    "meta shift P": [
+      "GotoAction"
+    ],
+    "meta shift PLUS": [
+      "EditorIncreaseFontSizeGlobal"
+    ],
+    "meta shift R": [
+      "ReplaceInPath"
+    ],
+    "meta shift RIGHT": [
+      "EditorLineEndWithSelection"
+    ],
+    "meta shift SLASH": [
+      "CommentByBlockComment"
+    ],
+    "meta shift T": [
+      "ServiceView.ShowServices"
+    ],
+    "meta shift UP": [
+      "EditorTextStartWithSelection"
+    ],
+    "meta SLASH": [
+      "FileChooser.GoToRoot"
+    ],
+    "meta UP": [
+      "EditorTextStart",
+      "FileChooser.GoToParent",
+      "SearchEverywhere.NavigateToPrevGroup",
+      "ShowNavBar"
+    ],
+    "meta W": [
+      "CloseContent"
+    ],
+    "meta Y": [
+      "QuickImplementations"
+    ],
+    "meta Z": [
+      "$Undo"
+    ],
+    "MULTIPLY": [
+      "FullyExpandTreeNode"
+    ],
+    "PAGE_DOWN": [
+      "EditorPageDown",
+      "SearchEverywhere.NavigateToNextGroup"
+    ],
+    "PAGE_UP": [
+      "EditorPageUp",
+      "SearchEverywhere.NavigateToPrevGroup"
+    ],
+    "RIGHT": [
+      "EditorRight"
+    ],
+    "alt shift 0": [
+      "ResetIdeScaleAction"
+    ],
+    "alt shift D": [
+      "Debug"
+    ],
+    "alt shift EQUALS": [
+      "ZoomInIdeAction"
+    ],
+    "alt shift G": [
+      "EditorAddCaretPerSelectedLine"
+    ],
+    "alt shift MINUS": [
+      "CollapseAllRegions",
+      "ZoomOutIdeAction"
+    ],
+    "alt shift PLUS": [
+      "ExpandAllRegions"
+    ],
+    "alt shift QUOTE": [
+      "ForceStepOver"
+    ],
+    "alt shift SEMICOLON": [
+      "ForceStepInto"
+    ],
+    "shift BACK_SPACE": [
+      "EditorBackSpace",
+      "UsageView.Include"
+    ],
+    "alt ctrl shift BACK_SLASH": [
+      "ForceRunToCursor"
+    ],
+    "alt ctrl shift E": [
+      "TextSearchAction"
+    ],
+    "alt ctrl shift K": [
+      "ToggleBookmarkWithMnemonic"
+    ],
+    "ctrl shift BACK_SLASH": [
+      "RunToCursor"
+    ],
+    "ctrl shift COMMA": [
+      "GotoPreviousError"
+    ],
+    "ctrl shift I": [
+      "ImplementMethods"
+    ],
+    "ctrl shift K": [
+      "ToggleBookmark"
+    ],
+    "shift DELETE": [
+      "$Cut"
+    ],
+    "shift DOWN": [
+      "EditorDownWithSelection"
+    ],
+    "shift END": [
+      "EditorLineEndWithSelection"
+    ],
+    "shift ENTER": [
+      "CollapseExpandableComponent",
+      "EditorStartNewLine",
+      "ExpandExpandableComponent",
+      "OpenInRightSplit"
+    ],
+    "shift ESCAPE": [
+      "HideActiveWindow"
+    ],
+    "shift F1": [
+      "ExternalJavaDoc"
+    ],
+    "shift F10": [
+      "Run"
+    ],
+    "shift F11": [
+      "ShowBookmarks"
+    ],
+    "shift F12": [
+      "RestoreDefaultLayout"
+    ],
+    "shift F2": [
+      "GotoPreviousError"
+    ],
+    "shift F3": [
+      "FindPrevious"
+    ],
+    "shift F4": [
+      "EditSourceInNewWindow",
+      "XDebugger.JumpToTypeSource"
+    ],
+    "shift F6": [
+      "RenameElement"
+    ],
+    "Shift F6": [
+      "ChangesView.Rename",
+      "Git.Rename.Local.Branch",
+      "Git.Reword.Commit",
+      "ShelvedChanges.Rename"
+    ],
+    "shift F7": [
+      "PreviousDiff",
+      "SmartStepInto"
+    ],
+    "shift F8": [
+      "StepOut"
+    ],
+    "shift F9": [
+      "Debug"
+    ],
+    "shift HOME": [
+      "EditorLineStartWithSelection"
+    ],
+    "shift INSERT": [
+      "$Paste"
+    ],
+    "shift LEFT": [
+      "EditorLeftWithSelection"
+    ],
+    "meta shift 8": [
+      "EditorToggleColumnMode"
+    ],
+    "alt meta shift BACK_SLASH": [
+      "ToggleTemporaryLineBreakpoint"
+    ],
+    "alt meta shift DOWN": [
+      "ShowContent"
+    ],
+    "meta shift MULTIPLY": [
+      "EditorToggleColumnMode"
+    ],
+    "shift PAGE_DOWN": [
+      "EditorPageDownWithSelection"
+    ],
+    "shift PAGE_UP": [
+      "EditorPageUpWithSelection"
+    ],
+    "shift RIGHT": [
+      "EditorRightWithSelection"
+    ],
+    "shift TAB": [
+      "CodeFloatingToolbar.GotoPrevMenu",
+      "EditorUnindentSelection",
+      "PrevParameter",
+      "PreviousTemplateVariable",
+      "SearchEverywhere.PrevTab",
+      "SplitChooser.PreviousWindow"
+    ],
+    "shift UP": [
+      "EditorUpWithSelection"
+    ],
+    "SPACE": [
+      "SplitChooser.SplitCenter"
+    ],
+    "SUBTRACT": [
+      "CollapseTreeNode"
+    ],
+    "TAB": [
+      "BraceOrQuoteOut",
+      "CodeFloatingToolbar.GotoNextMenu",
+      "EditorChooseLookupItemReplace",
+      "EditorIndentSelection",
+      "EditorTab",
+      "ExpandLiveTemplateByTab",
+      "NextParameter",
+      "NextTemplateVariable",
+      "SearchEverywhere.CompleteCommand",
+      "SearchEverywhere.NextTab",
+      "SplitChooser.NextWindow"
+    ],
+    "UP": [
+      "EditorUp"
+    ]
+  }
+}

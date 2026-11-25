@@ -4,9 +4,11 @@ import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.Inlay
 import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.editor.impl.EditorEmbeddedComponentManager
+import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
 import com.intellij.util.ui.JBUI
+import com.intellij.util.ui.UIUtil
 import java.awt.BorderLayout
 import java.awt.event.KeyEvent
 import javax.swing.JButton
@@ -20,10 +22,17 @@ object CommentBox {
         val area = JBTextArea(2, 60).apply {
             lineWrap = true
             wrapStyleWord = true
-            emptyText.text = "$label — ⌘⏎ to keep it, Esc to drop it"
+            emptyText.text = "⌘⏎ to keep it, Esc to drop it"
+        }
+        // The location used to live in emptyText, which the first keystroke wipes — so the one thing the
+        // writer needs to see while writing was the one thing that disappeared as they wrote.
+        val where = JBLabel(label).apply {
+            border = JBUI.Borders.emptyBottom(4)
+            foreground = UIUtil.getContextHelpForeground()
         }
         val panel = JPanel(BorderLayout()).apply {
             border = JBUI.Borders.empty(6, 8)
+            add(where, BorderLayout.NORTH)
             add(JBScrollPane(area), BorderLayout.CENTER)
         }
         val save = JButton("Comment")

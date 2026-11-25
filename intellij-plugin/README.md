@@ -4,8 +4,8 @@ Write a review comment at the caret, and hand the whole review to an agent in on
 
 | | |
 | --- | --- |
-| ⌘⇧/ | comment on the caret's line |
-| ⌃⌘⇧/ | copy every unaddressed comment |
+| ⌥⇧⌘/ | comment on the caret's line |
+| ⌃⇧⌘/ | copy every unaddressed comment |
 
 Comments live in the repository's own `.git/kakapo/comments.jsonl` — the file kakapo reads — so a
 comment written in the IDE opens in kakapo, and one written in kakapo is marked in the IDE's gutter.
