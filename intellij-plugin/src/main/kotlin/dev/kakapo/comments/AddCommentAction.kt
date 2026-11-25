@@ -41,14 +41,16 @@ class AddCommentAction : AnAction() {
             return
         }
 
-        CommentBox.open(editor, lineIndex, where) { written ->
+        CommentBox.open(editor, lineIndex, where, anchor) { written ->
             val stored = store.append(
                 Comment(
-                    id = store.nextId(store.read()),
+                    id = store.nextId(),
                     path = path,
                     line = lineIndex + 1,
                     anchor = anchor,
                     text = written,
+                    view = CommentedEditor.viewOf(editor),
+                    side = CommentedEditor.sideOf(editor),
                 ),
             )
             if (stored) {

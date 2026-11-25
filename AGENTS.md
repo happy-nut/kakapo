@@ -144,6 +144,9 @@ Nothing below needs to be remembered. Each row fails by name when it is broken, 
 | A review written in kakapo is marked when the file is opened, not only inside the Diff window | `test/intellij-plugin-shares-the-review.test.mjs` |
 | The plugin works in the IDE a user installs, loaded from the zip the Marketplace serves | `.claude/skills/verify-kakapo-idea` |
 | A chord the plugin declares is not one IntelliJ already spends, compared by the chord and not its spelling | `test/idea-plugin-chords.test.mjs` |
+| The review format and the git directory are plain Kotlin, and are run rather than read | `npm run idea:review` |
+| A record the plugin writes is one kakapo's own reader understands, round-tripped and not described | `test/idea-plugin-round-trip.test.mjs` |
+| Archiving a record keeps the fields this plugin never modelled | `npm run idea:review` |
 
 `.claude/skills/verify-kakapo-idea` answers for the plugin what `verify-kakapo` answers for the app, and it
 installs `intellij-plugin/build/distributions/*.zip` rather than Gradle's `idea-sandbox`: the sandbox carries

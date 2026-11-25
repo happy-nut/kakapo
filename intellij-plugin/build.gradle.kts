@@ -19,7 +19,7 @@ dependencies {
 kotlin { jvmToolchain(21) }
 
 group = "dev.kakapo"
-version = "0.0.4"
+version = "0.0.5"
 
 val releaseNotes: (String) -> String = { released ->
     val changelog = file("CHANGELOG.md").readText()
@@ -76,6 +76,15 @@ intellijPlatform {
             }
         }
     }
+}
+
+tasks.register<JavaExec>("reviewCheck") {
+    group = "verification"
+    description = "The review format and the git directory, run without an IDE: both are plain Kotlin on purpose."
+    mainClass = "dev.kakapo.comments.ReviewCheck"
+    classpath = sourceSets["main"].output + configurations["runtimeClasspath"]
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
+    if (project.hasProperty("emit")) args(project.property("emit").toString())
 }
 
 tasks.register<JavaExec>("anchorCheck") {

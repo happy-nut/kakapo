@@ -9,6 +9,7 @@ import { commentsFilePath } from "../dist/comments-file.js";
 
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const store = readFileSync(join(repoRoot, "intellij-plugin/src/main/kotlin/dev/kakapo/comments/CommentStore.kt"), "utf8");
+const gitDir = readFileSync(join(repoRoot, "intellij-plugin/src/main/kotlin/dev/kakapo/comments/GitDir.kt"), "utf8");
 const action = readFileSync(join(repoRoot, "intellij-plugin/src/main/kotlin/dev/kakapo/comments/AddCommentAction.kt"), "utf8");
 const handOff = readFileSync(join(repoRoot, "intellij-plugin/src/main/kotlin/dev/kakapo/comments/HandOffAction.kt"), "utf8");
 
@@ -39,11 +40,12 @@ test("a linked worktree keeps .git as a file, which is what the plugin used to r
 });
 
 test("the plugin reads that pointer instead of demanding a directory", () => {
-  assert.match(store, /fun gitDir\(\): Path\?/, "the git directory is resolved in one place");
-  assert.match(store, /startsWith\("gitdir:"\)/,
+  // Asserted of GitDir, which has no IDE in it precisely so `npm run idea:review` can run this rule
+  // against real directories rather than read it here.
+  assert.doesNotMatch(gitDir, /import com\.intellij/, "GitDir stays runnable without a sandbox");
+  assert.match(gitDir, /startsWith\("gitdir:"\)/,
     "a linked worktree and a submodule both keep .git as a file holding this line");
-  assert.doesNotMatch(store, /if \(!Files\.isDirectory\(git\)\) return null/,
-    "demanding a directory is what sent comments nowhere");
+  assert.match(store, /GitDir\.reviewFile/, "and the store asks it rather than guessing");
 });
 
 test("a comment that cannot be stored is said out loud, not dropped", () => {

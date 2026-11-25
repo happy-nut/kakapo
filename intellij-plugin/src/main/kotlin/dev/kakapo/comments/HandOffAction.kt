@@ -10,13 +10,30 @@ class HandOffAction : AnAction() {
 
     override fun actionPerformed(event: AnActionEvent) {
         val project = event.project ?: return
-        val comments = CommentStore(project).read().filter { !it.addressed }
+        val store = CommentStore(project)
+        val comments = store.read().filter { !it.addressed }
         if (comments.isEmpty()) {
             Messages.showInfoMessage(project, "No comments to hand over.", "Kakapo")
             return
         }
+
         CopyPasteManager.getInstance().setContents(StringSelection(handOffText(comments)))
-        Messages.showInfoMessage(project, "${comments.size} comment(s) copied.", "Kakapo")
+
+        // Copying without archiving means the next hand-off carries the same comments again, so the
+        // reader cannot tell what is new. Archived is not deleted: ReviewHistory is where they go.
+        val archived = store.markAddressed(comments.map { it.id }.toSet())
+        CommentMarks.refreshOpenEditors(project)
+        ReviewHistory.show(project)
+
+        Messages.showInfoMessage(
+            project,
+            if (archived) {
+                "${comments.size} comment(s) copied and archived.\nThe archive is in the Kakapo Review tool window."
+            } else {
+                "${comments.size} comment(s) copied, but the review file could not be rewritten, so they are still open."
+            },
+            "Kakapo",
+        )
     }
 
     /**

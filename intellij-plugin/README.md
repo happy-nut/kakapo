@@ -5,10 +5,20 @@ Write a review comment at the caret, and hand the whole review to an agent in on
 | | |
 | --- | --- |
 | ⌥⇧⌘/ | comment on the caret's line |
-| ⌃⇧⌘/ | copy every unaddressed comment |
+| ⌃⇧⌘/ | copy every open comment, and archive them |
 
 Comments live in the repository's own `.git/kakapo/comments.jsonl` — the file kakapo reads — so a
 comment written in the IDE opens in kakapo, and one written in kakapo is marked in the IDE's gutter.
+
+## Copy and archive
+
+⌃⇧⌘/ copies the open comments and marks them addressed, so the next hand-off carries only what is new.
+Archived is not deleted: they stay in the **Kakapo Review** tool window, with the line each was about
+and a double-click back to it.
+
+A record is archived by changing the one field in the line it already is, never by rebuilding it from
+what this plugin understands — kakapo's records carry `re`, `group`, `title` and `role`, and rebuilding
+would drop every one of them.
 
 ## Where the marks come from
 

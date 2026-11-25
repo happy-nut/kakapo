@@ -43,5 +43,16 @@ object CommentMarks {
         }
     }
 
+    /** Repaints every open editor, so archiving a comment takes its mark away at once. */
+    fun refreshOpenEditors(project: Project) {
+        val manager = com.intellij.openapi.fileEditor.FileEditorManager.getInstance(project)
+        val store = CommentStore(project)
+        for (file in manager.openFiles) {
+            for (editor in manager.getEditors(file).filterIsInstance<com.intellij.openapi.fileEditor.TextEditor>()) {
+                refresh(project, editor.editor, file, store)
+            }
+        }
+    }
+
     fun anchoredLine(text: String, comment: Comment): Int = Anchor.line(text, comment.line, comment.anchor)
 }
