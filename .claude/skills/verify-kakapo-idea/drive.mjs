@@ -149,12 +149,88 @@ export async function drive(name, project, body, options = {}) {
       }
       return h.check(ok, what, detail);
     },
+    // The IDE's own window, not the screen: another application sitting in front of it would
+    // otherwise be what the evidence shows, which is what one run photographed and reported as the
+    // plugin. A window id is asked of the window server, so the IDE never has to be raised.
+    // This Mac can have another IntelliJ open, and it did: a run addressed its chords to a process
+    // picked by name and drove someone else's project, then photographed that window and reported it
+    // as the plugin's. Everything below is addressed to the process this run started.
+    idePid() {
+      try {
+        const found = execFileSync("pgrep", ["-f", `idea.config.path=${join(sandbox, "config")}`], { encoding: "utf8" });
+        return Number(found.trim().split("\n")[0]);
+      } catch { return null; }
+    },
+    ideWindow() {
+      const pid = h.idePid();
+      if (!pid) return null;
+      const rows = execFileSync("osascript", ["-l", "JavaScript", "-e", `
+        ObjC.import("CoreGraphics"); ObjC.import("Foundation");
+        const arr = ObjC.castRefToObject($.CGWindowListCopyWindowInfo(1 | 16, 0));
+        const out = [];
+        for (let i = 0; i < arr.count; i++) {
+          const w = ObjC.deepUnwrap(arr.objectAtIndex(i));
+          if (w.kCGWindowOwnerPID !== ${pid}) continue;
+          out.push([w.kCGWindowNumber, w.kCGWindowBounds.Width * w.kCGWindowBounds.Height].join(" "));
+        }
+        out.join("\\n")`], { encoding: "utf8" }).trim();
+      const best = rows.split("\n").filter(Boolean)
+        .map((row) => row.split(" ").map(Number))
+        .sort((a, b) => b[1] - a[1])[0];
+      return best?.[0] ?? null;
+    },
     async shot(label) {
       shots += 1;
       const file = join(evidence, `${String(shots).padStart(2, "0")}-${label}.png`);
-      execFileSync(BURROW, ["shot", file], { stdio: "pipe" });
-      log(`shot ${file}`);
+      const window = h.ideWindow();
+      if (window) execFileSync("screencapture", ["-x", "-o", `-l${window}`, file], { stdio: "pipe" });
+      else execFileSync(BURROW, ["shot", file], { stdio: "pipe" });
+      log(`shot ${file}${window ? "" : " (whole screen — no IDE window found)"}`);
       return file;
+    },
+    // Nothing in the sandbox can be reached by a click, so what the IDE is told is told in keystrokes.
+    // The Mac grants this per application, and System Events answers -1743 when it has not. Raising a
+    // window is asynchronous, and a chord sent before the raise lands goes to whatever was in front —
+    // which is how a run once photographed another application and called it the plugin's.
+    frontmost() {
+      return execFileSync("osascript",
+        ["-e", 'tell application "System Events" to return name of first process whose frontmost is true'],
+        { encoding: "utf8" }).trim();
+    },
+    // Raising is never automatic: it takes the screen from whoever is using the Mac. A script asks
+    // for it only where it has measured that the chord does not land otherwise, and says so.
+    async raise(ms = 8000) {
+      const pid = h.idePid();
+      if (!pid) throw new Error("this run's IDE is not running");
+      const deadline = Date.now() + ms;
+      for (;;) {
+        execFileSync("osascript",
+          ["-e", `tell application "System Events" to set frontmost of (first process whose unix id is ${pid}) to true`],
+          { stdio: "pipe" });
+        await sleep(800);
+        const who = h.frontmost();
+        if (/idea/i.test(who) || Date.now() > deadline) return who;
+      }
+    },
+    // Nothing else here raises the IDE. The window is photographed by its own id and the chord is addressed
+    // to this run's process, so a run can happen behind whatever the person is actually working in —
+    // an IDE that kept jumping to the front is a harness that interrupts the person it reports to.
+    async key(chord, settle = 2500) {
+      const pid = h.idePid();
+      if (!pid) throw new Error("this run's IDE is not running — nothing to send a chord to");
+      const parts = chord.split("+");
+      const key = parts.pop();
+      // A character sent with shift down is the shifted character: "/" becomes "?" and the chord the
+      // plugin declared on SLASH never matches. Keys that carry a chord are sent by code, not by glyph.
+      const named = { esc: 53, enter: 36, tab: 48, space: 49, "/": 44 };
+      const using = parts.map((one) => ({ cmd: "command down", shift: "shift down", alt: "option down", ctrl: "control down" })[one]);
+      const what = named[key] !== undefined ? `key code ${named[key]}` : `keystroke ${JSON.stringify(key)}`;
+      const suffix = using.length ? ` using {${using.join(", ")}}` : "";
+      execFileSync("osascript",
+        ["-e", `tell application "System Events" to tell (first process whose unix id is ${pid}) to ${what}${suffix}`],
+        { stdio: "pipe" });
+      log(`key ${chord} -> pid ${pid} (front stays with ${h.frontmost()})`);
+      await sleep(settle);
     },
     async until(predicate, ms = 60000, what = "a condition") {
       const deadline = Date.now() + ms;
@@ -206,6 +282,11 @@ export async function drive(name, project, body, options = {}) {
     if (options.open) {
       const name = options.open.split("/").pop();
       await h.until(() => h.ideLog().includes(name), 180000, `the IDE to take up ${name}`);
+      // The name appears in the log while the editor is still a blank "Drop files here" panel, and a
+      // chord sent then reaches nothing. Leaving dumb mode for that file is the IDE saying the editor
+      // is real: on this machine it is about ninety seconds after the name first appears.
+      await h.until(() => /exit dumb mode/.test(h.ideLog()), 300000,
+        `the IDE to finish indexing and show ${name}`);
     }
     log("the IDE is up with the plugin loaded");
     await sleep(12000);

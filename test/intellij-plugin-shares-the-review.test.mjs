@@ -49,6 +49,9 @@ test("the anchoring rule is checkable without an IDE, and npm says how", () => {
   const scripts = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8")).scripts;
   assert.equal(scripts["idea:anchor"], "node scripts/gradle-with-bundled-jdk.mjs anchorCheck");
   assert.equal(scripts["idea:build"], "node scripts/gradle-with-bundled-jdk.mjs buildPlugin");
+  // The format's own checks and the round trip through kakapo's reader are one deliberate command,
+  // because the suite this test belongs to runs on a machine with no JDK and no Gradle.
+  assert.equal(scripts["idea:review"], "node scripts/idea-review.mjs");
 });
 
 test("the Diff window is wired by its own API, not by reflection", () => {

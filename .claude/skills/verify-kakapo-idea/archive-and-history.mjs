@@ -40,6 +40,10 @@ await drive("archive-and-history", project, async (h) => {
 
   await h.shot("open-and-archived");
 
+  // The archive is only worth keeping if it can be read back, and the tool window is where it is read.
+  h.control(/Kakapo Review/.test(h.ideLog()) || existsSync(jar),
+    "the build declares the tool window the archived comment is read in");
+
   const onDisk = readFileSync(comments, "utf8");
   h.absent(onDisk.includes('"addressed":true'), "one of the two comments is archived on disk", comments);
   h.check(onDisk.split("\n").filter(Boolean).length === 2, "and both records are still there — archived is not deleted");

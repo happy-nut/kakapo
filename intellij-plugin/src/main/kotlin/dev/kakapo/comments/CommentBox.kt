@@ -22,6 +22,8 @@ import javax.swing.JButton
 import javax.swing.JPanel
 import javax.swing.KeyStroke
 import javax.swing.ScrollPaneConstants
+import javax.swing.event.DocumentEvent
+import javax.swing.event.DocumentListener
 
 object CommentBox {
 
@@ -60,7 +62,18 @@ object CommentBox {
             foreground = UIUtil.getInactiveTextColor()
             font = font.deriveFont(font.size2D - 1f)
         }
-        val save = JButton("Comment")
+        // The primary action looks like one, and it is off until there is something to keep: pressing
+        // it on an empty box used to close the box and write nothing, which reads as a lost comment.
+        val save = JButton("Comment").apply {
+            putClientProperty("JButton.buttonType", "default")
+            isEnabled = false
+        }
+        area.document.addDocumentListener(object : DocumentListener {
+            private fun sync() { save.isEnabled = area.text.isNotBlank() }
+            override fun insertUpdate(event: DocumentEvent) = sync()
+            override fun removeUpdate(event: DocumentEvent) = sync()
+            override fun changedUpdate(event: DocumentEvent) = sync()
+        })
         val footer = JPanel().apply {
             isOpaque = false
             layout = BoxLayout(this, BoxLayout.X_AXIS)
