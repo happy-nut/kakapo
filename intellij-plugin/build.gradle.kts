@@ -19,7 +19,7 @@ dependencies {
 kotlin { jvmToolchain(21) }
 
 group = "dev.kakapo"
-version = "0.0.3"
+version = "0.0.4"
 
 val releaseNotes: (String) -> String = { released ->
     val changelog = file("CHANGELOG.md").readText()

@@ -19,6 +19,15 @@ class HandOffAction : AnAction() {
         Messages.showInfoMessage(project, "${comments.size} comment(s) copied.", "Kakapo")
     }
 
+    /**
+     * The location comes from the record's own path and line, not from a prefix baked into the text:
+     * 0.0.1 and 0.0.2 wrote it into the body, so a comment carried its location only as long as nobody
+     * edited the body. Those bodies still exist, so a body that already opens with its own location is
+     * not given a second one.
+     */
     fun handOffText(comments: List<Comment>): String =
-        comments.joinToString("\n\n") { it.text }
+        comments.joinToString("\n\n") { comment ->
+            val body = comment.text.trim()
+            if (body.startsWith(comment.where())) body else "${comment.where()}\n$body"
+        }
 }

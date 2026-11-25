@@ -20,9 +20,12 @@ test("the plugin writes the review kakapo reads, not one of its own", () => {
     assert.ok(path, "kakapo has a comments file for a repository");
     assert.ok(path.replace(/\\/g, "/").endsWith("/.git/kakapo/comments.jsonl"),
       `and this is where it keeps it: ${path}`);
-    assert.match(store, /\.resolve\("kakapo"\)\.resolve\("comments\.jsonl"\)/,
+    // Asserted as the two names the path is built from, not as one spelling of the call chain: the
+    // chain grew a `?.` when the git directory stopped being guessed, and this read it as a move.
+    assert.match(store, /resolve\("kakapo"\)\??\.resolve\("comments\.jsonl"\)/,
       "the plugin resolves the same file, so a comment written in either tool is one review");
-    assert.match(store, /Path\.of\(base, "\.git"\)/, "under the repository's own git directory");
+    assert.match(store, /fun gitDir\(\)/, "under the repository's own git directory, which it resolves");
+    assert.match(store, /Path\.of\(base, "\.git"\)/, "starting from the project's .git");
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }
