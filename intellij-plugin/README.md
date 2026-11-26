@@ -10,15 +10,27 @@ Write a review comment at the caret, and hand the whole review to an agent in on
 Comments live in the repository's own `.git/kakapo/comments.jsonl` — the file kakapo reads — so a
 comment written in the IDE opens in kakapo, and one written in kakapo is marked in the IDE's gutter.
 
+## Reading a comment again
+
+Click the balloon in the gutter. It opens the same card the chord does, showing every comment on that
+line with the line each is about, and **Edit** and **Delete** on each one. Writing, re-reading, editing
+and removing are one surface, because two surfaces is how they drift.
+
+The **Kakapo Review** tool window is the list for the comments whose file is not the one in front of
+you, with **Open** and **Archived** beside each other and a double-click back to the line. Which lists
+exist is one table, `ReviewTabs`, and `npm run idea:review` holds it to covering every state a comment
+can be in — 0.0.5 listed the archive alone, and a comment you had just written was therefore in no
+list at all.
+
 ## Copy and archive
 
 ⌃⇧⌘/ copies the open comments and marks them addressed, so the next hand-off carries only what is new.
 Archived is not deleted: they stay in the **Kakapo Review** tool window, with the line each was about
 and a double-click back to it.
 
-A record is archived by changing the one field in the line it already is, never by rebuilding it from
-what this plugin understands — kakapo's records carry `re`, `group`, `title` and `role`, and rebuilding
-would drop every one of them.
+A record is archived — and edited — by changing the one field in the line it already is, never by
+rebuilding it from what this plugin understands: kakapo's records carry `re`, `group`, `title` and
+`role`, and rebuilding would drop every one of them.
 
 ## Where the marks come from
 

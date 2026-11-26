@@ -53,8 +53,52 @@ test("a comment that cannot be stored is said out loud, not dropped", () => {
     "append answers whether the comment reached the file");
   assert.match(action, /if \(store\.file\(\) == null\)[\s\S]*?showErrorDialog/,
     "the box is refused before it opens when there is nowhere to write");
-  assert.match(action, /if \(stored\) \{[\s\S]*?\} else \{[\s\S]*?showErrorDialog/,
-    "and a failed write is shown with the text, so it can be pasted somewhere else");
+  // Every write the card can make answers whether it landed, and the one reporter shows the body on a
+  // refusal so it can be pasted somewhere else. Asserted of all three, because the card grew two more
+  // writes than it had and a silent edit loses the same text a silent append used to.
+  assert.match(action, /fun done\(ok: Boolean[\s\S]*?if \(ok\) \{[\s\S]*?\} else \{[\s\S]*?showErrorDialog\(project, "\$failure/,
+    "the one reporter shows what could not be written");
+  for (const write of ["append", "replaceText", "remove"]) {
+    assert.match(store, new RegExp(`fun ${write}\\(`), `the store offers ${write}`);
+    assert.match(action, new RegExp(`done\\(\\s*store\\.${write}|done\\(stored`),
+      `and the card routes ${write} through it`);
+  }
+});
+
+// A comment, once written, could be read again by hovering the gutter icon of the one file it was in,
+// and by nothing else: the tool window listed only the archive. Both halves of the way back are
+// structural, so both are named here.
+test("a written comment has a way back to it", () => {
+  const marks = readFileSync(join(repoRoot, "intellij-plugin/src/main/kotlin/dev/kakapo/comments/CommentMarks.kt"), "utf8");
+  assert.match(marks, /override fun getClickAction\(\): AnAction/,
+    "the gutter mark is clickable; a tooltip alone is readable only while the mouse is on it");
+  assert.match(marks, /AddCommentAction\.open\(project, editor, file, lineIndex\)/,
+    "and it opens the same card the chord does, so the two cannot drift");
+  assert.match(marks, /groupBy \{ anchoredLine/,
+    "one mark per line: two renderers on one gutter row shows one comment and hides the other");
+
+  const list = readFileSync(join(repoRoot, "intellij-plugin/src/main/kotlin/dev/kakapo/comments/ReviewList.kt"), "utf8");
+  assert.match(list, /for \(tab in ReviewTabs\.all\)/,
+    "the tool window is built from the table of lists, not from one hardcoded content");
+  assert.doesNotMatch(list, /filter \{ it\.addressed \}/,
+    "which is what left an open comment in no list at all");
+
+  // The table is plain Kotlin on purpose: `npm run idea:review` asserts it covers every state a
+  // comment can be in, and it cannot do that against a file that needs a sandbox to load.
+  const tabs = readFileSync(join(repoRoot, "intellij-plugin/src/main/kotlin/dev/kakapo/comments/ReviewTabs.kt"), "utf8");
+  assert.doesNotMatch(tabs, /import com\.intellij/, "ReviewTabs stays runnable without a sandbox");
+  const check = readFileSync(join(repoRoot, "intellij-plugin/src/main/kotlin/dev/kakapo/comments/ReviewCheck.kt"), "utf8");
+  assert.match(check, /ReviewTabs\.all\.filter \{ it\.holds\(comment\) \}/,
+    "and the partition is asserted there rather than remembered here");
+});
+
+test("the card can read, edit and remove, and says so where the reader is looking", () => {
+  const box = readFileSync(join(repoRoot, "intellij-plugin/src/main/kotlin/dev/kakapo/comments/CommentBox.kt"), "utf8");
+  assert.match(box, /existing: List<Comment>/, "the card is given what is already on the line");
+  assert.match(box, /ActionLink\("Edit"\)/, "with a way to change it");
+  assert.match(box, /ActionLink\("Delete"\)/, "and a way to remove it");
+  assert.match(box, /class Hooks\(/, "and it holds no store, so it cannot half-write one");
+  assert.doesNotMatch(box, /CommentStore/, "the store is the caller's, not the card's");
 });
 
 test("where a comment points has one spelling, and the body does not carry it", () => {

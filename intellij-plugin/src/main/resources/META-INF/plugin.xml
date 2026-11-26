@@ -14,7 +14,7 @@
     <diff.DiffExtension implementation="dev.kakapo.comments.DiffCommentExtension"/>
     <postStartupActivity implementation="dev.kakapo.comments.CommentMarksOnOpen"/>
     <toolWindow id="Kakapo Review" anchor="bottom" secondary="true" icon="AllIcons.General.Balloon"
-                factoryClass="dev.kakapo.comments.ReviewHistoryFactory"/>
+                factoryClass="dev.kakapo.comments.ReviewListFactory"/>
   </extensions>
 
   <actions>

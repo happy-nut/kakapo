@@ -1,5 +1,25 @@
 # kakapo comments
 
+## 0.0.6
+
+A comment could be written and then not read again. The gutter mark carried a tooltip and nothing else,
+so a comment was readable only while the mouse was on its icon, in the one file it was in, and the
+Kakapo Review tool window listed the archive alone — a comment you had just written was in no list
+anywhere. Clicking the mark now opens the comment, and the tool window has an **Open** list beside
+**Archived**. Which lists exist is a table, and the format check holds that table to covering every
+state a comment can be in, so a state with no list is a failed build rather than a comment nobody can
+find.
+
+The box is one card for the whole line instead of a form for a new comment: it shows the comments
+already there with the line they are about, and each carries **Edit** and **Delete**. An edit changes
+the body in the line it already is, the way archiving does, so the fields kakapo keeps and this plugin
+does not model survive being edited.
+
+The card itself is drawn rather than assembled — rounded, on the editor's own notification colour, with
+the review's accent down its left edge, the quoted line set in the editor's font, and the body wrapped
+to a width that fits the editor it sits in. A line with two comments shows one mark and not two stacked
+in the same gutter row, where the second one was simply never seen.
+
 ## 0.0.5
 
 ⌃⇧⌘/ now archives what it copies, so a hand-off carries only what is new, and the archive is readable

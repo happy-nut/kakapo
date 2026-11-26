@@ -32,7 +32,7 @@ await drive("comment-box-and-history", project, async (h) => {
     "the IDE loaded the plugin from the distribution zip");
 
   const jar = join(h.sandbox, "plugins/kakapo-comments/lib", `kakapo-comments-${declaredVersion()}.jar`);
-  h.control(existsSync(jar) && readFileSync(jar, "latin1").includes("ReviewHistoryFactory"),
+  h.control(existsSync(jar) && readFileSync(jar, "latin1").includes("ReviewListFactory"),
     "and that build carries the tool window the archive is read in", jar);
 
   // Launching the IDE takes the screen on its own, and the chord still does not land while another

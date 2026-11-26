@@ -60,24 +60,48 @@ class CommentStore(private val project: Project) {
     }
 
     /**
-     * Marks comments addressed in place. Every other line is written back as the bytes it arrived as:
-     * kakapo's records carry fields this plugin does not model, and rebuilding a line from a parsed
-     * object would quietly drop them.
+     * Rewrites the review file, line by line, as the bytes each line arrived as. kakapo's records carry
+     * fields this plugin does not model, and rebuilding a line from a parsed object would quietly drop
+     * them, so every change to a record is a change to its own line and every other line is untouched.
      */
-    fun markAddressed(ids: Set<Long>): Boolean {
+    private fun rewrite(change: (String) -> String?): Boolean {
         val path = file() ?: return false
-        if (ids.isEmpty()) return true
         return try {
-            val rewritten = linesOf(path).map { raw ->
-                val id = ReviewFormat.parse(raw)?.id
-                if (id != null && id in ids) ReviewFormat.addressed(raw) else raw
-            }
-            Files.writeString(path, rewritten.joinToString("\n") + "\n")
+            val kept = linesOf(path).mapNotNull(change)
+            Files.writeString(path, if (kept.isEmpty()) "" else kept.joinToString("\n") + "\n")
             true
         } catch (failed: IOException) {
             false
         }
     }
+
+    fun markAddressed(ids: Set<Long>): Boolean {
+        if (ids.isEmpty()) return true
+        return rewrite { raw -> if (isOneOf(raw, ids)) ReviewFormat.addressed(raw) else raw }
+    }
+
+    /** Changes one comment's body and nothing else about its line. */
+    fun replaceText(id: Long, text: String): Boolean =
+        rewrite { raw -> if (isOneOf(raw, setOf(id))) ReviewFormat.retext(raw, text) else raw }
+
+    /** Drops a comment outright, which is the only thing the gutter card cannot undo. */
+    fun remove(ids: Set<Long>): Boolean {
+        if (ids.isEmpty()) return true
+        return rewrite { raw -> if (isOneOf(raw, ids)) null else raw }
+    }
+
+    private fun isOneOf(raw: String, ids: Set<Long>): Boolean {
+        val id = ReviewFormat.parse(raw)?.id ?: return false
+        return id in ids
+    }
+
+    /**
+     * The comments the gutter mark on a line stands for. Asked through Anchor and not through the
+     * stored line number, because the mark is painted where Anchor puts it and a card opened from the
+     * mark that read the stored number would show the comments of a line the reader is not looking at.
+     */
+    fun at(path: String, documentText: String, lineIndex: Int): List<Comment> =
+        read().filter { it.path == path && !it.addressed && Anchor.line(documentText, it.line, it.anchor) == lineIndex }
 
     fun relativePath(file: VirtualFile): String? {
         val base = project.basePath ?: return null

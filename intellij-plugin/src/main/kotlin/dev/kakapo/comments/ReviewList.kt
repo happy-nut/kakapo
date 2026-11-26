@@ -1,7 +1,9 @@
 package dev.kakapo.comments
 
 import com.intellij.icons.AllIcons
+import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.openapi.fileEditor.OpenFileDescriptor
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.LocalFileSystem
@@ -22,46 +24,53 @@ import javax.swing.JList
 import javax.swing.JPanel
 
 /**
- * Archived is not deleted. The hand-off marks a comment addressed so the next one carries only what is
- * new, and this is where the ones already handed over stay readable — with the line each was about,
- * and a way back to it.
+ * Where a comment is read again when its file is not the one in front of you.
+ *
+ * It held one list, the archive, until 0.0.6 — so a comment you had just written appeared in no list
+ * at all and could only be found by hovering the gutter of the file it was in. The lists are a table
+ * now, `ReviewTabs`, and `ReviewCheck` holds that table to being the whole of what a comment can be.
  */
-object ReviewHistory {
+object ReviewList {
     const val ID = "Kakapo Review"
 
-    fun show(project: Project) {
+    private val panels = mutableMapOf<Project, MutableList<ListPanel>>()
+
+    fun show(project: Project, tab: ReviewTabs.Tab) {
         val window = ToolWindowManager.getInstance(project).getToolWindow(ID) ?: return
         window.show(null)
         refresh(project)
+        val manager = window.contentManager
+        manager.contents.firstOrNull { it.displayName == tab.title }?.let(manager::setSelectedContent)
     }
 
     fun refresh(project: Project) {
-        panels[project]?.reload()
+        panels[project]?.forEach(ListPanel::reload)
     }
 
-    private val panels = mutableMapOf<Project, HistoryPanel>()
-
-    internal fun register(project: Project, panel: HistoryPanel) {
-        panels[project] = panel
+    internal fun register(project: Project, panel: ListPanel) {
+        panels.getOrPut(project) { mutableListOf() }.add(panel)
     }
 
-    internal fun forget(project: Project) {
-        panels.remove(project)
+    internal fun forget(project: Project, panel: ListPanel) {
+        panels[project]?.remove(panel)
+        if (panels[project]?.isEmpty() == true) panels.remove(project)
     }
 }
 
-class ReviewHistoryFactory : ToolWindowFactory, DumbAware {
+class ReviewListFactory : ToolWindowFactory, DumbAware {
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
-        val panel = HistoryPanel(project)
-        ReviewHistory.register(project, panel)
-        val content = ContentFactory.getInstance().createContent(panel, "Archived", false)
-        content.setDisposer { ReviewHistory.forget(project) }
-        toolWindow.contentManager.addContent(content)
-        panel.reload()
+        for (tab in ReviewTabs.all) {
+            val panel = ListPanel(project, tab)
+            ReviewList.register(project, panel)
+            val content = ContentFactory.getInstance().createContent(panel, tab.title, false)
+            content.setDisposer { ReviewList.forget(project, panel) }
+            toolWindow.contentManager.addContent(content)
+            panel.reload()
+        }
     }
 }
 
-internal class HistoryPanel(private val project: Project) : JPanel(BorderLayout()) {
+internal class ListPanel(private val project: Project, private val tab: ReviewTabs.Tab) : JPanel(BorderLayout()) {
 
     private val model = DefaultListModel<Comment>()
     private val list = JBList(model).apply {
@@ -83,7 +92,7 @@ internal class HistoryPanel(private val project: Project) : JPanel(BorderLayout(
 
     init {
         border = JBUI.Borders.empty()
-        list.emptyText.text = "Nothing archived yet — ⌃⇧⌘/ copies the open comments and archives them."
+        list.emptyText.text = tab.empty
         list.addMouseListener(object : MouseAdapter() {
             override fun mouseClicked(event: MouseEvent) {
                 if (event.clickCount == 2) openSelected()
@@ -101,23 +110,30 @@ internal class HistoryPanel(private val project: Project) : JPanel(BorderLayout(
     }
 
     fun reload() {
-        val archived = CommentStore(project).read().filter { it.addressed }
+        val shown = ReviewTabs.of(tab, CommentStore(project).read())
         model.clear()
-        archived.asReversed().forEach(model::addElement)
+        shown.forEach(model::addElement)
     }
 
+    /**
+     * Opened through the anchor and not through the stored line, the same rule the gutter mark is
+     * painted by. The stored number is where the comment was written, and an agent has edited the file
+     * since — that is the whole reason the anchor exists.
+     */
     private fun openSelected() {
         val comment = list.selectedValue ?: return
         val base = project.basePath ?: return
         val file = LocalFileSystem.getInstance().findFileByPath("$base/${comment.path}") ?: return
+        val text = FileDocumentManager.getInstance().getDocument(file)?.text
+        val line = if (text == null) (comment.line - 1) else CommentMarks.anchoredLine(text, comment)
         FileEditorManager.getInstance(project).openTextEditor(
-            com.intellij.openapi.fileEditor.OpenFileDescriptor(project, file, (comment.line - 1).coerceAtLeast(0), 0),
+            OpenFileDescriptor(project, file, line.coerceAtLeast(0), 0),
             true,
         )
     }
 }
 
-internal class ReloadAction(private val panel: HistoryPanel) :
+internal class ReloadAction(private val panel: ListPanel) :
     com.intellij.openapi.actionSystem.AnAction("Refresh", "Re-read the review file", AllIcons.Actions.Refresh) {
     override fun actionPerformed(event: com.intellij.openapi.actionSystem.AnActionEvent) = panel.reload()
 }

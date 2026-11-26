@@ -20,10 +20,10 @@ class HandOffAction : AnAction() {
         CopyPasteManager.getInstance().setContents(StringSelection(handOffText(comments)))
 
         // Copying without archiving means the next hand-off carries the same comments again, so the
-        // reader cannot tell what is new. Archived is not deleted: ReviewHistory is where they go.
+        // reader cannot tell what is new. Archived is not deleted: the Archived list is where they go.
         val archived = store.markAddressed(comments.map { it.id }.toSet())
         CommentMarks.refreshOpenEditors(project)
-        ReviewHistory.show(project)
+        ReviewList.show(project, ReviewTabs.ARCHIVED)
 
         Messages.showInfoMessage(
             project,

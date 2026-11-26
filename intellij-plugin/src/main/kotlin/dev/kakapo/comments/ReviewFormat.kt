@@ -55,6 +55,17 @@ object ReviewFormat {
         return trimmed.dropLast(1) + ",\"addressed\":true}"
     }
 
+    /**
+     * Rewrites one comment's body in the line it already is, for the same reason archiving does: a
+     * comment written in kakapo carries `re`, `group`, `title` and `role`, and an edit that rebuilt
+     * the line from what this plugin understands would drop every one of them.
+     */
+    fun retext(raw: String, text: String): String {
+        val trimmed = raw.trimEnd()
+        val span = span(trimmed, "text") ?: return raw
+        return trimmed.substring(0, span.first) + quote(text).drop(1).dropLast(1) + trimmed.substring(span.last + 1)
+    }
+
     fun encode(comment: Comment): String = buildString {
         append('{')
         append("\"id\":").append(comment.id)
@@ -103,20 +114,41 @@ object ReviewFormat {
         append('"')
     }
 
-    fun string(line: String, key: String): String? {
+    /**
+     * The span of a string value's own characters, escapes and all. One walker answers both reading a
+     * field and replacing it, because a second walker is a second chance to disagree about an escape.
+     */
+    private fun span(line: String, key: String): IntRange? {
         val at = line.indexOf("\"$key\":\"")
         if (at < 0) return null
-        val out = StringBuilder()
-        var index = at + key.length + 4
+        val from = at + key.length + 4
+        var index = from
         while (index < line.length) {
             val char = line[index]
             if (char == '\\' && index + 1 < line.length) {
-                when (val escaped = line[index + 1]) {
+                index += if (line[index + 1] == 'u') 6 else 2
+                continue
+            }
+            if (char == '"') return from until index
+            index += 1
+        }
+        return null
+    }
+
+    fun string(line: String, key: String): String? {
+        val span = span(line, key) ?: return null
+        val raw = line.substring(span.first, span.last + 1)
+        val out = StringBuilder()
+        var index = 0
+        while (index < raw.length) {
+            val char = raw[index]
+            if (char == '\\' && index + 1 < raw.length) {
+                when (val escaped = raw[index + 1]) {
                     'n' -> out.append('\n')
                     'r' -> out.append('\r')
                     't' -> out.append('\t')
                     'u' -> {
-                        out.append(line.substring(index + 2, index + 6).toInt(16).toChar())
+                        out.append(raw.substring(index + 2, index + 6).toInt(16).toChar())
                         index += 4
                     }
                     else -> out.append(escaped)
@@ -124,11 +156,10 @@ object ReviewFormat {
                 index += 2
                 continue
             }
-            if (char == '"') return out.toString()
             out.append(char)
             index += 1
         }
-        return null
+        return out.toString()
     }
 
     fun number(line: String, key: String): Long? =
