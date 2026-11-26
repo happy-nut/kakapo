@@ -151,6 +151,7 @@ Nothing below needs to be remembered. Each row fails by name when it is broken, 
 | Archiving or editing a record keeps the fields this plugin never modelled | `npm run idea:review` |
 | Every state a comment can be in is a list somebody can open, so none is written and then unfindable | `npm run idea:review` |
 | A comment's gutter mark is the way back to it, and the card has one opener for writing and re-reading | `test/idea-plugin-store.test.mjs` |
+| A control the card draws is clicked rather than described, so Edit, Delete and the gutter mark are answered by the plugin and not only by the store underneath | `.claude/skills/verify-kakapo-idea` |
 
 `.claude/skills/verify-kakapo-idea` answers for the plugin what `verify-kakapo` answers for the app, and it
 installs `intellij-plugin/build/distributions/*.zip` rather than Gradle's `idea-sandbox`: the sandbox carries

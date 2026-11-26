@@ -30,6 +30,10 @@ const FOREIGN_NAMES = new Set([
   "MULTIPLE_CONTRIBUTORS_ELEMENTS_LIMIT", "CARGO_TARGET_DIR", "RUSTUP_TARGETS", "TMPDIR",
   // IntelliJ platform, named by the IDE harness because it is the way a tool window is opened.
   "ToolWindow.show",
+  // AppKit, named by the IDE harness because a click is counted in screen pixels and this is what says
+  // how many of them a point is. The harness reads it through `NSScreen.mainScreen`, so the name as the
+  // document spells it is not a string this repository contains.
+  "NSScreen.backingScaleFactor",
 ]);
 
 const SYMBOL = /`([A-Z][A-Za-z0-9]+(?:\.[a-z][A-Za-z0-9]*)?|[a-z][A-Za-z0-9]*\(\)|[A-Z][A-Z0-9_]{3,})`/g;
