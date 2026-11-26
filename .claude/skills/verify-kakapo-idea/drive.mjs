@@ -194,6 +194,53 @@ export async function drive(name, project, body, options = {}) {
         .sort((a, b) => b[1] - a[1])[0];
       return best?.[0] ?? null;
     },
+    // The same window, with where it sits. A point read off the evidence is in that picture's pixels
+    // and a click is in the screen's points, so aiming at anything the plugin drew needs both.
+    ideWindowBounds() {
+      const pid = h.idePid();
+      if (!pid) return null;
+      const rows = execFileSync("osascript", ["-l", "JavaScript", "-e", `
+        ObjC.import("CoreGraphics"); ObjC.import("Foundation");
+        const arr = ObjC.castRefToObject($.CGWindowListCopyWindowInfo(1 | 16, 0));
+        const out = [];
+        for (let i = 0; i < arr.count; i++) {
+          const w = ObjC.deepUnwrap(arr.objectAtIndex(i));
+          if (w.kCGWindowOwnerPID !== ${pid}) continue;
+          const b = w.kCGWindowBounds;
+          out.push([b.X, b.Y, b.Width, b.Height].join(" "));
+        }
+        out.join("\\n")`], { encoding: "utf8" }).trim();
+      const best = rows.split("\n").filter(Boolean)
+        .map((row) => row.split(" ").map(Number))
+        .sort((a, b) => b[2] * b[3] - a[2] * a[3])[0];
+      return best ? { x: best[0], y: best[1], w: best[2], h: best[3] } : null;
+    },
+    /** What burrow's own picture of the screen is scaled by, which is what its clicks are counted in. */
+    screenScale() {
+      return Number(execFileSync("osascript", ["-l", "JavaScript", "-e",
+        'ObjC.import("AppKit"); String($.NSScreen.mainScreen.backingScaleFactor)'], { encoding: "utf8" }).trim()) || 1;
+    },
+    // A keystroke is addressed to a process and a click is not: System Events' click is swallowed by
+    // the Java window, which is why every control the plugin draws went unclicked and only its write
+    // path was ever tested. burrow's click goes through screen sharing and arrives as a real event,
+    // the same path that can answer a permission window. It takes the screen, so the raise is on purpose.
+    // Three coordinate spaces meet here and none of them is guessed: the evidence picture's pixels,
+    // the window's points, and burrow's screen pixels. burrow counts in the pixels of its own
+    // screenshot, not in points, and a click sent in points lands at half the intended place — on this
+    // Mac that put the first run's click in the project tree, which took focus off the card and looked
+    // exactly like a plugin that ignores clicks.
+    async clickInWindow(pixelX, pixelY, pictureWidth) {
+      const bounds = h.ideWindowBounds();
+      if (!bounds) throw new Error("this run's IDE has no window to click in");
+      await h.raise();
+      const picture = pictureWidth ? pictureWidth / bounds.w : 1;
+      const screen = h.screenScale();
+      const x = Math.round((bounds.x + pixelX / picture) * screen);
+      const y = Math.round((bounds.y + pixelY / picture) * screen);
+      execFileSync(BURROW, ["click", String(x), String(y)], { stdio: "pipe" });
+      log(`click ${pixelX},${pixelY} in the picture -> ${x},${y} on the screen (front stays with ${h.frontmost()})`);
+      await sleep(2000);
+    },
     async shot(label) {
       shots += 1;
       const file = join(evidence, `${String(shots).padStart(2, "0")}-${label}.png`);

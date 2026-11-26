@@ -28,6 +28,7 @@ npm run idea:build                                    # the zip, through the bun
 node .claude/skills/verify-kakapo-idea/marks-from-kakapo.mjs
 node .claude/skills/verify-kakapo-idea/comment-box-and-history.mjs   # needs System Events permission
 node .claude/skills/verify-kakapo-idea/reading-a-comment-again.mjs   # needs System Events permission
+node .claude/skills/verify-kakapo-idea/clicking-the-card.mjs         # pauses for a point to click
 ```
 
 A script that drives the keyboard takes the screen while it runs, so it is worth running on a Mac
@@ -40,7 +41,8 @@ own `idea.log`.
 
 ## The contract a script has to meet
 
-`drive.mjs` gives `h.check`, `h.control`, `h.absent`, `h.shot`, `h.until`, and `h.ideLog()`. The rule
+`drive.mjs` gives `h.check`, `h.control`, `h.absent`, `h.shot`, `h.until`, `h.clickInWindow` and
+`h.ideLog()`. The rule
 from `AGENTS.md` — a probe that reports an absence has to show a presence first — is enforced, not
 advised: `h.absent(...)` fails unless an `h.control(...)` has already passed, and a run that passes no
 control at all fails even if every other check was green.
@@ -99,9 +101,42 @@ aim at. `drive.mjs` arranges all four:
 | "Trust and Open Project?" | a seeded `options/trusted-paths.xml` naming the scratch directory |
 | Nothing open in the editor | a seeded `.idea/workspace.xml` with the file and the caret line, written while the IDE is down — it rewrites that file on exit |
 
+## Clicking what the card draws
+
+A keystroke is addressed to a process; a click is not. System Events' click is swallowed by the Java
+window, which is why the card's Edit and Delete links and the gutter mark went untested for a release
+while only the store calls underneath them were covered. `burrow`'s click goes through screen sharing
+and arrives as a real event — the same path that can answer a permission window — so `h.clickInWindow`
+sends it there.
+
+Three coordinate spaces meet in that one call and none of them may be guessed:
+
+| Space | Read from |
+| --- | --- |
+| the evidence picture's pixels | the PNG's own IHDR width |
+| the window's points | `kCGWindowBounds` for this run's process |
+| burrow's screen pixels | `NSScreen.backingScaleFactor` |
+
+`burrow click` counts in the pixels of `burrow shot`, not in points (`burrow/main.go` says so in the
+`click` case). A click sent in points lands at half the intended place: the first run that clicked put
+its click in the project tree, which took focus off the card and read exactly like a plugin ignoring
+clicks. The failure picture is what told them apart — the card was still open, and its field had lost
+focus, which no un-delivered click could have done.
+
+The point itself is still read off the picture by whoever is running the scenario:
+`clicking-the-card.mjs` writes `aim-needed-<label>.json` into the evidence directory and waits for
+`aim-<label>.json` with `{x, y}` in that picture's pixels. Nothing here can ask Swing where it put a
+link.
+
+Judge the result by the file, never by the next picture. `Edit` fills the field with the comment's
+current text and leaves the caret at the end, so typing alone appends: a check that only looked for the
+new words passed on `…the raw argument.Greet by display name…` and would have passed on a plugin that
+never replaced anything. Select all first, then assert equality.
+
 ## What it cannot do
 
-It cannot press a keyboard shortcut or click a button: ⌘⇧/ cannot be driven from here, so a run proves
-what the plugin does on its own — loading, painting an existing review, surviving a project open — and
-not what a keystroke does. Anything that needs a keystroke is checked by `npm test` against the sources
-and by a person pressing the key.
+It cannot choose where to click. The chord the plugin declares still does not reach a Java window when
+it is synthesised — macOS turns Option into a character before Java sees it — so an action is reached
+through Find Action, and only the first one in a run lands: a later one loses the screen to the terminal
+the run was started from, whatever action it asks for. Put the thing being photographed in that first
+slot.
