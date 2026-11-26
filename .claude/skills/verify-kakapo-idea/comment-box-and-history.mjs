@@ -39,14 +39,17 @@ await drive("comment-box-and-history", project, async (h) => {
   // application holds the focus — the Claude app takes it straight back. So this script is only worth
   // running on a Mac nobody is using, and h.raise() is there for that run rather than called here.
   // ⌥⇧⌘/ is kakapo.AddComment. The box is a component inside the editor, so the picture is the proof.
-  await h.key("alt+shift+cmd+/");
+  await h.action("Comment at Caret");
   await h.shot("comment-box");
   await h.key("esc");
 
   // ⌃⇧⌘/ is kakapo.HandOff: it copies, archives what it copied, and shows the archive.
   const before = readFileSync(comments, "utf8");
   h.control(!before.includes('"addressed":true'), "nothing is archived before the hand-off runs");
-  await h.key("ctrl+shift+cmd+/", 4000);
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await h.key("ctrl+shift+cmd+/", 4000, true);
+    if (readFileSync(comments, "utf8").includes('"addressed":true')) break;
+  }
 
   // The file changing is what says the keystroke landed; without it the shot below proves nothing.
   await h.until(() => readFileSync(comments, "utf8").includes('"addressed":true'), 30000,

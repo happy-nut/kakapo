@@ -197,6 +197,20 @@ export async function drive(name, project, body, options = {}) {
         ["-e", 'tell application "System Events" to return name of first process whose frontmost is true'],
         { encoding: "utf8" }).trim();
     },
+    // The Korean input method swallows an Option chord and types a character into the editor instead
+    // of firing the action, so an action is reached through Find Action, which needs no Option.
+    async action(text) {
+      // With a Korean input method selected, latin typed into Find Action arrives as Hangul and the
+      // popup picks whatever happened to match. Control+Space is the input-source switch.
+      await h.key("ctrl+space", 1200, true);
+      await h.key("shift+cmd+a", 2000, true);
+      execFileSync("osascript",
+        ["-e", `tell application "System Events" to tell (first process whose unix id is ${h.idePid()}) to keystroke ${JSON.stringify(text)}`],
+        { stdio: "pipe" });
+      await sleep(2500);
+      await h.key("enter", 2500);
+      log(`action ${text}`);
+    },
     // Raising is never automatic: it takes the screen from whoever is using the Mac. A script asks
     // for it only where it has measured that the chord does not land otherwise, and says so.
     async raise(ms = 8000) {
@@ -215,9 +229,12 @@ export async function drive(name, project, body, options = {}) {
     // Nothing else here raises the IDE. The window is photographed by its own id and the chord is addressed
     // to this run's process, so a run can happen behind whatever the person is actually working in —
     // an IDE that kept jumping to the front is a harness that interrupts the person it reports to.
-    async key(chord, settle = 2500) {
+    async key(chord, settle = 2500, raise = false) {
       const pid = h.idePid();
       if (!pid) throw new Error("this run's IDE is not running — nothing to send a chord to");
+      // A chord lands only while the IDE holds the screen, so a script that needs one asks for it here
+      // rather than having every run take the screen.
+      if (raise) await h.raise();
       const parts = chord.split("+");
       const key = parts.pop();
       // A character sent with shift down is the shifted character: "/" becomes "?" and the chord the
