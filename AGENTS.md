@@ -148,7 +148,9 @@ Nothing below needs to be remembered. Each row fails by name when it is broken, 
 | No file in `test/` needs a JDK or Gradle, because CI has neither and a skip would be a green gate | `test/idea-plugin-store.test.mjs` |
 | The review format and the git directory are plain Kotlin, and are run rather than read | `npm run idea:review` |
 | A record the plugin writes is one kakapo's own reader understands, round-tripped and not described | `npm run idea:review` |
-| Archiving a record keeps the fields this plugin never modelled | `npm run idea:review` |
+| Archiving or editing a record keeps the fields this plugin never modelled | `npm run idea:review` |
+| Every state a comment can be in is a list somebody can open, so none is written and then unfindable | `npm run idea:review` |
+| A comment's gutter mark is the way back to it, and the card has one opener for writing and re-reading | `test/idea-plugin-store.test.mjs` |
 
 `.claude/skills/verify-kakapo-idea` answers for the plugin what `verify-kakapo` answers for the app, and it
 installs `intellij-plugin/build/distributions/*.zip` rather than Gradle's `idea-sandbox`: the sandbox carries

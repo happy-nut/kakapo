@@ -27,7 +27,13 @@ pass while the zip a user downloads fails to load, so the zip is the only thing 
 npm run idea:build                                    # the zip, through the bundled JDK
 node .claude/skills/verify-kakapo-idea/marks-from-kakapo.mjs
 node .claude/skills/verify-kakapo-idea/comment-box-and-history.mjs   # needs System Events permission
+node .claude/skills/verify-kakapo-idea/reading-a-comment-again.mjs   # needs System Events permission
 ```
+
+A script that drives the keyboard takes the screen while it runs, so it is worth running on a Mac
+nobody is working at. Nothing raises the IDE on its own: `h.key` and `h.action` raise only where the
+caller asked, because an IDE that keeps jumping to the front is a harness interrupting the person it
+reports to.
 
 Evidence lands in `.kakapo-verify/<stamp>-idea-<name>/`: numbered screenshots, `run.log`, and the IDE's
 own `idea.log`.
@@ -48,10 +54,20 @@ h.control(/Loaded custom plugins: kakapo comments/.test(h.ideLog()),
 
 ## Reaching a window a chord opens
 
-`h.key("alt+shift+cmd+/")` sends a chord to the IDE, and `h.front()` raises it first. Both go through
-System Events, which the Mac grants per application: without that grant it answers -1743 and the run
-fails rather than going on. `burrow click` and `burrow key` report success and reach nothing, so they
-are not what this harness types with.
+`h.key("alt+shift+cmd+/")` sends a chord to the IDE, and `h.raise()` puts it in front first. Both go
+through System Events, which the Mac grants per application: without that grant it answers -1743 and
+the run fails rather than going on. `burrow click` and `burrow key` report success and reach nothing,
+so they are not what this harness types with.
+
+An input method is between the keystroke and the IDE. With `com.apple.inputmethod.Korean` selected an
+Option chord does not fire the action — the IME takes it and types a character, and one run edited the
+source file it was supposed to be commenting on. Latin typed into a popup arrives as Hangul too, and a
+Find Action query once opened Local History that way. So `h.action(text)` switches the input source
+first and then reaches the action by name, which needs no Option at all.
+
+`⌃Space` is that switch and it **cycles**: pressed once per action it went back to Korean on the second
+one. `h.latin()` presses it once a run, and the run puts it back at the end — it is the person's own
+Mac setting, not the run's.
 
 A window opened by a chord needs a control that is not the picture, because a keystroke that went
 nowhere leaves a screenshot of the editor and nothing says so. Use what the action changed on disk:
@@ -65,6 +81,10 @@ await h.shot("history");
 
 A tool window cannot be opened by seeding `.idea/workspace.xml` instead. That was tried, and the IDE
 opened with the window shut; the action's own `ToolWindow.show` is the way in.
+
+For a window with no file to write, the control is to write one through it: `h.type(...)` then `⌘⏎`,
+and then the record on disk. A screenshot says a card is on the screen; only the record says the card
+had the keyboard.
 
 ## What a fresh IDE does that has to be arranged, not clicked
 

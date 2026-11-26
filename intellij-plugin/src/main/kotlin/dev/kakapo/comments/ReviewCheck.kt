@@ -24,6 +24,7 @@ object ReviewCheck {
     fun main(args: Array<String>) {
         roundTrip()
         keepsFieldsItDoesNotModel()
+        everyStateIsInSomeList()
         idsComeFromTheHeader()
         gitDirFollowsThePointer()
         args.firstOrNull()?.let { emit(Path.of(it)) }
@@ -64,6 +65,58 @@ object ReviewCheck {
         check(ReviewFormat.addressed(marked) == marked, "archiving twice changes nothing")
         check(ReviewFormat.addressed("""{"id":4,"text":"t","addressed":false}""").contains("\"addressed\":true"),
             "and an explicit false is turned over, not duplicated")
+
+        // Editing has to obey the same rule, and it is the newer of the two: a record rebuilt from what
+        // this plugin parses would come back without `re` and `group` and silently relocate a reply.
+        val edited = ReviewFormat.retext(kakapo, "written again")
+        check(edited.contains("\"re\":2") && edited.contains("\"group\":4"),
+            "editing a kakapo record keeps the fields this plugin never modelled", edited)
+        check(ReviewFormat.parse(edited)?.text == "written again", "and the new body is what reads back",
+            ReviewFormat.parse(edited)?.text)
+        check(ReviewFormat.parse(edited)?.anchor == "x", "with the fields after it unharmed",
+            ReviewFormat.parse(edited)?.anchor)
+
+        // The body is the one field whose value can look like the record around it, which is the whole
+        // reason the editor walks escapes instead of matching a regular expression.
+        val awkward = """{"id":5,"path":"a.ts","text":"quote \" then \\ then end","line":7}"""
+        val replaced = ReviewFormat.retext(awkward, "plain")
+        check(ReviewFormat.parse(replaced)?.text == "plain", "a body full of escapes is replaced whole", replaced)
+        check(ReviewFormat.parse(replaced)?.line == 7, "and the field after it survives",
+            ReviewFormat.parse(replaced)?.line)
+        check(ReviewFormat.parse(ReviewFormat.retext(awkward, "a \"b\" c"))?.text == """a "b" c""",
+            "and the new body is escaped on the way in")
+
+        val empty = ReviewFormat.retext("""{"id":6,"text":"","line":2}""", "first words")
+        check(ReviewFormat.parse(empty)?.text == "first words", "an empty body can be written into", empty)
+        check(ReviewFormat.parse(empty)?.line == 2, "without eating the field beside it")
+    }
+
+    /**
+     * 0.0.5 shipped one list, the archive, so a comment you had just written was in no list anywhere:
+     * the only way to read it again was to hover the gutter icon of the one file it was in. A comment
+     * is open or archived and nothing else, so the lists have to be that whole partition — asserted
+     * here rather than remembered, because it was remembered and it was wrong.
+     */
+    private fun everyStateIsInSomeList() {
+        val open = Comment(id = 1, path = "a.ts", line = 1, anchor = "x", text = "open one")
+        val archived = open.copy(id = 2, text = "archived one", addressed = true)
+
+        for (comment in listOf(open, archived)) {
+            val holding = ReviewTabs.all.filter { it.holds(comment) }.map { it.title }
+            check(holding.size == 1,
+                "a comment that is addressed=${comment.addressed} is in exactly one list", holding)
+        }
+
+        // And the lists are not the same list under two names: the control is that each holds something.
+        for (tab in ReviewTabs.all) {
+            check(ReviewTabs.of(tab, listOf(open, archived)).size == 1,
+                "the ${tab.title} list holds one of the two", ReviewTabs.of(tab, listOf(open, archived)).size)
+            check(tab.empty.isNotBlank(), "and says what to do when it is empty", tab.title)
+        }
+
+        val newest = ReviewTabs.of(ReviewTabs.OPEN, listOf(open, open.copy(id = 3, text = "later one")))
+        check(newest.first().text == "later one", "the newest comment is first, because it is the one being re-read",
+            newest.first().text)
     }
 
     private fun idsComeFromTheHeader() {

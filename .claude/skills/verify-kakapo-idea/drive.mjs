@@ -76,6 +76,19 @@ export async function drive(name, project, body, options = {}) {
 
   if (!existsSync(IDE_BINARY)) refuse(`No IDE at ${IDE_APP} — this skill drives the IDE a user installs, not a Gradle sandbox.`);
 
+  // Driving starts with the screen, not with the IDE. A locked Mac answers every question this harness
+  // asks — frontmost, window list, screencapture — with something that looks like an answer, so the run
+  // goes all the way through and reports a failure about the plugin.
+  {
+    let lockedNow = false;
+    try {
+      lockedNow = /"CGSSessionScreenIsLocked"\s*=\s*Yes/.test(
+        execFileSync("sh", ["-c", "ioreg -l -w0 | grep -m1 CGSSessionScreenIsLocked"], { encoding: "utf8" }));
+    } catch { /* no such key on a Mac that has never locked */ }
+    if (lockedNow) refuse("The Mac screen is locked. Nothing can be raised, typed into or photographed "
+      + "through it. Unlock it first: `burrow unlock --why \"<why this run matters>\"`.");
+  }
+
   // The Gradle sandbox under intellij-plugin/build/idea-sandbox carries jars the distribution zip does
   // not (kotlin-stdlib among them, which the platform supplies at runtime). Verifying that layout says
   // nothing about the zip a user downloads, so the zip is the only thing this harness will install.
@@ -125,6 +138,8 @@ export async function drive(name, project, body, options = {}) {
   </component>
 </application>
 `);
+
+  let latinized = false;
 
   const h = {
     evidence,
@@ -183,23 +198,87 @@ export async function drive(name, project, body, options = {}) {
       shots += 1;
       const file = join(evidence, `${String(shots).padStart(2, "0")}-${label}.png`);
       const window = h.ideWindow();
+      const was = h.frontmost();
       if (window) execFileSync("screencapture", ["-x", "-o", `-l${window}`, file], { stdio: "pipe" });
       else execFileSync(BURROW, ["shot", file], { stdio: "pipe" });
       log(`shot ${file}${window ? "" : " (whole screen — no IDE window found)"}`);
+      // Taking the picture takes the screen back to whatever started this run. Giving it straight back
+      // is cheaper than every later step discovering it on its own.
+      if (/idea/i.test(was) && !/idea/i.test(h.frontmost())) await h.raise();
       return file;
     },
     // Nothing in the sandbox can be reached by a click, so what the IDE is told is told in keystrokes.
     // The Mac grants this per application, and System Events answers -1743 when it has not. Raising a
     // window is asynchronous, and a chord sent before the raise lands goes to whatever was in front —
     // which is how a run once photographed another application and called it the plugin's.
+    // `frontmost` answers KakaoTalk on a locked screen — whatever was in front when it locked — so the
+    // harness believed it had a window while every keystroke went to the login window. The lock is a
+    // fact about the session and has to be read as one.
+    locked() {
+      try {
+        const row = execFileSync("sh", ["-c", "ioreg -l -w0 | grep -m1 CGSSessionScreenIsLocked"], { encoding: "utf8" });
+        return /"CGSSessionScreenIsLocked"\s*=\s*Yes/.test(row);
+      } catch { return false; }
+    },
     frontmost() {
       return execFileSync("osascript",
         ["-e", 'tell application "System Events" to return name of first process whose frontmost is true'],
         { encoding: "utf8" }).trim();
     },
+    // The Korean input method swallows an Option chord and types a character into the editor instead
+    // of firing the action, so an action is reached through Find Action, which needs no Option.
+    async action(text) {
+      // Every step checks it still has the screen. Another application took it between the popup
+      // opening and the Enter once, and the run went on to photograph an IDE with no window open.
+      const mine = (step) => {
+        const who = h.frontmost();
+        if (!/idea/i.test(who)) throw new Error(`${who} took the screen while ${step}`);
+      };
+      await h.latin();
+      await h.key("shift+cmd+a", 2000, true);
+      mine("Find Action was opening");
+      execFileSync("osascript",
+        ["-e", `tell application "System Events" to tell (first process whose unix id is ${h.idePid()}) to keystroke ${JSON.stringify(text)}`],
+        { stdio: "pipe" });
+      await sleep(2500);
+      mine(`"${text}" was being typed into Find Action`);
+      await h.key("enter", 2500);
+      log(`action ${text}`);
+    },
+    /** The same, retried: losing the screen is the Mac's doing and not the plugin's. */
+    async actionOrRetry(text, tries = 5) {
+      for (let attempt = 1; ; attempt += 1) {
+        try { return await h.action(text); } catch (error) {
+          if (attempt >= tries) throw error;
+          log(`retrying ${text} — ${error.message}`);
+          try { await h.key("esc", 1000, true); } catch { /* the popup may already be gone */ }
+        }
+      }
+    },
+    // With a Korean input method selected, latin typed into Find Action arrives as Hangul and the popup
+    // picks whatever happened to match — one run opened Local History. Control+Space is the input-source
+    // switch, and it CYCLES: pressing it per action switched back to Korean on the second one, so it is
+    // pressed once a run and put back when the run ends. It is the person's own Mac setting.
+    async latin() {
+      if (latinized) return;
+      await h.key("ctrl+space", 1200, true);
+      latinized = true;
+    },
+    // Typing into a window a chord opened is also the only non-visual control there is for it: a
+    // screenshot of a card says the card is there, and a record on disk says the card had the keyboard.
+    async type(text, settle = 1500) {
+      const pid = h.idePid();
+      if (!pid) throw new Error("this run's IDE is not running — nothing to type into");
+      await h.latin();
+      execFileSync("osascript",
+        ["-e", `tell application "System Events" to tell (first process whose unix id is ${pid}) to keystroke ${JSON.stringify(text)}`],
+        { stdio: "pipe" });
+      log(`type ${JSON.stringify(text)} (front stays with ${h.frontmost()})`);
+      await sleep(settle);
+    },
     // Raising is never automatic: it takes the screen from whoever is using the Mac. A script asks
     // for it only where it has measured that the chord does not land otherwise, and says so.
-    async raise(ms = 8000) {
+    async raise(ms = 15000) {
       const pid = h.idePid();
       if (!pid) throw new Error("this run's IDE is not running");
       const deadline = Date.now() + ms;
@@ -208,16 +287,33 @@ export async function drive(name, project, body, options = {}) {
           ["-e", `tell application "System Events" to set frontmost of (first process whose unix id is ${pid}) to true`],
           { stdio: "pipe" });
         await sleep(800);
-        const who = h.frontmost();
-        if (/idea/i.test(who) || Date.now() > deadline) return who;
+        let who = h.frontmost();
+        // Being in front once is not the same as holding it. `screencapture` pulls the terminal this
+        // run was started from to the front a moment later, so five actions in a row raised the IDE,
+        // read "idea", and then typed into Terminal. The IDE has to still be there a beat afterwards.
+        if (/idea/i.test(who)) {
+          await sleep(900);
+          who = h.frontmost();
+        }
+        if (/idea/i.test(who)) return who;
+        // Giving up quietly is what made a run type "Comment at Caret" at a locked screen and then
+        // photograph nothing: a chord only lands in the window that has the screen.
+        if (Date.now() > deadline) {
+          throw new Error(h.locked()
+            ? "the Mac screen is locked, so no window can be raised and no keystroke lands — unlock it with `burrow unlock`"
+            : `the IDE would not come to the front; ${who} is holding the screen`);
+        }
       }
     },
     // Nothing else here raises the IDE. The window is photographed by its own id and the chord is addressed
     // to this run's process, so a run can happen behind whatever the person is actually working in —
     // an IDE that kept jumping to the front is a harness that interrupts the person it reports to.
-    async key(chord, settle = 2500) {
+    async key(chord, settle = 2500, raise = false) {
       const pid = h.idePid();
       if (!pid) throw new Error("this run's IDE is not running — nothing to send a chord to");
+      // A chord lands only while the IDE holds the screen, so a script that needs one asks for it here
+      // rather than having every run take the screen.
+      if (raise) await h.raise();
       const parts = chord.split("+");
       const key = parts.pop();
       // A character sent with shift down is the shifted character: "/" becomes "?" and the chord the
@@ -298,6 +394,14 @@ export async function drive(name, project, body, options = {}) {
     appendFileSync(join(evidence, "launcher.log"), launcherOutput);
     appendFileSync(join(evidence, "idea.log"), h.ideLog());
   } finally {
+    // The input source is the person's, not this run's. Switching it and walking away leaves their Mac
+    // typing the wrong alphabet.
+    if (latinized) {
+      try {
+        execFileSync("osascript",
+          ["-e", 'tell application "System Events" to key code 49 using {control down}'], { stdio: "pipe" });
+      } catch { /* the screen may be locked, and the setting is cosmetic */ }
+    }
     appendFileSync(join(evidence, "idea.log"), h.ideLog());
     ide.kill("SIGTERM");
     await sleep(2000);
